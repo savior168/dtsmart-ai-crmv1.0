@@ -54,6 +54,7 @@ type DirectPiOrder = {
   seller_contact_phone: string | null;
   seller_contact_email: string | null;
   customer_short_name: string;
+  customer_name_snapshot?: string | null;
   customer?: { company_name?: string | null; contact_name?: string | null; tax_number?: string | null } | null;
   delivery_recipient: string | null;
   delivery_phone: string | null;
@@ -311,7 +312,7 @@ export function buildDirectPiWorkbook(order: DirectPiOrder, items: DirectPiItem[
   set(sheet, `A${signatureHeader}`, "Signature By Supplier:", center); merge(sheet, `A${signatureHeader}:F${signatureHeader}`);
   set(sheet, `G${signatureHeader}`, "Signature By Buyer:", center); merge(sheet, `G${signatureHeader}:${showDualCurrencyPrices ? "M" : "K"}${signatureHeader}`);
   set(sheet, `A${signatureName}`, "DT-SMART", center); merge(sheet, `A${signatureName}:F${signatureName}`);
-  set(sheet, `G${signatureName}`, document.deliveryCompany, center); merge(sheet, `G${signatureName}:${showDualCurrencyPrices ? "M" : "K"}${signatureName}`);
+  set(sheet, `G${signatureName}`, document.buyerName, center); merge(sheet, `G${signatureName}:${showDualCurrencyPrices ? "M" : "K"}${signatureName}`);
   set(sheet, `A${signatureDate}`, issueDate, center); merge(sheet, `A${signatureDate}:F${signatureDate}`);
   set(sheet, `G${signatureDate}`, issueDate, center); merge(sheet, `G${signatureDate}:${showDualCurrencyPrices ? "M" : "K"}${signatureDate}`);
   outline(sheet, `A${signatureHeader}:${showDualCurrencyPrices ? "M" : "K"}${signatureDate}`);

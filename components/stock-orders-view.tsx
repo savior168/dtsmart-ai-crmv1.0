@@ -16,7 +16,7 @@ import { COUNTRY_OPTIONS } from "@/lib/countries";
 import { downloadFilteredExport } from "@/lib/ui/download-filtered-export";
 import { RowActionItem, RowActionMenu } from "@/components/ui/row-action-menu";
 import { StockProgressCell } from "@/components/stock-progress-cell";
-import { stockProgressLabel, type StockProgress } from "@/lib/stock-progress";
+import { stockProgressLabel, stockProgressTone, type StockProgress } from "@/lib/stock-progress";
 import { batchExportFilename, documentExportFilename } from "@/lib/export-file-name";
 
 type Row = { id:string; sales_order_id:string; stock_number:string; order_number:string; warehouse_reference_number:string|null; customer_short_name:string; customer_name:string|null; customer_detail_id:string|null; destination_country:string|null; status:StockOrderStatus; progress:StockProgress; status_note:string|null; stocking_requirements:string|null; expected_ready_at:string; created_at:string; updated_at:string; sales?:{name?:string|null;email?:string}|null; preparer?:{name?:string|null;email?:string}|null };
@@ -106,15 +106,15 @@ export function StockOrdersView({initialFilters={}}:{initialFilters?:{status?:st
   useEffect(()=>{const refresh=()=>{if(document.visibilityState==="visible")void load(true)};const timer=window.setInterval(refresh,15000);window.addEventListener("focus",refresh);return()=>{window.clearInterval(timer);window.removeEventListener("focus",refresh)}},[load]);
   function toggleSort(key:string){setSortDir(sortBy===key&&sortDir==="asc"?"desc":"asc");setSortBy(key);setPage(1)}
   function SortHeader({label,column}:{label:string;column:string}){return <th aria-sort={sortBy===column?sortDir==="asc"?"ascending":"descending":"none"} className="px-4 py-3 font-medium"><button type="button" onClick={()=>toggleSort(column)} className="inline-flex items-center gap-1 whitespace-nowrap hover:text-blue-700">{label}{sortBy===column?sortDir==="asc"?<ArrowUp size={13}/>:<ArrowDown size={13}/>:<ArrowUpDown size={13} className="text-slate-400"/>}</button></th>}
-  const canFilterCreator=Boolean(data && ["ADMIN","ORDER_CLERK"].includes(data.profile.role) && data.can_view_all);
+  const canFilterCreator=Boolean(data?.can_view_all);
   const tableColumns=12+Number(Boolean(data?.can_export));
   return <main className="p-4 lg:p-6"><div className="mx-auto max-w-[1660px]">
     <header><h1 className="flex items-center gap-2 text-2xl font-bold"><ShoppingCart className="text-blue-600"/>采购管理</h1><p className="mt-1 text-sm text-slate-500">销售员通过PI订单提交备货需求；仓库员完善备货信息并更新备货进度。备货状态不记录库存。</p></header>
     <AppFilterBar>
       <label className="relative min-w-[260px] flex-1 xl:min-w-[360px]"><Search className="absolute left-3 top-3 text-slate-400" size={17}/><input value={q} onChange={e=>{setQ(e.target.value);setPage(1)}} placeholder="搜索客户名称、公司、PI/备货单号、电话或邮箱" className={`${appFieldClass} w-full pl-9`}/></label>
-      <AppSelect value={status} onChange={e=>{setStatus(e.target.value);setPage(1)}} className={appFieldClass} aria-label="按备货状态筛选"><option value="">全部备货状态</option>{STOCK_FILTER_STATUSES.map(key=><option key={key} value={key}>{key==="ACTIVE"?"仓库处理中（所有在途阶段）":key==="OTHER"?"其他状态（草稿／取消／历史）":STOCK_STATUS_LABELS[key]}</option>)}</AppSelect>
+      <AppSelect value={status} onChange={e=>{setStatus(e.target.value);setPage(1)}} className={appFieldClass} aria-label="按备货状态筛选"><option value="">全部备货状态</option>{STOCK_FILTER_STATUSES.map(key=><option key={key} value={key}>{key==="DRAFT"?"备货草稿（待完善）":key==="ACTIVE"?"仓库处理中（所有在途阶段）":key==="OTHER"?"其他状态（草稿／取消／历史）":STOCK_STATUS_LABELS[key]}</option>)}</AppSelect>
       <AppSelect value={country} onChange={e=>{setCountry(e.target.value);setPage(1)}} className={appFieldClass} aria-label="按目的国家筛选" forceSearch><option value="">全部目的国家</option>{COUNTRY_OPTIONS.map(option=><option key={option.code} value={option.code}>{option.name}</option>)}</AppSelect>
-      {data?.profile.role!=="WAREHOUSE"?<UserScopeSelect permission="stock.data_all" value={userId} onChange={value=>{setUserId(value);setPage(1)}} className={`${appFieldClass} min-w-52`} filterLabel="所属销售员" custom/>:null}
+      {data?.can_view_all?<UserScopeSelect permission="stock.data_all" value={userId} onChange={value=>{setUserId(value);setPage(1)}} className={`${appFieldClass} min-w-52`} filterLabel="所属销售员" custom/>:null}
       {canFilterCreator ? <UserScopeSelect permission="stock.data_all" kind="pi_creator" value={creatorId} onChange={value=>{setCreatorId(value);setPage(1)}} className={`${appFieldClass} min-w-52`} filterLabel="制单人" allLabel="全部制单人" custom/> : null}
       <CompactDateRange label="创建日期" fromLabel="备货单创建开始日期" toLabel="备货单创建结束日期" from={dateFrom} to={dateTo} onFromChange={value=>{setDateFrom(value);setPage(1)}} onToChange={value=>{setDateTo(value);setPage(1)}}/>
       <button onClick={()=>{setQ("");setStatus("");setCountry("");setUserId("");setCreatorId("");setDateFrom("");setDateTo("");setSortBy("created_at");setSortDir("desc");setPage(1)}} className="h-10 rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-50">重置</button>
@@ -145,7 +145,7 @@ export function StockOrdersView({initialFilters={}}:{initialFilters?:{status?:st
             <td className="px-4 py-3 font-medium text-slate-900">{row.customer_name ? row.customer_detail_id ? <Link href={`/customers/${row.customer_detail_id}`} onClick={event=>event.stopPropagation()} className="text-blue-700 hover:underline">{row.customer_name}</Link> : row.customer_name : <span className="font-normal text-slate-400">未填写</span>}</td>
             <td className="max-w-52 px-4 py-3" title={row.customer_short_name}>{row.customer_detail_id && row.customer_short_name ? <Link href={`/customers/${row.customer_detail_id}`} onClick={event=>event.stopPropagation()} className="text-blue-700 hover:underline">{row.customer_short_name}</Link> : row.customer_short_name}</td>
             <td className="px-4 py-3"><CountryLabel value={row.destination_country}/></td>
-            <td className="px-4 py-3"><AppStatusBadge status={row.status}>{row.status==="DRAFT"&&row.warehouse_reference_number?"已撤回，待重新提交":stockProgressLabel(row.progress)}</AppStatusBadge></td>
+            <td className="px-4 py-3"><AppStatusBadge status={row.status} tone={stockProgressTone(row.progress)}>{row.status==="DRAFT"&&row.warehouse_reference_number?"已撤回，待重新提交":row.status==="DRAFT"?"备货草稿（待完善）":stockProgressLabel(row.progress)}</AppStatusBadge></td>
             <td className="w-[360px] min-w-[352px] px-4 py-3">{row.status==="DRAFT"?<span className="text-xs text-slate-500">{row.warehouse_reference_number?"已撤回（历史）":"未提交"}</span>:<StockProgressCell progress={row.progress}/>}</td>
             <td className="px-4 py-3">{row.sales?.name||row.sales?.email||"-"}</td>
             <td className="px-4 py-3">{row.preparer?.name||row.preparer?.email||"未记录"}</td>

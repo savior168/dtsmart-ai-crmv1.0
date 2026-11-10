@@ -10,6 +10,7 @@ export type PiDocumentOrder = {
   show_dual_currency_prices?: boolean | null;
   price_display_mode?: "PAYMENT_ONLY" | "CNY_ONLY" | "DUAL" | null;
   customer_short_name: string;
+  customer_name_snapshot?: string | null;
   customer_tax_number_snapshot?: string | null;
   customer?: { company_name?: string | null; contact_name?: string | null; tax_number?: string | null } | null;
   seller_company_name?: string | null;
@@ -74,6 +75,7 @@ export function createPiDocumentModel(order: PiDocumentOrder, items: PiDocumentI
     recipient: order.delivery_recipient?.trim() || "",
     deliveryPhone: order.delivery_phone || "—",
     deliveryCompany: order.customer_short_name || "",
+    buyerName: order.customer_name_snapshot?.trim() || order.customer?.contact_name?.trim() || "",
     deliveryTaxNumber: order.customer_tax_number_snapshot?.trim() || "",
     deliveryEmail: order.delivery_email || "—",
     deliveryAddress: order.delivery_address || "—",

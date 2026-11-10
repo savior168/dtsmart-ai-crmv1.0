@@ -10,6 +10,9 @@ const reviewApi = read("app/api/orders/[id]/cost-review/route.ts");
 const currentUser = read("lib/auth/current-user.ts");
 const detailView = read("components/order-detail-view.tsx");
 const listView = read("components/orders-view.tsx");
+const stockListView = read("components/stock-orders-view.tsx");
+const userOptionsApi = read("app/api/users/options/route.ts");
+const userScopeSelect = read("components/user-scope-select.tsx");
 
 for (const rpc of ["update_direct_pi_draft", "set_direct_pi_change_note",
   "delete_never_submitted_pi_draft", "cancel_sales_order"]) {
@@ -72,4 +75,12 @@ assert.match(creatorScope, /hasPermission\(account, dataPermission\)/,
   "PI creator filter must require the configured data grant");
 assert.doesNotMatch(creatorScope, /ORDER_CLERK|account\.role/,
   "PI creator filter must not hard-code a role after the data grant is configured");
+assert.match(stockListView, /const canFilterCreator\s*=\s*Boolean\(data\?\.can_view_all\)/,
+  "备货制单人筛选应由数据权限决定，不能写死仓库员角色");
+assert.match(stockListView, /data\?\.can_view_all\s*\?\s*<UserScopeSelect permission="stock\.data_all"/,
+  "备货归属销售员筛选应随跨用户数据权限显示");
+assert.doesNotMatch(userOptionsApi, /creatorOptions\s*&&\s*!\["ADMIN",\s*"ORDER_CLERK"\]/,
+  "制单人选项接口不能在数据权限之外再按角色拒绝仓库员");
+assert.match(userScopeSelect, /setCanSelectAll\(Boolean\(body\.can_select_all\)\)/,
+  "全员选项应与服务端授权范围一致");
 console.log("PI creator-only scope contracts passed.");

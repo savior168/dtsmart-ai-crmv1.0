@@ -16,7 +16,7 @@ import { CountryLabel } from "@/components/country-label";
 import { downloadFilteredExport } from "@/lib/ui/download-filtered-export";
 import { RowActionItem, RowActionMenu } from "@/components/ui/row-action-menu";
 import { StockProgressCell } from "@/components/stock-progress-cell";
-import { PI_EXECUTING_STATUSES, piOrderStatusLabel, stockProgressLabel } from "@/lib/stock-progress";
+import { PI_EXECUTING_STATUSES, piOrderStatusLabel, stockProgressLabel, stockProgressTone } from "@/lib/stock-progress";
 import { CompactDateRange } from "@/components/ui/compact-date-range";
 import type { StockProgress } from "@/lib/stock-progress";
 import { batchExportFilename, documentExportFilename } from "@/lib/export-file-name";
@@ -245,7 +245,7 @@ export function OrdersView({ initialFilters = {} }: { initialFilters?: { status?
             <option value="">全部订单状态</option>
             {CURRENT_PI_STATUSES.map((k) => (
               <option key={k} value={k}>
-                {k === "ACTIVE" ? "仓库处理中（所有在途阶段）" : piOrderStatusLabel(k)}
+                {k === "ACTIVE" ? "仓库处理中（所有在途阶段）" : k === "STOCK_DRAFT" ? "备货草稿（待完善）" : piOrderStatusLabel(k)}
               </option>
             ))}
           </AppSelect>
@@ -333,7 +333,7 @@ export function OrdersView({ initialFilters = {} }: { initialFilters?: { status?
                         <td className="whitespace-nowrap px-4 py-3 font-medium tabular-nums text-slate-900">
                           {row.currency} {Number(row.total_amount).toFixed(2)}
                         </td>
-                        <td className="whitespace-nowrap px-3 py-3"><AppStatusBadge status={row.status}>{statusLabel}</AppStatusBadge></td>
+                        <td className="whitespace-nowrap px-3 py-3"><AppStatusBadge status={row.status} tone={stock && (PI_EXECUTING_STATUSES as readonly string[]).includes(row.status) ? stockProgressTone(stock.progress) : undefined}>{statusLabel}</AppStatusBadge></td>
                         <td className="min-w-[352px] px-4 py-3">{row.confirmation_method === "DIRECT_PI" && row.status === "DRAFT"
                           ? <span className="text-xs text-slate-500">{stock ? "已撤回（历史）" : "未提交"}</span>
                           : stock ? <StockProgressCell progress={stock.progress}/> : "—"}</td>

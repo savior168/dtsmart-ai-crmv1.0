@@ -60,6 +60,20 @@ export function stockProgressLabel(progress: StockProgress) {
   return progress.buckets.purchasing.units > 0 ? "采购中" : "待采购";
 }
 
+/** List badges follow the visible physical stage, not a possibly stale parent status. */
+export function stockProgressTone(progress: StockProgress): "neutral" | "info" | "success" | "warning" | "danger" | "violet" | "teal" {
+  if (progress.status === "CANCELLED") return "neutral";
+  if (progress.status === "SHORTAGE") return "danger";
+  if (progress.status === "DRAFT") return "neutral";
+  const label = stockProgressLabel(progress);
+  if (label === "已交货代") return "success";
+  if (label === "部分已交货代" || label === "已理货待交货代") return "violet";
+  if (label.includes("理货中")) return "violet";
+  if (label.includes("回货") || label.includes("回齐")) return "teal";
+  if (label === "采购中") return "warning";
+  return "info";
+}
+
 export const STOCK_ITEM_PROGRESS = [
   { key: "WAITING", label: "待采购", tone: "bg-slate-100 text-slate-700" },
   { key: "PURCHASING", label: "采购中", tone: "bg-amber-100 text-amber-800" },

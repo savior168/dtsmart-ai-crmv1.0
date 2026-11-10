@@ -74,7 +74,6 @@ export async function GET(request: NextRequest) {
         .order(SORT_COLUMNS[sortBy as keyof typeof SORT_COLUMNS], { ascending: sortDir === "asc" })
         .order("id", { ascending: true }).range(rangeStart, rangeEnd);
       if (ownerId) query = query.eq("sales_user_id", ownerId);
-      if (creatorId) query = query.eq("pi_prepared_by", creatorId);
       if (selectedIds.length) query = query.in("id", selectedIds);
       if (status === "ACTIVE") query = query.in("status", [...STOCK_EXECUTING_STATUSES]);
       else if (status === "OTHER") query = query.in("status", ["DRAFT", "CANCELLED", "READY"]);
@@ -87,8 +86,29 @@ export async function GET(request: NextRequest) {
         "sales_order_id", matchingCustomerOrderIds));
       return query;
     };
-    const { data, error, count } = await makeQuery(exporting ? 0 : from, exporting ? 499 : from + pageSize - 1);
-    if (error) throw error;
+    const initial = await makeQuery(creatorId ? 0 : exporting ? 0 : from,
+      creatorId ? 499 : exporting ? 499 : from + pageSize - 1);
+    if (initial.error) throw initial.error;
+    let { data, count } = initial;
+    // The invoker-rights view cannot see PI rows for warehouse users. Resolve
+    // the selected creator only after the stock-order RLS query has scoped rows.
+    if (creatorId) {
+      const matching: NonNullable<typeof data> = [];
+      for (let offset = 0; offset < (count || 0); offset += 500) {
+        const batchResult = offset === 0 ? { data, error: null } : await makeQuery(offset, offset + 499);
+        if (batchResult.error) throw batchResult.error;
+        const batch = batchResult.data || [];
+        const orderIds = [...new Set(batch.map((row) => row.sales_order_id).filter(Boolean))];
+        if (!orderIds.length) continue;
+        const preparerResult = await createAdminClient().from("sales_orders")
+          .select("id").in("id", orderIds).eq("prepared_by", creatorId);
+        if (preparerResult.error) throw preparerResult.error;
+        const eligible = new Set((preparerResult.data || []).map((row) => row.id));
+        matching.push(...batch.filter((row) => eligible.has(row.sales_order_id)));
+      }
+      count = matching.length;
+      data = matching.slice(exporting ? 0 : from, exporting ? 500 : from + pageSize);
+    }
     if (exporting) {
       if (!selectedIds.length) throw new Error("请先勾选要导出的备货单");
       if (!count) throw new Error("当前筛选条件下没有可导出的备货单");
@@ -211,7 +231,13 @@ export async function GET(request: NextRequest) {
     const visibleIds = (data || []).map((item) => item.id);
     const itemsByStockId = await loadStockProgressItems(supabase, visibleIds);
     const clerkOwnerIds = [...new Set((data || []).map((item) => item.sales_user_id).filter(Boolean))];
-    const preparerIds = [...new Set((data || []).map((item) => item.pi_prepared_by).filter(Boolean))];
+    const visibleOrderIds = [...new Set((data || []).map((item) => item.sales_order_id).filter(Boolean))];
+    const piPreparers = visibleOrderIds.length
+      ? await createAdminClient().from("sales_orders").select("id,prepared_by").in("id", visibleOrderIds)
+      : { data: [], error: null };
+    if (piPreparers.error) throw piPreparers.error;
+    const preparerIdByOrder = new Map((piPreparers.data || []).map((pi) => [pi.id, pi.prepared_by]));
+    const preparerIds = [...new Set([...preparerIdByOrder.values()].filter(Boolean))];
     const customerNames = await loadOrderCustomerNames((data || []).map((item) => item.sales_order_id));
     const linkedOrderIds = [...new Set((data || []).map((item) => item.sales_order_id).filter(Boolean))] as string[];
     const linkedCustomers = hasPermission(account, "customers.view") && linkedOrderIds.length
@@ -239,7 +265,7 @@ export async function GET(request: NextRequest) {
       customer_name: customerNames.get(item.sales_order_id) || null,
       customer_detail_id: accessibleCustomerIds.has(customerIdByOrder.get(item.sales_order_id)) ? customerIdByOrder.get(item.sales_order_id) : null,
       sales: clerkOwnerById.get(item.sales_user_id) || null,
-      preparer: item.pi_prepared_by ? preparerById.get(item.pi_prepared_by) || null : null,
+      preparer: preparerIdByOrder.get(item.sales_order_id) ? preparerById.get(preparerIdByOrder.get(item.sales_order_id)!) || null : null,
       progress: summarizeStockProgress(item.status, itemsByStockId.get(item.id) || []) })),
       count: count || 0, page, page_size: pageSize, profile: { id: account.id, role: account.role }, can_update: hasPermission(account, "stock.update"), can_export: hasPermission(account, "stock.export"), can_preview: hasPermission(account, "stock.preview"), can_view_pi: account.role !== "WAREHOUSE" && hasPermission(account, "orders.view"), can_view_all: hasPermission(account, "stock.data_all") });
   } catch (error) {

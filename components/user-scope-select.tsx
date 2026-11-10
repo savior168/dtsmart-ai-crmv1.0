@@ -49,8 +49,8 @@ export function UserScopeSelect({
         setLoaded(true);
         setUsers(Array.isArray(body.users) ? body.users : []);
         setDefaultValue(body.profile.id || "");
-        setCanSelectAll(body.profile.role === "ADMIN" || body.profile.role === "ORDER_CLERK");
-        setDefaultAll(body.profile.role === "ORDER_CLERK" || kind === "pi_creator");
+        setCanSelectAll(Boolean(body.can_select_all));
+        setDefaultAll(Boolean(body.default_all));
         if (initializeDefault && elevated && !valueRef.current) {
           // 主管和系统管理员也默认查看自己的数据；只有主动选择时才扩大范围。
           onChangeRef.current(body.profile.id);

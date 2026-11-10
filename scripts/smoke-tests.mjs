@@ -365,8 +365,8 @@ assert.match(currentUserAuth, /account\.role === "ORDER_CLERK"[\s\S]*orders\.dat
 assert.match(currentUserAuth, /eq\("manager_id", account\.id\)/, "主管跨用户读取必须在服务端限定直属下级");
 assert.match(
   userScopeSelect,
-  /setDefaultAll\(body\.profile\.role === "ORDER_CLERK" \|\| kind === "pi_creator"\)[\s\S]*const selected = \(value === "all" && !canSelectAll \? defaultValue : value\) \|\| \(!initializeDefault \? \(defaultAll \? "all" : defaultValue\) : ""\)/,
-  "归属人控件须保持主管本人默认值，同时让跟单员及制单人筛选默认显示全部",
+  /setDefaultAll\(Boolean\(body\.default_all\)\)[\s\S]*const selected = \(value === "all" && !canSelectAll \? defaultValue : value\) \|\| \(!initializeDefault \? \(defaultAll \? "all" : defaultValue\) : ""\)/,
+  "归属人控件须按服务端授权范围显示全部选项，同时保持主管本人默认值",
 );
 assert.match(userScopeSelect, /if \(!loaded \|\| !elevated\) return null/, "销售员不得显示归属人筛选控件");
 assert.match(customersView, /show_owner|currentRole[\s\S]*SUPERVISOR/, "客户列表必须识别主管和系统管理员的数据范围");

@@ -496,6 +496,11 @@ function assertSignatureOutline(workbookArchive, workbookSheet, rightColumn) {
 assertSignatureOutline(archive, sheet, "K");
 assert.equal(createPiDocumentModel(orderFixture, [itemFixture]).deliveryTaxNumber, "GB123456", "页面预览与Excel应复用同一个客户税号值");
 assert.equal(createPiDocumentModel(orderFixture, [itemFixture]).recipient, "Jo", "PI收货人应使用本单收货快照，而不是后来修改的客户档案");
+assert.equal(createPiDocumentModel(orderFixture, [itemFixture]).buyerName, "Jo", "买方签名应使用本单客户姓名快照，而不是公司名称或后来修改的客户档案");
+const buyerSignatureHeader = Object.entries(sheet).find(([address, cell]) => /^[A-Z]+\d+$/.test(address) && cell?.v === "Signature By Buyer:")?.[0];
+assert.ok(buyerSignatureHeader, "PI Excel 应包含买方签名栏");
+assert.equal(sheet[`G${Number(buyerSignatureHeader.match(/\d+$/)[0]) + 1}`].v, "Jo", "PI Excel 买方签名应是客户姓名");
+assert.match(read("components/order-print-preview.tsx"), /Signature By Buyer:[\s\S]*?piDocument!\.buyerName/, "PI 网页预览应使用同一客户姓名字段");
 assert.match(sheet.D4.v, /^Address: /, "PI Excel 企业地址应有英文属性名");
 assert.match(sheet.D6.v, /^Official Website: /, "PI Excel 官网应有英文属性名");
 assert.match(read("components/order-print-preview.tsx"), /<p>Address: \{piDocument!\.companyAddress\}<\/p>/, "PI 预览企业地址属性名和值均使用常规字重");
@@ -504,8 +509,9 @@ assert.equal(sheet.G6.v, "PAYMENT / METHOD:", "客户PI页眉付款标签只显�
 assert.equal(sheet.J6.v, "NAIRA/RMB (NGN)", "客户PI页眉付款栏须紧邻显示付款渠道及本单币种");
 assert.match(read("components/order-print-preview.tsx"), /PAYMENT \/ METHOD:<\/span><span[^>]*>\{piDocument!\.paymentMethod\}/, "PI预览付款栏须复用Excel字段模型");
 assert.deepEqual([sheet.A13.v, sheet.A14.v, sheet.A15.v, sheet.A16.v], ["Company: Buyer Ltd", "Tax No.: GB123456", "To: Jo · TEL: +44 123", "Email: jo@example.com"], "PI Excel 应按公司、税号、联系人/电话和邮箱紧凑排列");
-const emptyContactOrder = { ...orderFixture, delivery_recipient: null, customer_tax_number_snapshot: null, customer: { company_name: "Buyer Ltd", contact_name: null } };
+const emptyContactOrder = { ...orderFixture, customer_name_snapshot: null, delivery_recipient: null, customer_tax_number_snapshot: null, customer: { company_name: "Buyer Ltd", contact_name: null } };
 assert.equal(createPiDocumentModel(emptyContactOrder, [itemFixture]).recipient, "", "客户名称为空时 PI 预览的 To 必须留空，不得回退到收件人或公司名称");
+assert.equal(createPiDocumentModel(emptyContactOrder, [itemFixture]).buyerName, "", "客户姓名为空时买方签名不得回退到公司名称");
 const emptyContactWorkbook = buildDirectPiWorkbook(emptyContactOrder, [itemFixture]);
 const emptyContactBook = XLSX.read(emptyContactWorkbook, { type: "array" });
 const emptyContactSheet = emptyContactBook.Sheets[emptyContactBook.SheetNames[0]];
