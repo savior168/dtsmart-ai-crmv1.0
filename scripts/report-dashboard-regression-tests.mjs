@@ -42,7 +42,10 @@ assert.match(migration, /c\.owner_id is not null and \(scope_id is null or c\.ow
 assert.match(migration, /count\(distinct a\.target_id\).*status'='DEAL'/, "同一客户的重复成交阶段事件不能重复计数");
 assert.match(migration, /a\.role='SUPERVISOR' and \(u\.id=a\.id or u\.manager_id=a\.id\)/, "主管业绩报表必须覆盖本人和直属销售员");
 assert.match(migration, /u\.id=p_user_id and u\.manager_id=actor\.id and u\.status='ACTIVE'/, "主管直接调用报表RPC不得跨组查看数据");
-assert.match(dashboardApi, /account\.role === "ADMIN" \? supabase\.from\("customers"\).*\.is\("deleted_at", null\)/, "全系统在库总数必须仅供管理员且排除删除客户");
+assert.match(dashboardApi, /account\.role === "ADMIN" \? followupReader\.from\("customers"\).*\.is\("deleted_at", null\)/, "全系统在库总数必须仅供管理员且排除删除客户");
+assert.match(dashboardApi, /allTimeDealsQuery = followupReader\.from\("customers"\)[\s\S]*?\.is\("deleted_at", null\).*\.eq\("status", "DEAL"\)/, "累计成交客户必须统计未删除的当前成交客户，不受日期限制");
+assert.match(dashboardApi, /if \(scopeUserId\) allTimeDealsQuery = allTimeDealsQuery\.eq\("owner_id", scopeUserId\)/, "累计成交客户必须遵循已授权的归属人范围");
+assert.match(dashboardApi, /all_time_deals: Number\(allTimeDealsResult\.count \|\| 0\)/, "累计成交客户数必须由独立查询返回");
 assert.match(dashboardApi, /\.or\("pool_status\.is\.null,pool_status\.neq\.AI_STAGING"\)/, "全系统在库总数不能包含未入池的 AI 暂存记录");
 assert.match(dashboardApi, /normalizeReportCountries\(\(\(overview\.country_top \|\| \[\]\) as CountRow\[\]\)/, "工作台国家必须先合并别名再取 TOP10");
 assert.match(dashboardCountryMigration, /previous_grouping text := 'from filtered_customers group by 1 order by count desc,name limit 10'/, "工作台数据库函数不得提前截断原始国家分组");

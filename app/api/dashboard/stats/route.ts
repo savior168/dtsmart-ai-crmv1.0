@@ -13,12 +13,17 @@ import { STOCK_STATUS_LABELS } from "@/lib/types";
 
 type CountRow = { grade?: string; name?: string; count: number };
 
-type DatabaseErrorLike = { message?: string; code?: string; status?: number };
+type DatabaseErrorLike = { message?: string; code?: string; status?: number; details?: string; hint?: string; stage?: string };
 
-function preserveDatabaseError(error: DatabaseErrorLike) {
+function preserveDatabaseError(error: DatabaseErrorLike, stage: string) {
   return Object.assign(new Error(error.message || "数据库查询失败"), {
     code: error.code,
-    status: error.status,
+    // PostgREST HEAD count requests can fail without a response body. Treat
+    // that as a transient backend failure so the dashboard retries it.
+    status: error.status || (!error.message && !error.code ? 503 : undefined),
+    details: error.details,
+    hint: error.hint,
+    stage,
   });
 }
 
@@ -75,8 +80,8 @@ export async function GET(request: NextRequest) {
         protectionsQuery = protectionsQuery.eq("owner_id", scopeUserId);
       }
       const [followups, protections] = await Promise.all([followupsQuery, protectionsQuery]);
-      if (followups.error) throw preserveDatabaseError(followups.error);
-      if (protections.error) throw preserveDatabaseError(protections.error);
+      if (followups.error) throw preserveDatabaseError(followups.error, "summary-followups");
+      if (protections.error) throw preserveDatabaseError(protections.error, "summary-protections");
       return NextResponse.json({ totals: { today_followups: followups.count || 0, expiring_protection: protections.count || 0 } }, { headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=60" } });
     }
 
@@ -95,7 +100,7 @@ export async function GET(request: NextRequest) {
       p_from: fromDate.toISOString(), p_to: exclusiveTo.toISOString(),
       p_scope_user_id: scopeUserId, p_country: countryValues.length ? countryValues.join("\u001f") : null, p_ai_level: aiLevel || null,
     });
-    if (error) throw preserveDatabaseError(error);
+    if (error) throw preserveDatabaseError(error, "overview");
     const overview = (data && typeof data === "object" ? data : {}) as Record<string, unknown>;
     const totals = (overview.totals && typeof overview.totals === "object" ? overview.totals : {}) as Record<string, number>;
     const totalCustomers = Number(totals.my_customers || 0);
@@ -127,15 +132,20 @@ export async function GET(request: NextRequest) {
       .order("next_follow_date", { ascending: true }).order("customer_id", { ascending: true }).limit(5);
     if (scopeUserId) todayFollowupsQuery = todayFollowupsQuery.eq("owner_id", scopeUserId);
     if (countryValues.length) todayFollowupsQuery = todayFollowupsQuery.in("country", countryValues);
-    const [potentialCustomersResult, followingCustomersResult, validCustomersResult, todayFollowupsResult, systemCustomersResult] = await Promise.all([
+    let allTimeDealsQuery = followupReader.from("customers").select("id", { count: "exact", head: true })
+      .is("deleted_at", null).not("owner_id", "is", null).eq("status", "DEAL");
+    if (scopeUserId) allTimeDealsQuery = allTimeDealsQuery.eq("owner_id", scopeUserId);
+    const [potentialCustomersResult, followingCustomersResult, validCustomersResult, todayFollowupsResult, systemCustomersResult, allTimeDealsResult] = await Promise.all([
       statusCount("CLAIMED"), statusCount("FOLLOWING"), validCustomersQuery, todayFollowupsQuery,
-      account.role === "ADMIN" ? supabase.from("customers").select("id", { count: "exact", head: true }).is("deleted_at", null).or("pool_status.is.null,pool_status.neq.AI_STAGING") : Promise.resolve(null),
+      account.role === "ADMIN" ? followupReader.from("customers").select("id", { count: "exact", head: true }).is("deleted_at", null).or("pool_status.is.null,pool_status.neq.AI_STAGING") : Promise.resolve(null),
+      allTimeDealsQuery,
     ]);
-    if (potentialCustomersResult.error) throw preserveDatabaseError(potentialCustomersResult.error);
-    if (followingCustomersResult.error) throw preserveDatabaseError(followingCustomersResult.error);
-    if (validCustomersResult.error) throw preserveDatabaseError(validCustomersResult.error);
-    if (todayFollowupsResult.error) throw preserveDatabaseError(todayFollowupsResult.error);
-    if (systemCustomersResult?.error) throw preserveDatabaseError(systemCustomersResult.error);
+    if (potentialCustomersResult.error) throw preserveDatabaseError(potentialCustomersResult.error, "potential-count");
+    if (followingCustomersResult.error) throw preserveDatabaseError(followingCustomersResult.error, "following-count");
+    if (validCustomersResult.error) throw preserveDatabaseError(validCustomersResult.error, "valid-count");
+    if (todayFollowupsResult.error) throw preserveDatabaseError(todayFollowupsResult.error, "today-followups");
+    if (systemCustomersResult?.error) throw preserveDatabaseError(systemCustomersResult.error, "system-count");
+    if (allTimeDealsResult.error) throw preserveDatabaseError(allTimeDealsResult.error, "all-time-deals");
     const todayFollowups = (todayFollowupsResult.data || []).map((row) => ({
       id: row.id, customer_id: row.customer_id, customer_name: row.contact_name, company_name: row.company_name,
       phone: row.phone, email: row.email, country: row.country, ai_level: row.ai_level,
@@ -159,7 +169,7 @@ export async function GET(request: NextRequest) {
       if (stockOwnerId) stockQuery = stockQuery.eq("sales_user_id", stockOwnerId);
       if (countryValues.length) stockQuery = stockQuery.in("destination_country", countryValues);
       const stockRows = await stockQuery;
-      if (stockRows.error) throw preserveDatabaseError(stockRows.error);
+      if (stockRows.error) throw preserveDatabaseError(stockRows.error, "stock-activity");
       const stocks = stockRows.data || [];
       const stockIds = stocks.map((row) => row.id);
       const orderIds = [...new Set(stocks.map((row) => row.sales_order_id).filter(Boolean))];
@@ -173,8 +183,8 @@ export async function GET(request: NextRequest) {
           ? followupReader.from("stock_order_events").select("stock_order_id,from_status,to_status,created_by,created_at").in("stock_order_id", stockIds).order("created_at", { ascending: false }).order("id", { ascending: false }).limit(2000)
           : Promise.resolve({ data: [], error: null }),
       ]);
-      if (ordersResult.error) throw preserveDatabaseError(ordersResult.error);
-      if (eventsResult.error) throw preserveDatabaseError(eventsResult.error);
+      if (ordersResult.error) throw preserveDatabaseError(ordersResult.error, "stock-orders");
+      if (eventsResult.error) throw preserveDatabaseError(eventsResult.error, "stock-events");
       const orderNumbers = new Map((ordersResult.data || []).map((order) => [order.id, order.warehouse_reference_number?.trim() || ""]));
       const latestEvents = new Map<string, (typeof eventsResult.data)[number]>();
       for (const row of stocks) {
@@ -186,7 +196,7 @@ export async function GET(request: NextRequest) {
       const actorsResult = actorIds.length
         ? await followupReader.from("users").select("id,name,email").in("id", actorIds)
         : { data: [], error: null };
-      if (actorsResult.error) throw preserveDatabaseError(actorsResult.error);
+      if (actorsResult.error) throw preserveDatabaseError(actorsResult.error, "stock-actors");
       const actors = new Map((actorsResult.data || []).map((actor) => [actor.id, actor.name?.trim() || actor.email?.trim() || "操作人未记录"]));
       activities = (stockRows.data || []).map((row) => {
         const progress = summarizeStockProgress(row.status, progressItems.get(row.id) || []);
@@ -222,7 +232,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       scope: scopeUserId || "ALL", range: { from: dashboardBusinessDateKey(fromDate), to: dashboardBusinessDateKey(toDate) }, filters: { countries: countryFilterOptions(Array.isArray((overview.filters as { countries?: unknown } | undefined)?.countries) ? (overview.filters as { countries: Array<string | null> }).countries : []) },
-      totals: { my_customers: totalCustomers, system_customers: account.role === "ADMIN" ? systemCustomersResult?.count ?? 0 : null, pending_ai: Number(totals.pending_ai || 0), valid_customers: Number(validCustomersResult.count || 0), intentions: Number(potentialCustomersResult.count || 0), today_followups: Number(todayFollowupsResult.count || 0), expiring_protection: Number(totals.expiring_protection || 0), quotes: Number(totals.quotes || 0), deals: Number(totals.deals || 0) },
+      totals: { my_customers: totalCustomers, system_customers: account.role === "ADMIN" ? systemCustomersResult?.count ?? 0 : null, pending_ai: Number(totals.pending_ai || 0), valid_customers: Number(validCustomersResult.count || 0), intentions: Number(potentialCustomersResult.count || 0), today_followups: Number(todayFollowupsResult.count || 0), expiring_protection: Number(totals.expiring_protection || 0), quotes: Number(totals.quotes || 0), deals: Number(totals.deals || 0), all_time_deals: Number(allTimeDealsResult.count || 0) },
       distribution, funnel: funnelRows.map((item) => ({ ...item, percentage: percentage(item.value, totalCustomers) })), country_top: countryTop,
       protections: overview.protections || [], followups: todayFollowups, activities, activity_mode: stockActivityMode ? "STOCK_PROGRESS" : "CUSTOMER", activity_warning: activityWarning,
     }, { headers: { "Cache-Control": "private, max-age=15, stale-while-revalidate=30" } });
@@ -233,6 +243,7 @@ export async function GET(request: NextRequest) {
         : isTransientError(error) ? 503 : 500;
     if (status >= 500) console.error("[dashboard] stats request failed", {
       code: (error as DatabaseErrorLike)?.code || "INTERNAL",
+      stage: (error as DatabaseErrorLike)?.stage || "unknown",
       retryable: status === 503,
     });
     return NextResponse.json({

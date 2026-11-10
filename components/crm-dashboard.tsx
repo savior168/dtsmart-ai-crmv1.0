@@ -43,7 +43,7 @@ type ActivityRow = { id: string; action: string; text: string; created_at: strin
 type DashboardData = {
   range: { from: string; to: string };
   filters: { countries: string[] };
-  totals: { my_customers: number; pending_ai: number; valid_customers: number; intentions: number; today_followups: number; expiring_protection: number; quotes: number; deals: number };
+  totals: { my_customers: number; pending_ai: number; valid_customers: number; intentions: number; today_followups: number; expiring_protection: number; quotes: number; deals: number; all_time_deals: number };
   distribution: GradeRow[];
   funnel: FunnelRow[];
   country_top: CountryRow[];
@@ -238,7 +238,7 @@ export function CrmDashboard({ showPerformance = true, canImportCustomers = fals
     { label: "待AI筛选", value: data.totals.pending_ai, href: scopedHref("/customers?ai_status=pending", scopeUserId, data.range), icon: Bot, color: "text-violet-600", background: "bg-violet-50", trend: "尚未AI评分", trendColor: "text-violet-600" },
     { label: "AI核验有效", value: data.totals.valid_customers, href: scopedHref("/customers?target=valid&ai_status=done", scopeUserId, data.range), icon: Sparkles, color: "text-emerald-600", background: "bg-emerald-50", trend: "AI判定为目标客户", trendColor: "text-emerald-600" },
     { label: "潜在客户", value: data.totals.intentions, href: scopedHref("/customers?status=CLAIMED", scopeUserId, data.range), icon: UserRoundPlus, color: "text-indigo-600", background: "bg-indigo-50", trend: "已进入销售跟进", trendColor: "text-indigo-600" },
-    { label: "成交客户", value: data.totals.deals, href: scopedHref("/customers?status=DEAL", scopeUserId, data.range), icon: Handshake, color: "text-emerald-600", background: "bg-emerald-50", trend: "已确认采购", trendColor: "text-emerald-600" },
+    { label: "已成交客户总数", value: data.totals.all_time_deals, href: scopedHref("/customers?status=DEAL", scopeUserId), icon: Handshake, color: "text-emerald-600", background: "bg-emerald-50", trend: `全部日期 · 本期新增且已成交 ${number(data.totals.deals)} 家`, trendColor: "text-emerald-600" },
     { label: "今日待跟进", value: data.totals.today_followups, href: scopedHref("/followups?scope=today", scopeUserId), icon: CheckSquare2, color: "text-orange-600", background: "bg-orange-50", trend: "今日计划任务", trendColor: "text-orange-600" },
     { label: "即将保护到期", value: data.totals.expiring_protection, href: scopedHref("/customers?tab=protection", scopeUserId), icon: ShieldCheck, color: "text-amber-500", background: "bg-amber-50", trend: "剩余 0–7 天", trendColor: "text-amber-600" },
   ] : [];
@@ -279,7 +279,7 @@ export function CrmDashboard({ showPerformance = true, canImportCustomers = fals
 
           <section className="mt-4">
             <div className="mb-2 flex items-end justify-between gap-3"><div><p className="text-xs font-medium uppercase tracking-[0.16em] text-slate-400">运营概览</p><h2 className="mt-1 text-[15px] font-semibold text-slate-900">客户经营与今日行动</h2></div><Link href="/reports#customer-operations" className="text-xs font-medium text-blue-600">查看运营报表</Link></div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {cards.slice(4).map((card,index) => { const Icon = card.icon; return <Link key={card.label} href={card.href} style={{ animationDelay: `${index * 45}ms` }} className={`${panelClass} dashboard-reveal group relative min-h-[110px] overflow-hidden p-4 transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-md`}><ChevronRight size={16} className="absolute right-3 top-4 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-blue-600" /><div className="flex items-center gap-3"><span className={`dashboard-icon-pulse grid h-12 w-12 shrink-0 place-items-center rounded-xl ${card.background} ${card.color}`}><Icon size={28} strokeWidth={1.9} /></span><div className="min-w-0"><p className="truncate text-[13px] text-slate-600">{card.label}</p><strong className="mt-0.5 block text-[25px] leading-8 tracking-tight text-slate-950">{number(card.value)}</strong></div></div><p className={`mt-2 text-center text-xs font-medium ${card.trendColor}`}>{card.trend}</p></Link>; })}
             </div>
           </section>
