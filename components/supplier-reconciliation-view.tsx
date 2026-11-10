@@ -1,10 +1,11 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { AppDialog } from "@/components/ui/app-dialog";
 import { SupplierDeliveryNoteFiles, type SupplierDeliveryNoteView } from "@/components/supplier-delivery-note-files";
 import { CompactDateRange } from "@/components/ui/compact-date-range";
 import { AppSelect } from "@/components/ui/app-select";
+import { AppPagination } from "@/components/ui/app-pagination";
 import { BUSINESS_DATE_PRESETS, businessDatePreset, type BusinessDatePreset } from "@/lib/reports/date-presets";
 import { settlementDisplay } from "@/lib/suppliers/settlement";
 
@@ -63,6 +64,7 @@ export function SupplierReconciliationView({ canRecordPayment }: { canRecordPaym
   const [expandedSupplier, setExpandedSupplier] = useState<string | null>(null);
   const [notes, setNotes] = useState<Note[]>([]);
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [payment, setPayment] = useState<PaymentDraft | null>(null);
   const [paperDraft, setPaperDraft] = useState<PaperDraft | null>(null);
@@ -70,12 +72,15 @@ export function SupplierReconciliationView({ canRecordPayment }: { canRecordPaym
   const [busy, setBusy] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState("");
+  const loadSequence = useRef(0);
   const load = useCallback(async () => {
+    const sequence = ++loadSequence.current;
     setLoading(true);
-    const params = new URLSearchParams({ from: filters.from, to: filters.to, page: String(page) });
+    const params = new URLSearchParams({ from: filters.from, to: filters.to, page: String(page), page_size: String(pageSize) });
     if (filters.supplierId) params.set("supplier_id", filters.supplierId);
     const response = await fetch(`/api/supplier-reconciliation?${params}`, { cache: "no-store" }).catch(() => null);
     const body = response ? await response.json().catch(() => ({})) : {};
+    if (sequence !== loadSequence.current) return;
     setLoading(false);
     if (!response?.ok) { setError(body.error || "供应商对账加载失败"); setSummary(null); setLegacyUnlinked(null); setSupplierSummary([]); setMonthlySummary([]); setNotes([]); return; }
     setSummary(body.summary || null);
@@ -84,7 +89,7 @@ export function SupplierReconciliationView({ canRecordPayment }: { canRecordPaym
     setMonthlySummary(body.monthly_summary || []);
     setNotes(body.notes || []);
     setError("");
-  }, [filters, page]);
+  }, [filters, page, pageSize]);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
     let cancelled = false;
@@ -223,7 +228,7 @@ export function SupplierReconciliationView({ canRecordPayment }: { canRecordPaym
       <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[1220px] text-left text-sm"><thead><tr className="border-b bg-slate-50 text-slate-600"><th className="p-3">送货日期</th><th>供应商</th><th>当时商务条件</th><th>送货单号</th><th>纸单影像</th><th>核对提示</th><th>数量</th><th>分配金额</th><th>纸单金额 / 差额</th><th>已付</th><th>未付</th><th>操作</th></tr></thead><tbody>{notes.map((note) => <tr key={note.id} className="border-b align-top"><td className="p-3">{note.document_date}</td><td>{note.supplier_code}<small className="block text-slate-500">{note.supplier_name}</small></td><td>{settlementLabel(note.settlement_cycle, note.settlement_days, note.settlement_terms_original)}</td><td>{note.note_number}</td><td className="max-w-52 p-2"><SupplierDeliveryNoteFiles note={{ id: note.id, supplier_code: note.supplier_code, note_number: note.note_number, document_date: note.document_date, attachments: note.attachments || [] }} compact/></td><td className="min-w-28 py-3">{noteChecks(note).length ? noteChecks(note).map((check) => <span key={check} className="mb-1 block w-fit rounded bg-amber-50 px-2 py-0.5 text-xs text-amber-800">{check}</span>) : <span className="text-xs text-emerald-700">资料齐备 · 金额一致</span>}</td><td>{note.allocated_quantity}</td><td>{money(note.allocated_cny)}</td><td>{note.paper_total_cny === null ? "未录入" : <>{money(note.paper_total_cny)}<small className={`block ${Math.abs(note.paper_total_cny - note.allocated_cny) > 0.005 ? "text-amber-700" : "text-emerald-700"}`}>{Math.abs(note.paper_total_cny - note.allocated_cny) > 0.005 ? `差额 ${money(note.paper_total_cny - note.allocated_cny)}` : "金额一致"}</small></>}</td><td>{money(note.paid_cny)}</td><td className="font-medium">{money(note.unpaid_cny)}</td><td className="space-x-2 whitespace-nowrap"><button onClick={() => setExpanded((value) => value === note.id ? null : note.id)} className="text-blue-700">{expanded === note.id ? "收起" : `查看PI（${groupAllocations(note.allocations).length}）`}</button>{canRecordPayment ? <button onClick={() => { setError(""); setPaperDraft({ noteId: note.id, noteNumber: note.note_number, amount: note.paper_total_cny === null ? "" : Number(note.paper_total_cny).toFixed(2), version: note.updated_at, reason: "" }); }} className="text-blue-700">核对纸单</button> : null}{canRecordPayment && note.unpaid_cny > 0 ? <button onClick={() => openPayment(note)} className="text-emerald-700">登记付款</button> : null}</td></tr>)}</tbody></table>
         {!loading && notes.length === 0 ? <p className="py-10 text-center text-sm text-slate-500">该日期范围没有送货单回货记录</p> : null}</div>
       {expanded ? (() => { const note = notes.find((row) => row.id === expanded); if (!note) return null; const groups = groupAllocations(note.allocations); return <div className="mt-4 rounded-xl border bg-slate-50 p-4 text-sm"><h3 className="font-semibold">{note.supplier_code} · {note.note_number} · 关联 PI（{groups.length} 单）</h3><div className="mt-2 overflow-x-auto"><table className="w-full min-w-[650px] text-left text-xs"><thead><tr className="border-b"><th className="py-2">PI订单号 / 产品</th><th>回货数量</th><th>采购单价</th><th>金额</th></tr></thead><tbody>{groups.map((group) => <Fragment key={group.items[0].pi_id}><tr className="border-b bg-blue-50/70 font-semibold"><td className="py-2">{group.piNumber}</td><td>{group.quantity}</td><td>—</td><td>{money(group.amount)}</td></tr>{group.items.map((item) => <tr key={item.id} className="border-b last:border-0"><td className="py-2 pl-4 text-slate-700">{item.product}{item.correction_of ? <small className="block text-rose-700">冲正原记录 {item.correction_of.slice(0, 8)} · {item.correction_reason}</small> : null}</td><td>{item.quantity}</td><td>{money(item.unit_price_cny)}</td><td>{money(item.amount_cny)}</td></tr>)}</Fragment>)}</tbody></table></div><h4 className="mt-4 font-medium">付款流水</h4>{note.payments.length ? note.payments.map((entry) => <p key={entry.id} className="mt-1 text-xs">{entry.paid_on} · {money(entry.amount_cny)} · {entry.method} · 凭证 {entry.reference}</p>) : <p className="mt-1 text-xs text-slate-500">暂无已确认付款</p>}</div>; })() : null}
-      <div className="mt-4 flex items-center justify-end gap-3 text-sm"><span>第 {page} 页 · 共 {summary?.note_count || 0} 张</span><button disabled={page <= 1 || loading} onClick={() => { setPage((value) => value - 1); setExpanded(null); }} className="rounded border px-3 py-1.5 disabled:opacity-40">上一页</button><button disabled={loading || page * 50 >= (summary?.note_count || 0)} onClick={() => { setPage((value) => value + 1); setExpanded(null); }} className="rounded border px-3 py-1.5 disabled:opacity-40">下一页</button></div>
+      <div className="mt-4"><AppPagination page={page} pageSize={pageSize} total={summary?.note_count || 0} itemLabel="张送货单" pageSizes={[10, 20, 50, 100]} onPage={(next) => { setPage(next); setExpanded(null); }} onPageSize={(size) => { setPageSize(size); setPage(1); setExpanded(null); }}/></div>
     </section>
     <AppDialog open={paperDraft !== null} title="核对纸质送货单金额" description="录入纸单金额后与系统已分配货款比对；差额不会自动改写 PI、回货或付款记录。" onClose={() => { if (!busy) { setPaperDraft(null); setError(""); } }}>
       {paperDraft ? <form onSubmit={(event) => { event.preventDefault(); void submitPaperTotal(); }} className="space-y-3 text-sm">
@@ -238,7 +243,7 @@ export function SupplierReconciliationView({ canRecordPayment }: { canRecordPaym
       {payment ? <form onSubmit={(event) => { event.preventDefault(); void submitPayment(); }} className="space-y-3 text-sm"><p>送货单号：{payment.noteNumber}</p><div className="grid gap-3 sm:grid-cols-2">
         <label>付款金额（人民币）<input required inputMode="decimal" value={payment.amount} onChange={(event) => setPayment((current) => current && { ...current, amount: event.target.value })} className="mt-1 h-10 w-full rounded border px-3"/></label>
         <label>付款日期<input required type="date" max={localDate(new Date())} value={payment.paidOn} onChange={(event) => setPayment((current) => current && { ...current, paidOn: event.target.value })} className="mt-1 h-10 w-full rounded border px-3"/></label>
-        <label>付款方式<select value={payment.method} onChange={(event) => setPayment((current) => current && { ...current, method: event.target.value })} className="mt-1 h-10 w-full rounded border px-3"><option value="CASH">现金</option><option value="BANK">银行转账</option><option value="ALIPAY">支付宝</option><option value="WECHAT">微信支付</option><option value="OTHER">其他</option></select></label>
+        <div><span>付款方式</span><AppSelect value={payment.method} onChange={(event) => setPayment((current) => current && { ...current, method: event.target.value })} aria-label="付款方式" className="mt-1 h-10 w-full rounded border px-3"><option value="CASH">现金</option><option value="BANK">银行转账</option><option value="ALIPAY">支付宝</option><option value="WECHAT">微信支付</option><option value="OTHER">其他</option></AppSelect></div>
         <label>付款凭证号（必填）<input required maxLength={200} value={payment.reference} onChange={(event) => setPayment((current) => current && { ...current, reference: event.target.value })} className="mt-1 h-10 w-full rounded border px-3"/></label>
       </div>{error ? <p role="alert" className="rounded bg-rose-50 p-3 text-rose-700">{error}</p> : null}<div className="flex justify-end gap-2 border-t pt-3"><button type="button" disabled={busy} onClick={() => setPayment(null)} className="rounded border px-4 py-2">取消</button><button type="submit" disabled={busy} className="rounded bg-emerald-700 px-4 py-2 text-white disabled:opacity-40">{busy ? "登记中…" : "确认登记付款"}</button></div></form> : null}
     </AppDialog>

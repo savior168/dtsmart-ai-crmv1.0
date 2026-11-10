@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { authErrorStatus, hasPermission, requireUser } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 
-const fields = "id,type,category,title,content,metadata,href,entity_type,entity_id,read_at,dismissed_at,archived_at,action_status,deliver_at,created_at";
+const fields = "id,type,category,title,content,metadata,href,entity_type,entity_id,read_at,dismissed_at,acknowledged_at,archived_at,action_status,deliver_at,created_at";
 
 type NoticeRow = {
   id: string; type: string; content: string | null; metadata: Record<string, unknown> | null;
@@ -122,19 +122,24 @@ async function enrichOperationNotices(rows: NoticeRow[]) {
 export async function GET(request: NextRequest) {
   try {
     const { supabase, user, account } = await requireUser({ allowPasswordChange: true });
-    if (!hasPermission(account, "notifications.view")) throw new Error("FORBIDDEN");
     const params = request.nextUrl.searchParams;
     const page = Math.max(1, Number(params.get("page") || 1));
     const pageSize = Math.min(500, Math.max(10, Number(params.get("page_size") || 20)));
     const status = params.get("status") || (params.get("unread") === "true" ? "unread" : "active");
+    if (status !== "modal" && !hasPermission(account, "notifications.view")) throw new Error("FORBIDDEN");
     const now = new Date().toISOString();
     let query = supabase.from("system_notifications").select(fields, { count: "exact" })
-      .eq("recipient_id", user.id).lte("deliver_at", now).order("deliver_at", { ascending: false })
-      .range((page - 1) * pageSize, page * pageSize - 1);
-    if (status === "unread") query = query.is("read_at", null).is("archived_at", null);
+      .eq("recipient_id", user.id).lte("deliver_at", now);
+    if (status === "modal") query = query.eq("type", "SYSTEM_ANNOUNCEMENT")
+      .in("metadata->>delivery_level", ["IMPORTANT", "CRITICAL"])
+      .is("acknowledged_at", null).is("dismissed_at", null).is("archived_at", null)
+      .order("action_status", { ascending: false }).order("deliver_at", { ascending: true });
+    else if (status === "unread") query = query.is("read_at", null).is("archived_at", null);
     else if (status === "pending") query = query.eq("action_status", "PENDING").is("archived_at", null);
     else if (status === "archived") query = query.not("archived_at", "is", null);
     else if (status !== "all") query = query.is("archived_at", null);
+    if (status !== "modal") query = query.order("deliver_at", { ascending: false });
+    query = query.range((page - 1) * pageSize, page * pageSize - 1);
     const [rows, unreadResult, pendingResult] = await Promise.all([
       query,
       supabase.from("system_notifications").select("id", { count: "exact", head: true }).eq("recipient_id", user.id).lte("deliver_at", now).is("read_at", null).is("archived_at", null),
@@ -151,13 +156,24 @@ export async function GET(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   try {
     const { supabase, user, account } = await requireUser({ allowPasswordChange: true });
-    if (!hasPermission(account, "notifications.view")) throw new Error("FORBIDDEN");
-    const body = await request.json() as { id?: string; action?: "READ" | "READ_ALL" | "ARCHIVE" | "RESTORE" | "RESOLVE" | "DISMISS" };
+    const body = await request.json() as { id?: string; action?: "READ" | "READ_ALL" | "ARCHIVE" | "RESTORE" | "RESOLVE" | "DISMISS" | "ACKNOWLEDGE" };
     const action = body.action || (body.id ? "READ" : "READ_ALL");
-    if (!["READ", "READ_ALL", "ARCHIVE", "RESTORE", "RESOLVE", "DISMISS"].includes(action)) {
+    if (action !== "ACKNOWLEDGE" && action !== "DISMISS" && !hasPermission(account, "notifications.view")) throw new Error("FORBIDDEN");
+    if (!["READ", "READ_ALL", "ARCHIVE", "RESTORE", "RESOLVE", "DISMISS", "ACKNOWLEDGE"].includes(action)) {
       return NextResponse.json({ error: "通知操作无效" }, { status: 400 });
     }
     const now = new Date().toISOString();
+    if (action === "ACKNOWLEDGE") {
+      if (!body.id) return NextResponse.json({ error: "缺少公告编号" }, { status: 400 });
+      const { data, error } = await supabase.from("system_notifications")
+        .update({ acknowledged_at: now, read_at: now, action_status: "RESOLVED" })
+        .eq("id", body.id).eq("recipient_id", user.id).eq("type", "SYSTEM_ANNOUNCEMENT")
+        .in("metadata->>delivery_level", ["IMPORTANT", "CRITICAL"]).is("acknowledged_at", null)
+        .select("id").maybeSingle();
+      if (error) throw error;
+      if (!data) return NextResponse.json({ error: "公告不存在或已确认，请刷新后重试" }, { status: 404 });
+      return NextResponse.json({ ok: true });
+    }
     let query = supabase.from("system_notifications").update(
       action === "DISMISS" ? { dismissed_at: now }
         : action === "ARCHIVE" ? { archived_at: now, read_at: now }
@@ -165,10 +181,12 @@ export async function PATCH(request: NextRequest) {
           : action === "RESOLVE" ? { action_status: "RESOLVED", read_at: now }
             : { read_at: now },
     ).eq("recipient_id", user.id);
-    if (action === "READ_ALL") query = query.is("read_at", null).is("archived_at", null).lte("deliver_at", now);
+    if (action === "READ_ALL") query = query.is("read_at", null).is("archived_at", null)
+      .lte("deliver_at", now).or("type.neq.SYSTEM_ANNOUNCEMENT,metadata->>delivery_level.eq.NORMAL");
     else {
       if (!body.id) return NextResponse.json({ error: "缺少通知编号" }, { status: 400 });
       query = query.eq("id", body.id);
+      if (action === "DISMISS" && !hasPermission(account, "notifications.view")) query = query.eq("type", "SYSTEM_ANNOUNCEMENT").eq("metadata->>delivery_level", "IMPORTANT");
     }
     const { error } = await query;
     if (error) throw error;

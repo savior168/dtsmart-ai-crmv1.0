@@ -99,9 +99,14 @@ assert.match(releaseSummaryApi, /listVerifiedVercelProductionDeployments[\s\S]*d
 assert.match(notificationPanel, /audience === "ALL" \? null : selectedRoles/, "发布请求必须包含明确的接收范围");
 assert.match(notificationPanel, /接收范围：\{item\.recipient_roles/, "公告历史必须显示实际接收范围");
 assert.match(announcementApi, /requireAdmin\(\)[\s\S]*recipientRoles[\s\S]*USER_ROLES\.includes[\s\S]*p_recipient_roles: recipientRoles/, "只有管理员可发布，且服务端必须校验并传递角色范围");
+assert.match(announcementApi, /export async function GET[\s\S]*requireAdmin\(\)[\s\S]*eq\("request_id", requestId\)/, "发布响应断线后只能由管理员按幂等请求编号核实是否已送达");
+assert.match(notificationPanel, /let confirmed = false[\s\S]*response\.ok[\s\S]*announcements\?request_id=[\s\S]*body\.announcement\?\.title === cleanTitle/, "发布响应中断时必须核验幂等请求，不得盲目重复发送");
+assert.match(notificationPanel, /const load = useCallback\(async \(afterPublish = false\)[\s\S]*if \(afterPublish\)[\s\S]*发布记录暂未刷新/, "公告已发布但历史刷新失败时不得误报发布失败");
 assert.match(announcementListApi, /recipient_roles,recipient_count/, "公告历史必须返回角色及接收人数");
 assert.match(audienceMigration, /actor\.role <> 'ADMIN'[\s\S]*u\.status = 'ACTIVE' and \(normalized_roles is null or u\.role = any\(normalized_roles\)\)/, "数据库必须再次校验管理员并只向匹配角色的启用用户送达");
 assert.match(audienceMigration, /on conflict \(request_id\) do nothing[\s\S]*ANNOUNCEMENT_REQUEST_CONFLICT[\s\S]*NO_ACTIVE_RECIPIENTS/, "公告发布必须保证幂等及非空收件人");
+assert.match(notificationApi, /status === "modal"[\s\S]*is\("acknowledged_at", null\)\.is\("dismissed_at", null\)/, "普通已读状态不得关闭重要/紧急公告弹框，只有明确稍后或确认操作可以关闭");
+assert.match(notificationApi, /action === "READ_ALL"[\s\S]*metadata->>delivery_level\.eq\.NORMAL/, "全部已读不得绕过需要居中提示的重要或紧急公告");
 assert.match(audienceMigration, /revoke all on function public\.publish_system_announcement\(uuid,text,text,text\[\]\)[\s\S]*from public, anon, authenticated/, "定向公告函数不得向匿名用户开放");
 assert.match(notificationApi, /eq\("recipient_id", user\.id\)[\s\S]*enrichOperationNotices/, "通知仍须先按当前收件人隔离，再补充操作上下文");
 assert.match(notificationApi, /stock_order_events[\s\S]*created_by[\s\S]*cleanName\(actor\.name, actor\.email\)/, "备货操作弹框必须根据真实事件操作者用户名生成文案");

@@ -13,8 +13,10 @@ export async function GET(request: NextRequest) {
     const supplierId = params.get("supplier_id") || null;
     const format = params.get("format") || "json";
     const page = Number(params.get("page") || 1);
+    const pageSize = Number(params.get("page_size") || 50);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)
       || from > to || !Number.isSafeInteger(page) || page < 1 || page > 100000
+      || ![10, 20, 50, 100].includes(pageSize)
       || supplierId && !/^[0-9a-f]{8}-[0-9a-f-]{27,}$/.test(supplierId)
       || !["json", "csv"].includes(format)) {
       throw new Error("请选择有效日期范围及供应商");
@@ -46,7 +48,7 @@ export async function GET(request: NextRequest) {
     }
     const { data, error } = await supabase.rpc("supplier_reconciliation_report", {
       p_date_from: from, p_date_to: to, p_supplier_id: supplierId,
-      p_limit: 50, p_offset: (page - 1) * 50,
+      p_limit: pageSize, p_offset: (page - 1) * pageSize,
     });
     if (error) throw error;
     const notes = Array.isArray(data?.notes) ? data.notes as Array<{ id: string }> : [];

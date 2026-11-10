@@ -50,4 +50,15 @@ assert.match(reconciliationView, /缺纸单图片[\s\S]*?待录纸单金额[\s\S
   "purchase details must flag missing paper evidence and amount discrepancies separately");
 assert.match(reconciliationView, /groups\.map\(\(group\)[\s\S]*?group\.items\.map/,
   "one physical delivery note must group multiple product allocations by PI without merging separate notes");
+assert.match(reconciliationView, /page_size: String\(pageSize\)/,
+  "purchase detail page size must be sent to the reconciliation API");
+assert.match(reconciliationView, /sequence !== loadSequence\.current/,
+  "stale reconciliation responses must not overwrite newer date, supplier or page selections");
+assert.match(reconciliationView, /<AppPagination[^>]*pageSize=\{pageSize\}[^>]*itemLabel="张送货单"/,
+  "purchase details must use the shared pagination component");
+const reconciliationRoute = readFileSync(new URL("../app/api/supplier-reconciliation/route.ts", import.meta.url), "utf8");
+assert.match(reconciliationRoute, /\[10, 20, 50, 100\]\.includes\(pageSize\)/,
+  "the API must validate supported page sizes");
+assert.match(reconciliationRoute, /p_limit: pageSize, p_offset: \(page - 1\) \* pageSize/,
+  "the API must page by the selected size without affecting summary totals");
 console.log("Supplier reconciliation CSV tests passed");
