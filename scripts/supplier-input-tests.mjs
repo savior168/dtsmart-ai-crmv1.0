@@ -54,7 +54,10 @@ assert.doesNotMatch(supplierUpdateRoute, /changingExistingSettlement|completingS
   "待补充或已确定的商务条件均可按最新协议更新");
 const supplierView = readFileSync(new URL("../components/suppliers-view.tsx", import.meta.url), "utf8");
 assert.match(supplierView, /商务条件可按最新约定调整/);
-assert.match(supplierView, /isAdmin \? <button[\s\S]*?openContacts\(row\)/, "联系方式入口仅向管理员显示");
+assert.match(supplierView, /isAdmin \? <>\s*<th[^>]*>电话<\/th><th[^>]*>微信<\/th>/, "电话和微信列仅向管理员显示");
+assert.match(supplierView, /onClick=\{\(\) => void openContacts\(row\)\}/, "联系方式列可打开维护弹框");
+const supplierListRoute = readFileSync(new URL("../app/api/suppliers/route.ts", import.meta.url), "utf8");
+assert.match(supplierListRoute, /if \(account\.role === "ADMIN" && rows\.length\) \{[\s\S]*?from\("supplier_private_contacts"\)/, "仅管理员读取私有联系方式");
 const privateContacts = readFileSync(new URL("../app/api/admin/suppliers/[id]/contacts/route.ts", import.meta.url), "utf8");
 assert.match(privateContacts, /await requireAdmin\(\)/, "供应商联系方式接口须校验管理员身份");
 const privateMigration = readFileSync(new URL("../supabase/migrations/20261110100000_supplier_private_contacts_and_safe_delete.sql", import.meta.url), "utf8");

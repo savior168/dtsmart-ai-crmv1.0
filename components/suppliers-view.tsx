@@ -11,6 +11,7 @@ type Supplier = {
   settlement_cycle: string; settlement_days: number | null;
   settlement_terms_original: string | null; cooperation_note: string | null;
   after_sales_note: string | null; price_advantage_note: string | null; is_active: boolean;
+  private_contacts?: PrivateContact[];
 };
 type Draft = {
   id?: string; system_code: string; legacy_code: string; short_name: string;
@@ -158,7 +159,10 @@ export function SuppliersView({ canManage, isAdmin }: { canManage: boolean; isAd
     const body = response ? await response.json().catch(() => ({})) : {};
     setBusy(false);
     if (!response?.ok) { setContactError(body.error || "联系方式保存失败"); return; }
-    setContacts((current) => [...current, body.data]); setContactValue("");
+    setContacts((current) => [...current, body.data]);
+    setRows((current) => current.map((row) => row.id === contactSupplier.id
+      ? { ...row, private_contacts: [...(row.private_contacts || []), body.data] } : row));
+    setContactValue("");
   }
   async function changeContact(contact: PrivateContact, remove = false) {
     if (!contactSupplier || busy) return;
@@ -172,6 +176,11 @@ export function SuppliersView({ canManage, isAdmin }: { canManage: boolean; isAd
     if (!response?.ok) { setContactError(body.error || "联系方式操作失败"); return; }
     setContacts((current) => remove ? current.filter((item) => item.id !== contact.id)
       : current.map((item) => item.id === contact.id ? body.data : item));
+    setRows((current) => current.map((row) => row.id === contactSupplier.id ? {
+      ...row, private_contacts: remove
+        ? (row.private_contacts || []).filter((item) => item.id !== contact.id)
+        : (row.private_contacts || []).map((item) => item.id === contact.id ? body.data : item),
+    } : row));
   }
   return <main className="p-4 lg:p-6"><div className="mx-auto max-w-[1500px] space-y-4">
     <div className="flex flex-wrap items-end justify-between gap-3"><div><h1 className="text-xl font-semibold">供应商档案</h1><p className="mt-1 text-sm text-slate-600">已有供应商代码直接沿用；仅无代码的现金结供应商自动生成 CASH 编号。</p></div>
@@ -185,9 +194,9 @@ export function SuppliersView({ canManage, isAdmin }: { canManage: boolean; isAd
       <p className="border-b px-4 py-3 text-xs text-slate-500">{loading ? "正在加载…" : `当前 ${filtered.length} 家 · 全部 ${rows.length} 家 · 启用 ${rows.filter((row) => row.is_active).length} 家 · 现金结 ${rows.filter((row) => row.settlement_cycle === "CASH").length} 家`}</p>
       {error && !draft ? <p role="alert" className="mt-3 rounded bg-rose-50 p-3 text-sm text-rose-700">{error}</p> : null}
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[1500px] table-fixed text-left text-sm">
-          <colgroup><col className="w-[130px]"/><col className="w-[160px]"/><col className="w-[130px]"/><col className="w-[125px]"/><col className="w-[270px]"/><col className="w-[115px]"/><col className="w-[210px]"/><col className="w-[228px]"/><col className="w-[220px]"/></colgroup>
-          <thead className="bg-slate-50 text-slate-600"><tr className="border-b">{supplierColumns.map((column) => <th key={column.label} scope="col" aria-sort={column.sortKey ? sortKey === column.sortKey ? sortDirection === "asc" ? "ascending" : "descending" : "none" : undefined} className={`whitespace-nowrap px-3 py-3 ${column.label === "操作" ? "sticky right-0 z-10 bg-slate-50" : ""}`}>{column.sortKey ? <button type="button" onClick={() => { if (column.sortKey) toggleSort(column.sortKey); }} className="inline-flex items-center gap-1 hover:text-blue-700" aria-label={`${column.label}排序`}>{column.label}<span aria-hidden="true" className={sortKey === column.sortKey ? "text-blue-600" : "text-slate-400"}>{sortKey === column.sortKey ? sortDirection === "asc" ? "↑" : "↓" : "↕"}</span></button> : column.label}</th>)}</tr></thead>
+        <table className={`w-full table-fixed text-left text-sm ${isAdmin ? "min-w-[1760px]" : "min-w-[1500px]"}`}>
+          <colgroup><col className="w-[130px]"/><col className="w-[160px]"/><col className="w-[130px]"/><col className="w-[125px]"/><col className="w-[270px]"/><col className="w-[115px]"/><col className="w-[210px]"/><col className="w-[228px]"/>{isAdmin ? <><col className="w-[150px]"/><col className="w-[150px]"/></> : null}<col className="w-[220px]"/></colgroup>
+          <thead className="bg-slate-50 text-slate-600"><tr className="border-b">{supplierColumns.filter((column) => column.label !== "操作").map((column) => <th key={column.label} scope="col" aria-sort={column.sortKey ? sortKey === column.sortKey ? sortDirection === "asc" ? "ascending" : "descending" : "none" : undefined} className="whitespace-nowrap px-3 py-3">{column.sortKey ? <button type="button" onClick={() => { if (column.sortKey) toggleSort(column.sortKey); }} className="inline-flex items-center gap-1 hover:text-blue-700" aria-label={`${column.label}排序`}>{column.label}<span aria-hidden="true" className={sortKey === column.sortKey ? "text-blue-600" : "text-slate-400"}>{sortKey === column.sortKey ? sortDirection === "asc" ? "↑" : "↓" : "↕"}</span></button> : column.label}</th>)}{isAdmin ? <><th scope="col" className="px-3 py-3">电话</th><th scope="col" className="px-3 py-3">微信</th></> : null}<th scope="col" className="sticky right-0 z-10 bg-slate-50 px-3 py-3">操作</th></tr></thead>
           <tbody>{visible.map((row) => <tr key={row.id} className="group border-b last:border-0 hover:bg-slate-50/60">
             <td className="whitespace-nowrap px-3 py-3 font-medium">{row.system_code}{!row.is_active ? <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500">停用</span> : null}</td>
             <td className="truncate px-3 py-3" title={row.short_name || ""}>{row.short_name || "—"}</td>
@@ -197,7 +206,11 @@ export function SuppliersView({ canManage, isAdmin }: { canManage: boolean; isAd
             <td className="truncate px-3 py-3" title={row.after_sales_note || ""}>{row.after_sales_note || "—"}</td>
             <td className="truncate px-3 py-3" title={row.cooperation_note || ""}>{row.cooperation_note || "—"}</td>
             <td className="truncate px-3 py-3" title={row.price_advantage_note || ""}>{row.price_advantage_note || "—"}</td>
-            <td className="sticky right-0 z-10 whitespace-nowrap bg-white px-3 py-3 group-hover:bg-slate-50"><div className="flex items-center gap-1">{canManage ? <><button type="button" onClick={() => edit(row)} className="rounded-md border px-2 py-1 text-xs text-blue-700 hover:bg-blue-50">编辑</button>{row.is_active ? <button type="button" onClick={() => setDeactivating(row)} className="rounded-md border border-rose-200 px-2 py-1 text-xs text-rose-700 hover:bg-rose-50">停用</button> : null}<button type="button" onClick={() => setDeleting(row)} className="rounded-md border border-rose-200 px-2 py-1 text-xs text-rose-700 hover:bg-rose-50">删除</button></> : null}{isAdmin ? <button type="button" onClick={() => void openContacts(row)} className="rounded-md border px-2 py-1 text-xs text-blue-700 hover:bg-blue-50">联系方式</button> : null}{!canManage && !isAdmin ? <span className="text-slate-400">—</span> : null}</div></td>
+            {isAdmin ? (["PHONE", "WECHAT"] as const).map((kind) => {
+              const values = (row.private_contacts || []).filter((contact) => contact.kind === kind).map((contact) => contact.value);
+              return <td key={kind} className="px-3 py-3"><button type="button" onClick={() => void openContacts(row)} title={values.join("、") || "点击添加"} className="block w-full truncate text-left text-xs text-blue-700 hover:underline">{values.length ? `${values[0]}${values.length > 1 ? ` · +${values.length - 1}` : ""}` : "+ 添加"}</button></td>;
+            }) : null}
+            <td className="sticky right-0 z-10 whitespace-nowrap bg-white px-3 py-3 group-hover:bg-slate-50"><div className="flex items-center gap-1">{canManage ? <><button type="button" onClick={() => edit(row)} className="rounded-md border px-2 py-1 text-xs text-blue-700 hover:bg-blue-50">编辑</button>{row.is_active ? <button type="button" onClick={() => setDeactivating(row)} className="rounded-md border border-rose-200 px-2 py-1 text-xs text-rose-700 hover:bg-rose-50">停用</button> : null}<button type="button" onClick={() => setDeleting(row)} className="rounded-md border border-rose-200 px-2 py-1 text-xs text-rose-700 hover:bg-rose-50">删除</button></> : null}{!canManage && !isAdmin ? <span className="text-slate-400">—</span> : null}</div></td>
           </tr>)}</tbody>
         </table>
         {!loading && !filtered.length ? <p className="py-8 text-center text-sm text-slate-500">没有匹配的供应商</p> : null}

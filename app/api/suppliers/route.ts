@@ -23,7 +23,23 @@ export async function GET(request: NextRequest) {
     }
     const { data, error, count } = await query;
     if (error) throw error;
-    return NextResponse.json({ data: data || [], count: count || 0, page, page_size: pageSize });
+    // The select list is chosen at runtime (code-only for warehouse users), so
+    // supabase-js cannot infer the result shape. Both lists always include id.
+    const rows = (data || []) as unknown as Array<Record<string, unknown> & { id: string }>;
+    if (account.role === "ADMIN" && rows.length) {
+      const ids = rows.map((row) => row.id);
+      const contacts = await admin.from("supplier_private_contacts")
+        .select("id,supplier_id,kind,value").in("supplier_id", ids).order("created_at");
+      if (contacts.error) throw contacts.error;
+      const bySupplier = new Map<string, Array<{ id: string; kind: string; value: string }>>();
+      for (const contact of contacts.data || []) {
+        const current = bySupplier.get(contact.supplier_id) || [];
+        current.push({ id: contact.id, kind: contact.kind, value: contact.value });
+        bySupplier.set(contact.supplier_id, current);
+      }
+      return NextResponse.json({ data: rows.map((row) => ({ ...row, private_contacts: bySupplier.get(row.id) || [] })), count: count || 0, page, page_size: pageSize });
+    }
+    return NextResponse.json({ data: rows, count: count || 0, page, page_size: pageSize });
   } catch (error) {
     const message = error instanceof Error ? error.message : "供应商档案加载失败";
     return NextResponse.json({ error: message }, { status: authErrorStatus(message) || 400 });

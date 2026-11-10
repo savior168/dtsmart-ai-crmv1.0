@@ -134,7 +134,7 @@ export async function GET(request: NextRequest) {
     const summary = summarizePiPerformance(orders, scopedOrders, teamScopeRequested ? null : selectedOwner);
     const actualByOrder = new Map<string, NonNullable<ReturnType<typeof actualOrderProfit>>>();
     let actualTotals: {
-      complete_orders: number; pending_orders: number; product_sales_cny: number;
+      complete_orders: number; pending_orders: number; shipped_orders: number; product_sales_cny: number;
       purchase_cost_cny: number; actual_gross_profit_cny: number;
       actual_gross_margin: number | null; actual_net_profit_cny: number;
       actual_net_sales_cny: number; actual_net_margin: number | null;
@@ -173,17 +173,20 @@ export async function GET(request: NextRequest) {
             other_cny: Number(expense.procurement_expenses_cny),
           });
         }
-        actualTotals = { complete_orders: 0, pending_orders: 0, product_sales_cny: 0,
+        actualTotals = { complete_orders: 0, pending_orders: 0, shipped_orders: 0, product_sales_cny: 0,
           purchase_cost_cny: 0, actual_gross_profit_cny: 0, actual_gross_margin: null,
           actual_net_profit_cny: 0, actual_net_sales_cny: 0,
           actual_net_margin: null, pending_expense_orders: 0 };
         for (const order of summary.orders) {
           const stockId = stockByOrder.get(order.id);
+          const allShipped = Boolean(stockId && order.items.length && order.items.every((item) =>
+            stockItemByLine.get(stockId + ":" + String(item.line_number))?.shipped_quantity === item.quantity));
+          if (allShipped) actualTotals.shipped_orders++;
           const actual = stockId ? actualOrderProfit(order.items.map((item) => ({
             stock_order_item_id: stockItemByLine.get(stockId + ":" + String(item.line_number))?.id || "",
             quantity: item.quantity, sales_cny: item.sales_cny,
           })), receipts, expensesByStock.get(stockId) || null,
-          order.items.every((item) => stockItemByLine.get(stockId + ":" + String(item.line_number))?.shipped_quantity === item.quantity)) : null;
+          allShipped) : null;
           if (!actual) { actualTotals.pending_orders++; continue; }
           actualByOrder.set(order.id, actual);
           actualTotals.complete_orders++;
