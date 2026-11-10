@@ -21,7 +21,6 @@ import {
   ShieldCheck,
   ShoppingCart,
   Sparkles,
-  UploadCloud,
   UserRoundPlus,
   UsersRound,
 } from "lucide-react";
@@ -166,7 +165,7 @@ function DashboardHeader({ title, href }: { title: string; href: string }) {
   return <div className="flex h-12 items-center justify-between px-4"><h3 className="flex items-center gap-2 text-[15px] font-semibold text-slate-900">{title}<Info size={14} className="text-slate-400" /></h3><Link href={href} className="text-xs font-medium text-blue-600 hover:text-blue-700">查看详情</Link></div>;
 }
 
-export function CrmDashboard({ showPerformance = true }: { showPerformance?: boolean }) {
+export function CrmDashboard({ showPerformance = true, canImportCustomers = false, canCreateAiScreening = false }: { showPerformance?: boolean; canImportCustomers?: boolean; canCreateAiScreening?: boolean }) {
   const now = useMemo(() => new Date(), []);
   const [from, setFrom] = useState(() => businessDatePreset("month", now).from);
   const [to, setTo] = useState(() => businessDatePreset("month", now).to);
@@ -240,7 +239,6 @@ export function CrmDashboard({ showPerformance = true }: { showPerformance?: boo
     { label: "AI核验有效", value: data.totals.valid_customers, href: scopedHref("/customers?target=valid&ai_status=done", scopeUserId, data.range), icon: Sparkles, color: "text-emerald-600", background: "bg-emerald-50", trend: "AI判定为目标客户", trendColor: "text-emerald-600" },
     { label: "潜在客户", value: data.totals.intentions, href: scopedHref("/customers?status=CLAIMED", scopeUserId, data.range), icon: UserRoundPlus, color: "text-indigo-600", background: "bg-indigo-50", trend: "已进入销售跟进", trendColor: "text-indigo-600" },
     { label: "成交客户", value: data.totals.deals, href: scopedHref("/customers?status=DEAL", scopeUserId, data.range), icon: Handshake, color: "text-emerald-600", background: "bg-emerald-50", trend: "已确认采购", trendColor: "text-emerald-600" },
-    { label: "报价中", value: data.totals.quotes, href: scopedHref("/customers?status=QUOTE", scopeUserId, data.range), icon: FileText, color: "text-sky-600", background: "bg-sky-50", trend: "已提供报价", trendColor: "text-sky-600" },
     { label: "今日待跟进", value: data.totals.today_followups, href: scopedHref("/followups?scope=today", scopeUserId), icon: CheckSquare2, color: "text-orange-600", background: "bg-orange-50", trend: "今日计划任务", trendColor: "text-orange-600" },
     { label: "即将保护到期", value: data.totals.expiring_protection, href: scopedHref("/customers?tab=protection", scopeUserId), icon: ShieldCheck, color: "text-amber-500", background: "bg-amber-50", trend: "剩余 0–7 天", trendColor: "text-amber-600" },
   ] : [];
@@ -261,10 +259,9 @@ export function CrmDashboard({ showPerformance = true }: { showPerformance?: boo
           <input aria-label="国家筛选" value={country} onChange={(event) => setCountry(event.target.value)} placeholder="输入国家名称" className="h-10 w-40 rounded-lg border border-slate-200 bg-white px-4 text-sm shadow-sm" />
           <UserScopeSelect permission="dashboard.data_all" value={scopeUserId} onChange={setScopeUserId} className="h-10 min-w-52 rounded-lg border border-slate-200 bg-white px-3 text-sm shadow-sm" />
           <button type="button" onClick={reset} className="inline-flex h-10 items-center gap-2 rounded-lg border border-blue-500 bg-white px-5 text-sm font-medium text-blue-600 transition hover:bg-blue-50"><RefreshCw size={16} />重置</button>
-          <span className="mx-1 hidden h-6 w-px bg-slate-200 xl:block" />
-          <Link href="/import?destination=private" className="inline-flex h-10 items-center gap-2 rounded-lg border bg-white px-4 text-sm font-medium text-slate-700 shadow-sm hover:border-blue-300 hover:text-blue-700"><UploadCloud size={16}/>导入我的客户</Link>
-          <Link href="/ai-screening/new" className="inline-flex h-10 items-center gap-2 rounded-lg border bg-white px-4 text-sm font-medium text-slate-700 shadow-sm hover:border-blue-300 hover:text-blue-700"><Sparkles size={16}/>创建AI筛选</Link>
-          <Link href="/quotes/new" className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white shadow-sm hover:bg-blue-700"><FileText size={16}/>创建报价</Link>
+          {canImportCustomers || canCreateAiScreening ? <span className="mx-1 hidden h-6 w-px bg-slate-200 xl:block" /> : null}
+          {canImportCustomers ? <Link href="/import?destination=private" className="inline-flex h-10 items-center gap-2 rounded-lg border bg-white px-4 text-sm font-medium text-slate-700 shadow-sm hover:border-blue-300 hover:text-blue-700"><UsersRound size={16}/>导入我的客户</Link> : null}
+          {canCreateAiScreening ? <Link href="/ai-screening/new" className="inline-flex h-10 items-center gap-2 rounded-lg border bg-white px-4 text-sm font-medium text-slate-700 shadow-sm hover:border-blue-300 hover:text-blue-700"><Bot size={16}/>创建AI筛选</Link> : null}
         </section>
 
         {error && data ? <div role="alert" className="mb-3 flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800"><span>{error}，当前保留上次成功加载的数据。</span><button type="button" onClick={() => void load()} className="shrink-0 font-medium underline">重新加载</button></div> : null}

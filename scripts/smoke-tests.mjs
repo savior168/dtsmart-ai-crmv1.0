@@ -343,7 +343,7 @@ assert.equal(existsSync(resolve(root, "app/api/customers/[id]/restore/route.ts")
 
 const appShell = read("components/app-shell.tsx");
 assert.match(appShell, /sticky top-0[^\n]*h-screen/, "桌面左侧菜单必须固定在浏览器视口内");
-assert.match(appShell, /h-\[calc\(100vh-196px\)\][^\n]*overflow-y-auto/, "菜单项必须独立滚动且不能推走底部控制项");
+assert.match(appShell, /h-\[calc\(100vh-184px\)\][^\n]*overflow-y-auto/, "菜单项必须独立滚动且不能推走底部控制项");
 assert.match(appShell, /欢迎您，\{profile\.name\}！/, "右上角用户菜单必须只显示当前用户名，不显示角色");
 const aiTaskDetail = read("components/ai-screening/task-detail-view.tsx");
 const aiTaskDetailApi = read("app/api/ai/tasks/[id]/route.ts");

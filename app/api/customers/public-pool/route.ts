@@ -6,6 +6,7 @@ import { publicReleaseReason } from "@/lib/customers/public-release-summary";
 import { postgrestContains } from "@/lib/postgrest-search";
 import { countryFilterOptions, countryFilterRawValues } from "@/lib/countries";
 import { customerIndustryLabels, rawCategoryPatternsForIndustryLabel } from "@/lib/customers/industry-display";
+import { hasCustomerContactMethod } from "@/lib/customer-contact-requirement";
 
 type PoolDbRow = Record<string, unknown> & {
   id: string;
@@ -61,7 +62,7 @@ export async function GET(request: NextRequest) {
     const directReports = account.role === "SUPERVISOR" && account.supervisor_can_view_subordinates
       ? await admin.from("users").select("id").eq("manager_id", account.id).eq("status", "ACTIVE")
       : { data: [], error: null };
-    if (directReports.error) throw directReports.error;
+    if (directReports.error) console.warn("[public-pool] subordinate scope lookup unavailable; limiting to own records", directReports.error.code || "unknown");
     if (params.get("counts") === "1") {
       const baseCount = () => admin.from("customers").select("id", { count: "exact", head: true }).is("deleted_at", null);
       const availableQuery = baseCount().eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "AVAILABLE").eq("status", "UNCLAIMED").is("owner_id", null)
@@ -314,19 +315,26 @@ export async function GET(request: NextRequest) {
       tab === "available" && customerIds.length ? admin.from("customer_contacts").select("customer_id,type,value_raw").in("customer_id", customerIds).in("type", ["PHONE", "EMAIL", "WECHAT", "WHATSAPP"]) : Promise.resolve({ data: [], error: null }),
       tab === "available" && customerIds.length ? admin.from("customer_claims").select("customer_id,owner_name,released_at,release_reason,created_at").eq("action", "RELEASE").in("customer_id", customerIds).order("created_at", { ascending: false }) : Promise.resolve({ data: [], error: null }),
     ]);
-    if (owners.error) throw owners.error;
-    if (protections.error) throw protections.error;
-    if (supplements.error) throw supplements.error;
-    // Contact evidence enriches the list only.  A production schema/cache
-    // rollout that temporarily cannot expose this optional table must never
-    // make the entire customer public pool unavailable.
+    // These lookups enrich rows but are not the source of the public-pool
+    // membership itself. A transient/partially applied auxiliary schema must
+    // not turn a valid customer list into a page-level failure.
+    for (const [name, lookup] of [["owners", owners], ["protection", protections], ["supplements", supplements], ["verified contacts", verifiedContacts], ["contact presence", contactPresence], ["release indicators", previousReleases]] as const) {
+      if (lookup.error) console.warn(`[public-pool] ${name} enrichment unavailable`, lookup.error.code || "unknown");
+    }
     const verifiedContactsData = verifiedContacts.error ? [] : verifiedContacts.data || [];
-    if (contactPresence.error && tab === "available") throw new Error("无法核对公海客户联系方式，请稍后重试");
-    const customersWithSavedContact = new Set((contactPresence.data || []).filter((item) => String(item.value_raw || "").trim()).map((item) => item.customer_id));
+    const customersWithSavedContact = new Set((contactPresence.data || [])
+      .filter((item) => String(item.value_raw || "").trim())
+      .map((item) => item.customer_id));
+    // If the optional contact index is temporarily unavailable, use the
+    // contact fields already returned with each public-pool customer. Claim
+    // eligibility is still re-validated against customer_contacts by the
+    // claim endpoint; this fallback is display-only and cannot grant access.
+    if (contactPresence.error && tab === "available") {
+      for (const row of rows) if (hasCustomerContactMethod(row)) customersWithSavedContact.add(row.id);
+    }
     // Only the most recent release is relevant to a new claimant. Keep prior
     // claim cycles and private follow-up details out of the pool list.
     const latestReleaseByCustomer = new Map<string, { at: string; by: string; reason: string }>();
-    if (previousReleases.error) console.warn("[public-pool] release indicators unavailable", previousReleases.error.code);
     for (const release of previousReleases.error ? [] : previousReleases.data || []) {
       if (!latestReleaseByCustomer.has(release.customer_id)) latestReleaseByCustomer.set(release.customer_id, {
         at: release.released_at || release.created_at,
@@ -341,7 +349,7 @@ export async function GET(request: NextRequest) {
     for (const item of supplements.data || []) supplementsByCustomer.set(item.customer_id, [...(supplementsByCustomer.get(item.customer_id) || []), item]);
     const verifiedContactsByCustomer = new Map<string, Record<string, unknown>[]>();
     for (const item of verifiedContactsData) verifiedContactsByCustomer.set(item.customer_id, [...(verifiedContactsByCustomer.get(item.customer_id) || []), item]);
-    const directReportIds = new Set(account.role === "SUPERVISOR" && account.supervisor_can_view_subordinates ? (directReports.data || []).map((item) => item.id) : []);
+    const directReportIds = new Set(account.role === "SUPERVISOR" && account.supervisor_can_view_subordinates && !directReports.error ? (directReports.data || []).map((item) => item.id) : []);
     const data = rows.map((row) => {
       const own = row.owner_id === account.id;
       const teamRead = account.role === "ADMIN" || directReportIds.has(String(row.owner_id || ""));
@@ -405,7 +413,11 @@ export async function GET(request: NextRequest) {
       can_handover: account.role === "ADMIN",
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "客户公海加载失败";
-    return NextResponse.json({ error: message }, { status: authErrorStatus(message) || 400 });
+    const detail = error && typeof error === "object" ? error as { code?: unknown; message?: unknown } : null;
+    const code = typeof detail?.code === "string" ? detail.code : undefined;
+    const rawMessage = typeof detail?.message === "string" ? detail.message : error instanceof Error ? error.message : "";
+    const authStatus = authErrorStatus(rawMessage);
+    console.error("[public-pool] GET failed", { code: code || "unknown" });
+    return NextResponse.json({ error: authStatus ? rawMessage : `客户公海加载失败，请稍后重试${code ? `（${code}）` : ""}` }, { status: authStatus || 500 });
   }
 }

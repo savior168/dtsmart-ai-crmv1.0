@@ -15,5 +15,8 @@ assert.match(view, /response\.status === 429 \|\| response\.status === 503/, "on
 assert.match(view, /signal\.aborted/, "stale filter requests must still be abortable");
 assert.match(view, /当前保留上次成功加载的数据/, "refresh failures must not replace already loaded dashboard data");
 assert.match(view, /工作台返回数据格式异常/, "malformed success responses must be reported clearly");
+assert.match(view, /canImportCustomers \? <Link href="\/import\?destination=private"/, "customer import shortcut must require its configured import permission");
+assert.match(view, /canCreateAiScreening \? <Link href="\/ai-screening\/new"/, "AI screening shortcut must be gated independently");
+assert.match(readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8"), /canCreateAiScreening=\{account\.role === "ADMIN"\}/, "only system administrators may see the AI screening shortcut");
 
 console.log("dashboard load resilience checks passed");
