@@ -880,7 +880,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
                 <colgroup>
                   {[42, 48, 74, 74, 104, 112, 110, 170, 115, ...(canViewProcurement ? [112, 120] : []), 58, 125, 105, 105, 180, 190, 150, ...(canViewProcurement ? [150] : []), ...(canExecute ? [112] : [])].map((width, index) => <col key={index} style={{ width }} />)}
                 </colgroup>
-                <thead className="bg-slate-50 text-xs">
+                <thead className="sticky top-0 z-10 bg-slate-50 text-xs">
                   <tr>
                     {[
                       "选择",

@@ -355,7 +355,7 @@ export function OrderDetailView({ id }: { id: string }) {
           </div> : null}
           <div role="region" aria-label="PI产品明细，可独立滚动" tabIndex={0} className="max-h-[min(65vh,720px)] overflow-auto overscroll-contain border-y">
             <table className={`w-full text-left text-sm ${directPi ? "min-w-[1550px]" : "min-w-[900px]"}`}>
-              <thead className="bg-slate-50 text-xs">
+              <thead className="sticky top-0 z-10 bg-slate-50 text-xs">
                 <tr>
                   {[
                     "序号",
