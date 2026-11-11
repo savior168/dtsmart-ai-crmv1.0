@@ -875,7 +875,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
               {canEditProcurement ? <button type="button" disabled={busy} onClick={() => void saveProcurement()} className="inline-flex h-9 items-center gap-2 rounded-lg bg-amber-700 px-3 text-sm font-medium text-white disabled:opacity-50"><Save size={15}/>{busy ? "正在保存…" : "保存采购信息"}</button> : null}
             </section> : null}
             {error ? <p role="alert" className="mb-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</p> : null}
-            <div className="overflow-x-auto rounded-xl border">
+            <div role="region" aria-label="备货产品明细，可独立滚动" tabIndex={0} className="max-h-[min(65vh,720px)] overflow-auto overscroll-contain rounded-xl border">
               <table className="w-full min-w-[1880px] table-fixed text-left text-sm">
                 <colgroup>
                   {[42, 48, 74, 74, 104, 112, 110, 170, 115, ...(canViewProcurement ? [112, 120] : []), 58, 125, 105, 105, 180, 190, 150, ...(canViewProcurement ? [150] : []), ...(canExecute ? [112] : [])].map((width, index) => <col key={index} style={{ width }} />)}

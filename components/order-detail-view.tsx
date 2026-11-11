@@ -353,7 +353,7 @@ export function OrderDetailView({ id }: { id: string }) {
             <span className="font-semibold">成本待复核</span>
             <span>第 {data.seller_cost_review_line_numbers.join("、")} 项的采购均价高于销售成本，请在对应产品行复核。</span>
           </div> : null}
-          <div className="overflow-x-auto border-y">
+          <div role="region" aria-label="PI产品明细，可独立滚动" tabIndex={0} className="max-h-[min(65vh,720px)] overflow-auto overscroll-contain border-y">
             <table className={`w-full text-left text-sm ${directPi ? "min-w-[1550px]" : "min-w-[900px]"}`}>
               <thead className="bg-slate-50 text-xs">
                 <tr>
