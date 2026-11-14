@@ -76,9 +76,10 @@ export async function requireUser(options: { allowPasswordChange?: boolean } = {
     // the live registry on every request so disabling a custom role takes
     // effect immediately, even when role permissions are cached.
     const definition = await admin.from("app_role_definitions")
-      .select("enabled,assignment_enabled").eq("code", role).maybeSingle();
+      .select("enabled").eq("code", role).maybeSingle();
     if (definition.error) throw new Error("AUTHORIZATION_UNAVAILABLE");
-    if (!definition.data?.enabled || !definition.data.assignment_enabled) throw new Error("UNKNOWN_ROLE");
+    // Disabling new assignments must not invalidate existing users' sessions.
+    if (!definition.data?.enabled) throw new Error("UNKNOWN_ROLE");
   }
   const cachedPermissions = permissionCache.get(role);
   let rolePermissions = cachedPermissions && cachedPermissions.expires > Date.now() ? cachedPermissions.values : [];
