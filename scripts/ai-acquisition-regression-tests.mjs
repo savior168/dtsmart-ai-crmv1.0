@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import "./ai-acquisition-auto-retry-tests.mjs";
 import fs from "node:fs";
 import ts from "typescript";
 import { evaluateAcquisitionGate } from "../lib/ai-acquisition/quality-gate.ts";

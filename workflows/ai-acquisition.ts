@@ -9,6 +9,7 @@ import { acquisitionIndustryMismatchReason } from "../lib/ai-acquisition/decisio
 import { evaluateAcquisitionGate } from "../lib/ai-acquisition/quality-gate";
 import { createScreeningTaskNumber } from "../lib/ai/task-number";
 import { normalizedErrorMessage } from "../lib/ai/error-normalization";
+import { canAutoRetryAcquisitionItem } from "../lib/ai-acquisition/retry-policy";
 
 type AcquisitionTask = {
   id: string; user_id: string; task_number: string; name: string; cost_mode: "FREE_ONLY" | "ADAPTIVE";
@@ -225,6 +226,36 @@ async function screeningState(screeningTaskId: string) {
   const result = await createAdminClient().from("ai_screening_tasks").select("status,pending_count,error_message").eq("id", screeningTaskId).single();
   if (result.error || !result.data) throw result.error || new Error("ACQUISITION_SCREENING_STATE_FAILED");
   return result.data as { status: string; pending_count: number; error_message: string | null };
+}
+
+async function requeueRecoverableScreeningItems(screeningTaskId: string) {
+  "use step";
+  const admin = createAdminClient();
+  const failed = await admin.from("ai_screening_task_items")
+    .select("id,status,analysis_status,result_id,attempt_count,error_code,error_context")
+    .eq("task_id", screeningTaskId).eq("status", "FAILED")
+    .lt("attempt_count", 3).order("id").limit(500);
+  if (failed.error) throw failed.error;
+  const ids = (failed.data || []).filter(canAutoRetryAcquisitionItem).map((item) => item.id);
+  if (!ids.length) return 0;
+  const now = new Date().toISOString();
+  const reset = await admin.from("ai_screening_task_items").update({
+    status: "PENDING", analysis_status: "PENDING", writeback_status: "PENDING",
+    automation_status: null, progress: 0, current_step: "RETRY_PENDING", pipeline_stage: "NORMALIZED",
+    lease_owner: null, lease_token: null, lease_expires_at: null, executor_heartbeat_at: null,
+    error_message: null, error_code: null, error_context: {}, completed_at: null,
+    updated_at: now,
+  }).in("id", ids).eq("status", "FAILED");
+  if (reset.error) throw reset.error;
+  const totals = await admin.rpc("refresh_ai_screening_task_totals", { p_task_id: screeningTaskId });
+  if (totals.error) throw totals.error;
+  const queued = await admin.from("ai_screening_tasks").update({
+    status: "QUEUED", completed_at: null, finished_at: null, error_message: null,
+    active_executor: null, workflow_run_id: null, last_dispatch_at: null, executor_heartbeat_at: null,
+    updated_at: now,
+  }).eq("id", screeningTaskId).eq("status", "COMPLETED").select("id").maybeSingle();
+  if (queued.error) throw queued.error;
+  return queued.data ? ids.length : 0;
 }
 
 async function verificationState(taskId: string, screeningTaskId: string) {
@@ -514,6 +545,13 @@ export async function aiAcquisitionWorkflow(taskId: string, scheduledAt: string 
         if (["COMPLETED","FAILED","CANCELLED"].includes(state.screening.status)) {
           if (state.screening.status !== "COMPLETED") throw new Error(state.screening.error_message || `ACQUISITION_SCREENING_${state.screening.status}`);
           if (Number(state.screening.failed_count || 0) > 0) {
+            const retryCount = await requeueRecoverableScreeningItems(screeningTaskId);
+            if (retryCount > 0) {
+              await setTaskStage(taskId, "VERIFYING", `正在从检查点自动重试 ${retryCount} 条技术失败候选`);
+              await sleep("20s");
+              await dispatchScreening(screeningTaskId);
+              continue;
+            }
             throw new Error(`ACQUISITION_SCREENING_ITEMS_FAILED: ${state.screening.failed_count} 条候选因技术错误未完成核验；已保留检查点，请重试失败项`);
           }
           break;
