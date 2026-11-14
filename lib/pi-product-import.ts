@@ -295,7 +295,7 @@ export function parsePiProductRows(rows: unknown[][], paymentPerCny: number, pay
     const priceCny = pairedCny ? pairedCny.amount : price ? roundMoney(price.currency !== "CNY" ? price.amount / paymentPerCny : price.amount) : null;
     const pricePayment = price && priceCny !== null ? price.currency !== "CNY" ? price.amount : roundMoney(priceCny * paymentPerCny) : null;
     if ((costCny !== null && !validPiMoney(String(costCny))) || (priceCny !== null && !validPiMoney(String(priceCny))) || (pricePayment !== null && !validPiMoney(String(pricePayment))) || (costCny !== null && priceCny !== null && !validPiSellingPrice(String(priceCny), String(costCny)))) {
-      throw new Error(`第${sourceRow}行换算后人民币售价须高于成本价，且金额不能超出允许范围`);
+      throw new Error(`第${sourceRow}行售价或成本金额格式不正确，或超出允许范围`);
     }
     imported.push({ source_row: sourceRow, item_name, brand, model, quality, description: read("description"), description_zh: read("description_zh"),
       quantity: quantityText, unit_price_cny: priceCny === null ? "" : priceCny.toFixed(2), unit_price_payment: pricePayment === null ? "" : pricePayment.toFixed(2),

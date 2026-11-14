@@ -8,6 +8,7 @@ import { manualContactColumns, normalizeManualContacts } from "@/lib/contacts/ma
 import { sqlErrorMessage } from "@/lib/sales-flow";
 import { normalizeAddressPayload } from "@/lib/customers/address-list";
 import { normalizeCustomerGrade } from "@/lib/customers/customer-grade";
+import { activeDescendantIds } from "@/lib/auth/subordinate-scope";
 
 // Only user-entered source data is editable here. AI conclusions, verified
 // contacts, ownership and workflow state must be changed by their dedicated
@@ -73,10 +74,10 @@ export async function GET(_: NextRequest, context: { params: Promise<{ id: strin
     const { data, error } = await admin.from("customers").select("*").eq("id", id).is("deleted_at", null).single();
     if (error) throw error;
     const publicUnclaimed = !data.owner_id && data.acquisition_scope === "PUBLIC_POOL" && data.pool_status === "AVAILABLE" && data.status === "UNCLAIMED";
-    const directReport = account.role === "SUPERVISOR" && account.supervisor_can_view_subordinates && data.owner_id
-      ? await admin.from("users").select("id").eq("id", data.owner_id).eq("manager_id", account.id).eq("status", "ACTIVE").maybeSingle()
-      : { data: null };
-    const mayRead = account.role === "ADMIN" || (account.role === "ORDER_CLERK" && Boolean(data.owner_id)) || data.owner_id === user.id || Boolean(directReport.data) || (account.role !== "ORDER_CLERK" && publicUnclaimed);
+    const subordinateOwner = account.role === "SUPERVISOR" && account.supervisor_can_view_subordinates && data.owner_id
+      ? (await activeDescendantIds(account.id)).includes(data.owner_id)
+      : false;
+    const mayRead = account.role === "ADMIN" || (account.role === "ORDER_CLERK" && Boolean(data.owner_id)) || data.owner_id === user.id || subordinateOwner || (account.role !== "ORDER_CLERK" && publicUnclaimed);
     if (!mayRead) return NextResponse.json({ error: "无权查看其他销售员的客户资料" }, { status: 403 });
     const historicalChannel = publicChannelForUrl(data.website);
     return NextResponse.json({

@@ -5,6 +5,13 @@ import { resolve } from "node:path";
 const read = (path) => readFileSync(resolve(process.cwd(), path), "utf8");
 
 const permissionCatalog = read("lib/auth/permissions.ts");
+const currentUserAuth = read("lib/auth/current-user.ts");
+assert.match(currentUserAuth, /select\("enabled"\)\.eq\("code", role\)/,
+  "assignment_enabled 只限制后续分配，不能阻止已存在自定义角色用户登录");
+assert.doesNotMatch(currentUserAuth, /definition\.data\?\.assignment_enabled/,
+  "existing assignment must not depend on assignment_enabled");
+assert.match(currentUserAuth, /const overrides = await admin\.from\("user_permission_overrides"\)[\s\S]*?if \(overrides\.error\) throw new Error\("AUTHORIZATION_UNAVAILABLE"\)[\s\S]*?const denied = new Set/,
+  "user override read failures must fail closed so DENY rules cannot be skipped");
 assert.match(read("app/api/reports/sales/performance/route.ts"), /hasPermission\(account, "sales\.performance\.actual_profit\.view"\)/,
   "实际毛利和纯利必须在服务端按独立数据权限判定，不能仅靠角色或前端隐藏");
 assert.match(permissionCatalog, /export function normalizeRole[\s\S]*throw new Error\("UNKNOWN_ROLE"\)/, "未知角色必须拒绝登录，不能默认为销售员");
@@ -74,6 +81,10 @@ for (const name of ["set_notification_delivery_policy", "publish_system_announce
 }
 
 const roleApi = read("app/api/admin/roles/route.ts");
+assert.match(roleApi, /const enabled = body\.enabled;[\s\S]*typeof enabled !== "boolean"/, "角色权限接口必须拒绝字符串等非布尔状态，避免 'false' 被误当成开启");
+const userPermissionsApi = read("app/api/admin/users/[id]/permissions/route.ts");
+assert.match(userPermissionsApi, /if \(targetError\) throw targetError;\s*if \(!target\) return NextResponse\.json\(\{ error: "用户不存在" \}, \{ status: 404 \}\)/, "用户权限读取必须区分数据库故障与用户不存在");
+assert.doesNotMatch(userPermissionsApi, /targetError \|\| !target/, "用户权限读取不能把数据库故障误报为 404");
 for (const [prefix, page, batchPage, listApi, detailApi, listUi, detailUi] of [
   ["orders", "app/orders/[id]/preview/page.tsx", "app/orders/batch-preview/page.tsx", "app/api/orders/route.ts", "app/api/orders/[id]/route.ts", "components/orders-view.tsx", "components/order-detail-view.tsx"],
   ["stock", "app/stock-orders/[id]/preview/page.tsx", "app/stock-orders/batch-preview/page.tsx", "app/api/stock-orders/route.ts", "app/api/stock-orders/[id]/route.ts", "components/stock-orders-view.tsx", "components/stock-order-detail-view.tsx"],
@@ -138,7 +149,7 @@ assert.ok(existsSync(resolve(process.cwd(), evidencePage)), "客户AI分析依�
 assert.ok(!existsSync(resolve(process.cwd(), "app/ai-screening/customers/[customerId]/evidence/page.tsx")), "客户依据页不能再继承AI任务布局");
 assert.match(read(evidencePage), /protectPage\("customers\.ai_evidence_view"\)/, "完整客户依据页面必须校验独立权限");
 const evidenceApi = read("app/api/ai/evidence/[customerId]/route.ts");
-assert.match(evidenceApi, /canReadCustomerAiEvidence\(\{[\s\S]*customerOwnerId: customer\.data\.owner_id[\s\S]*isDirectReport/, "客户依据授权必须以当前归属人和直属下属为准");
+assert.match(evidenceApi, /canReadCustomerAiEvidence\(\{[\s\S]*customerOwnerId: customer\.data\.owner_id[\s\S]*isAuthorizedSubordinate/, "客户依据授权必须以当前归属人和授权多级下属为准");
 assert.match(evidenceApi, /if \(!canReadOwnedCustomer && \(!requestedTaskId \|\| !canReadAiResults\)\) throw new Error\("FORBIDDEN"\)/, "无客户依据权限者只能进入有权限的指定任务校验");
 assert.match(evidenceApi, /if \(!canReadOwnedCustomer && !canViewTask\) throw new Error\("FORBIDDEN"\)/, "未核实任务归属与客户关联不得读取依据");
 assert.match(evidenceApi, /if \(canViewTask\) resultQuery = resultQuery\.eq\("task_id", requestedTaskId\)/, "仅已授权任务可读取指定任务结果");

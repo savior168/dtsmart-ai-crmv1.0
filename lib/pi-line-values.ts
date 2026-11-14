@@ -14,5 +14,5 @@ export function validPiMoney(value: unknown) {
 }
 
 export function validPiSellingPrice(price: unknown, cost: unknown) {
-  return validPiMoney(price) && validPiMoney(cost) && Number(price) > Number(cost);
+  return validPiMoney(price) && validPiMoney(cost);
 }

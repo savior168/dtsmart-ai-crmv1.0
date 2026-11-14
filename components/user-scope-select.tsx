@@ -51,9 +51,10 @@ export function UserScopeSelect({
         setDefaultValue(body.profile.id || "");
         setCanSelectAll(Boolean(body.can_select_all));
         setDefaultAll(Boolean(body.default_all));
-        if (initializeDefault && elevated && !valueRef.current) {
-          // 主管和系统管理员也默认查看自己的数据；只有主动选择时才扩大范围。
-          onChangeRef.current(body.profile.id);
+        if (elevated && !valueRef.current) {
+          // Keep the visible fallback and the API query in the same scope.
+          // Explicit initialization still defaults managers to their own data.
+          onChangeRef.current(initializeDefault ? body.profile.id : body.default_all && body.can_select_all ? "all" : body.profile.id);
         }
       })
       .catch(() => { if (active) setLoaded(true); });

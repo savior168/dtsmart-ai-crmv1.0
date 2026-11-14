@@ -285,7 +285,7 @@ assert.match(customerCrmView, /data\.ai_result\?\.target_decision==="VALID"\?"�
 assert.match(customerCrmApi, /publicReadOnly[\s\S]*followups: \[\], attachments: \[\], quotes: \[\]/, "未认领公海详情不得返回跟进、附件或报价业务数据");
 assert.match(customerCrmApi, /!canReadAll && !isOwner && !publicReadOnly/, "客户详情必须先按归属/全量权限/公海状态确认读取范围");
 assert.doesNotMatch(customerCrmApi, /created_by\.eq\.\$\{user\.id\}/, "历史创建人不得因 created_by 绕过现有客户归属读取业务数据");
-assert.match(customerDetailApi, /publicUnclaimed[\s\S]*directReport[\s\S]*mayRead/, "基础客户详情接口必须与公海详情采用同一读取边界，并限制主管直属下级");
+assert.match(customerDetailApi, /publicUnclaimed[\s\S]*subordinateOwner[\s\S]*mayRead/, "基础客户详情接口必须与公海详情采用同一读取边界，并限制主管有效下属");
 assert.doesNotMatch(attachmentApi, /let allowed=data\.uploaded_by===account\.id/, "附件读取不得仅因上传人身份放行");
 assert.match(attachmentApi, /Content-Disposition[\s\S]*preview \? "inline"/, "附件预览必须沿用同一服务端授权下载入口");
 assert.match(sidebar, /useLayoutEffect[\s\S]*URLSearchParams\(window\.location\.search\)\.get\("from"\) === "pool"[\s\S]*客户中心 \/ 客户公海 \/ 客户详情/, "从客户公海进入详情时面包屑必须在浏览器绘制前稳定为客户公海来源");
@@ -304,7 +304,7 @@ assert.match(poolView, /refreshAssignmentHistory[\s\S]*loadTabCounts[\s\S]*histo
 assert.match(customersApi, /exportMode \? customerExportFields : customerListFields[\s\S]*creator: creatorById[\s\S]*owner: creatorById/, "我的客户导出必须加载安全字段，且跟进字段异常时仍保留归属信息");
 assert.match(poolApi, /exportMode && account\.role === "ADMIN" \? "\*" :/, "管理员可导出完整公海字段，获授权的普通角色只能读取脱敏范围");
 assert.match(releaseHistoryApi, /requestedOwnerId\(request, account, "customers\.data_all"\)/, "主动释放历史必须在服务端按用户权限限定原归属人范围");
-assert.match(ownerScope, /if \(!hasPermission\(account, dataPermission\)\) return account\.id[\s\S]*manager_id", account\.id/, "普通销售只能查看自己的释放记录，主管只能查看直属下级");
+assert.match(ownerScope, /if \(!hasPermission\(account, dataPermission\)\) return account\.id[\s\S]*activeDescendantIds\(account\.id\)/, "普通销售只能查看自己的释放记录，主管只能查看有效下属");
 assert.match(protectionPanel, /保护到期与续期[\s\S]*主动释放历史[\s\S]*view==="renewal"[\s\S]*ReleaseHistoryPanel/, "保护续期与主动释放历史必须分开显示");
 assert.match(poolApi, /tab === "available" && customerIds\.length[\s\S]*select\("customer_id,owner_name,released_at,release_reason,created_at"\)[\s\S]*last_release: tab === "available"/, "仅待认领公海展示最近一次释放摘要");
 assert.match(poolApi, /latestReleaseByCustomer\.has\(release\.customer_id\)[\s\S]*publicReleaseReason\(release\.release_reason\)/, "公海不得展示完整历史归属链或未经脱敏的释放原因");
@@ -336,7 +336,7 @@ assert.match(
 assert.match(poolApi, /subordinate scope lookup unavailable; limiting to own records/, "主管团队范围查询失败必须留有安全降级日志");
 assert.match(
   poolApi,
-  /const directReportIds = new Set\(account\.role === "SUPERVISOR" && account\.supervisor_can_view_subordinates && !directReports\.error \? \(directReports\.data \|\| \[\]\)\.map/,
+  /let subordinateIds: string\[\] = \[\][\s\S]*subordinateIds = await activeDescendantIds\(account\.id\)[\s\S]*const directReportIds = new Set\(subordinateIds\)/,
   "主管团队范围查询失败时必须安全降级为本人数据而非整页失败或扩大权限",
 );
 assert.match(poolApi, /authStatus \|\| 500/, "公海服务端异常须作为服务端错误报告，不能误报为客户端请求错误");

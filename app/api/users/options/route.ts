@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { hasPermission, requireUser } from "@/lib/auth/current-user";
 import { PERMISSION_CATALOG } from "@/lib/auth/permissions";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { activeDescendantIds } from "@/lib/auth/subordinate-scope";
 
 export async function GET(request: Request) {
   try {
@@ -16,15 +17,24 @@ export async function GET(request: Request) {
       || Boolean(permission && definition?.kind === "DATA" && hasPermission(profile, permission));
     if (!canSelectOwner) return NextResponse.json({ profile, users: [], can_select_owner: false });
     if (creatorOptions && !["orders.data_all", "stock.data_all"].includes(permission)) throw new Error("FORBIDDEN");
-    let query = createAdminClient().from("users").select("id,name,email,role,status");
-    if (!creatorOptions) query = query.eq("status", "ACTIVE").in("role", ["ADMIN", "SUPERVISOR", "SALES"]);
-    if (profile.role === "SUPERVISOR") query = profile.supervisor_can_view_subordinates
-      ? query.or(`id.eq.${profile.id},manager_id.eq.${profile.id}`)
-      : query.eq("id", profile.id);
-    const { data, error } = await query.order("name");
-    if (error) throw error;
-    return NextResponse.json({ profile, users: data || [], can_select_owner: true,
-      can_select_all: profile.role !== "SUPERVISOR",
+    const admin = createAdminClient();
+    const descendantIds = profile.role === "SUPERVISOR" && profile.supervisor_can_view_subordinates
+      ? await activeDescendantIds(profile.id) : null;
+    const users: Array<{ id: string; name: string; email: string; role: string; status: string }> = [];
+    const pageSize = 500;
+    for (let offset = 0; ; offset += pageSize) {
+      let query = admin.from("users").select("id,name,email,role,status");
+      if (!creatorOptions) query = query.eq("status", "ACTIVE").in("role", ["ADMIN", "SUPERVISOR", "SALES"]);
+      if (profile.role === "SUPERVISOR") query = descendantIds
+        ? query.in("id", descendantIds)
+        : query.eq("id", profile.id);
+      const { data, error } = await query.order("name").order("id").range(offset, offset + pageSize - 1);
+      if (error) throw error;
+      users.push(...(data || []));
+      if (!data || data.length < pageSize) break;
+    }
+    return NextResponse.json({ profile, users, can_select_owner: true,
+      can_select_all: profile.role !== "SUPERVISOR" || Boolean(permission === "sales.performance.data_all" && descendantIds && descendantIds.length > 1),
       default_all: !["ADMIN", "SUPERVISOR"].includes(profile.role) || creatorOptions });
   } catch (error) {
     const message = error instanceof Error ? error.message : "用户加载失败";

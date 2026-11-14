@@ -5,6 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { productTrendPoints } from "@/lib/reports/product-trend";
 import { performanceTrendPeriods } from "@/lib/reports/performance-trend-periods";
 import { actualOrderProfit, actualReceiptCostByItem, summarizeActualOrders, type ReceiptAllocation } from "@/lib/reports/actual-receipt-cost";
+import { activeDescendantIds } from "@/lib/auth/subordinate-scope";
 
 const PAGE_SIZE = 500;
 const PERFORMANCE_STATUSES = ["CONFIRMED", "STOCK_DRAFT", "WAITING_STOCK", "PREPARING", "RECEIVED", "SORTING", "READY_TO_SHIP", "SHIPPED", "READY", "SHORTAGE"];
@@ -17,21 +18,18 @@ export async function GET(request: NextRequest) {
     if (!from || !to || !Number.isFinite(Date.parse(from)) || !Number.isFinite(Date.parse(to)) || Date.parse(from) >= Date.parse(to)) {
       return NextResponse.json({ error: "无效日期范围" }, { status: 400 });
     }
-    const teamScopeRequested = account.role === "SUPERVISOR" && request.nextUrl.searchParams.get("scope") === "team";
+    const teamScopeRequested = account.role === "SUPERVISOR" && (request.nextUrl.searchParams.get("scope") === "team" || request.nextUrl.searchParams.get("user_id") === "all");
     if (teamScopeRequested && (!account.supervisor_can_view_subordinates || !hasPermission(account, "sales.performance.data_all"))) {
       return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
     }
     const selectedOwner = await requestedOwnerId(request, account, "sales.performance.data_all");
     const admin = createAdminClient();
-    // requestedOwnerId validates every non-admin selection against the direct
-    // report relationship and the live role permission before privileged reads.
+    // requestedOwnerId validates non-admin selections against the active
+    // multi-level reporting chain and the live permission before privileged reads.
     let allowedOwners = performanceOwnerFilter(account.role, account.id, selectedOwner);
     let teamOwnerIds: string[] | null = null;
     if (teamScopeRequested) {
-      const { data: reports, error } = await admin.from("users").select("id")
-        .eq("manager_id", account.id).eq("role", "SALES").eq("status", "ACTIVE");
-      if (error) throw error;
-      teamOwnerIds = [...new Set([account.id, ...(reports || []).map((row) => String(row.id))])];
+      teamOwnerIds = await activeDescendantIds(account.id);
       allowedOwners = teamOwnerIds;
     }
     const includeTeamLeaderboard = account.role === "ADMIN" && selectedOwner === null || teamScopeRequested;

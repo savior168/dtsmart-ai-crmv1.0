@@ -564,7 +564,9 @@ assert.doesNotMatch(acquisitionTaskRoute,/decisions\.map\([\s\S]*count:\s*"exact
 assert.match(acquisitionTaskCenter,/!canViewUsage \|\| costLoadedScopeRef\.current===scopeUserId[\s\S]*all_time:"1", overview:"1"[\s\S]*historyResponse/,"任务中心费用概览应在进入页面时独立读取，展开详情不应再次触发扫描");
 assert.doesNotMatch(listRoute,/api_cost_ledger|get_ai_acquisition_usage_summary/,"任务列表不得读取或聚合费用流水，真实费用必须按需进入详情查看");
 assert.match(listRoute,/mode === "summary"[\s\S]*mode === "filters"[\s\S]*if \(coreOnly\)[\s\S]*mode === "page"/,"任务中心必须分离汇总、筛选项和当前页用量，不能让慢查询阻塞核心列表");
-assert.match(acquisitionTaskCenter,/coreParams\.set\("core", "1"\)[\s\S]*summaryParams\.set\("mode","summary"\)[\s\S]*setSummary\(body\.summary\)[\s\S]*fetch\(`\/api\/ai-acquisition\/tasks\?\$\{coreParams\}`/,"任务中心进入页面即并行读取真实汇总与核心任务");
+assert.match(acquisitionTaskCenter,/coreParams\.set\("core", "1"\)[\s\S]*fetch\(`\/api\/ai-acquisition\/tasks\?\$\{coreParams\}`/,"任务中心核心列表应独立读取");
+assert.match(acquisitionTaskCenter,/mode:"summary"[\s\S]*setSummary\(body\.summary\)[\s\S]*summaryRetry/,"任务中心汇总应独立读取并支持重试");
+assert.match(acquisitionTaskCenter,/mode:"filters"[\s\S]*filterRetry/,"任务中心筛选项应独立读取并支持刷新");
 assert.match(acquisitionTaskCenter,/summaryLoading\?<span className="block h-7 w-16 animate-pulse[\s\S]*summaryError[\s\S]*重试统计/,"未加载或加载失败的统计不得显示为真实的零或突兀文字");
 assert.match(usageRoute,/if \(overview\)[\s\S]*head:true[\s\S]*today_summary:[\s\S]*const candidates:CandidateRow/,"任务中心费用概览不得逐行下载全部历史候选");
 assert.match(acquisitionTaskCenter,/t\.usage\?`\$\{formatNumber\(t\.usage\.google_calls\)\} 次`:pageUsageError\?"暂不可用":"统计中…"[\s\S]*formatCost\(t\.usage\.total_cost_usd\)[\s\S]*formatTokens\(t\.usage\.total_tokens\)[\s\S]*正在读取真实台账/,"任务中心必须直接显示Google调用、实际费用与Token，且不得用空数据伪装为零费用");
@@ -575,9 +577,9 @@ assert.match(vercelConfig,/"schedule"\s*:\s*"\*\/5 \* \* \* \*"/,"停滞任务�
 assert.match(acquisitionTaskReport,/report=1[\s\S]*body\.report_candidates\|\|\[\]/,"任务报告必须单次请求服务端高价值客户摘要，不能按客户总量并发翻页");
 assert.match(acquisitionTaskReport,/data\.usage_error[\s\S]*usage\?formatCost\(totalCost\):"—"/,"报告费用台账超时时必须提示并隐藏未知金额，不能伪装为零费用");
 assert.doesNotMatch(acquisitionTaskReport,/Promise\.all\(Array\.from\(\{length:pages-1\}/,"任务报告不得在浏览器按页并发请求全部入池客户");
-assert.match(aiOwnerScope,/canReadAiOwner[\s\S]*manager_id[\s\S]*account\.id/,"AI跨用户详情必须把主管限制为本人和直属下属");
-assert.match(acquisitionTaskRoute,/canReadAiOwner\(account, result\.data\.user_id\)/,"AI获客任务详情必须执行直属下属服务端校验");
-assert.match(acquisitionEvidenceRoute,/canReadAiOwner\(account, ownerId\)/,"AI获客核验依据必须执行直属下属服务端校验");
+assert.match(aiOwnerScope,/canReadAiOwner[\s\S]*activeDescendantIds\(account\.id\)\)\.includes\(ownerId\)/,"AI跨用户详情必须把主管限制为本人和已授权的多级下属");
+assert.match(acquisitionTaskRoute,/canReadAiOwner\(account, result\.data\.user_id\)/,"AI获客任务详情必须执行下属范围服务端校验");
+assert.match(acquisitionEvidenceRoute,/canReadAiOwner\(account, ownerId\)/,"AI获客核验依据必须执行下属范围服务端校验");
 assert.match(customerResults,/placeholder="任务名称或编号"[\s\S]*客户、电话、邮箱、WhatsApp、地址或链接[\s\S]*全部AI等级[\s\S]*SearchableMultiSelectFilter className="w-44 shrink-0" label="国家\/地区"[\s\S]*SearchableMultiSelectFilter className="w-44 shrink-0" label="所属行业"[\s\S]*CompactDateRange label="获客日期"[\s\S]*获客开始日期[\s\S]*获客结束日期/,"历史客户结果必须在紧凑筛选栏按任务、客户信息、AI等级、国家、行业和获客日期筛选，并与客户公海保持相同顺序和宽度");
 assert.match(fs.readFileSync(new URL("../components/ui/searchable-multi-select-filter.tsx",import.meta.url),"utf8"),/value: string\[\][\s\S]*搜索\$\{label\}[\s\S]*value\.includes[\s\S]*Check size=\{11\}/,"行业和国家必须共用同一套可搜索多选控件、字体颜色和勾选样式");
 assert.doesNotMatch(customerResults,/ACQUISITION_COUNTRY_GROUPS|ACQUISITION_INDUSTRY_TERMS/,"客户结果筛选不得继续展示与当前结果无关的全量配置项");

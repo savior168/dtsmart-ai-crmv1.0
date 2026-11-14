@@ -362,7 +362,7 @@ const userScopeSelect = read("components/user-scope-select.tsx");
 assert.match(currentUserAuth, /if \(!requested \|\| requested === account\.id \|\| requested\.toLowerCase\(\) === "all"\) return account\.id/, "主管服务端默认必须只读取自己的数据");
 assert.match(currentUserAuth, /account\.role === "ADMIN"[\s\S]*requested\.toLowerCase\(\) === "all"/, "系统管理员仍须支持主动选择全部用户数据");
 assert.match(currentUserAuth, /account\.role === "ORDER_CLERK"[\s\S]*orders\.data_all[\s\S]*return null/, "跟单员须能查看全部 PI 归属人");
-assert.match(currentUserAuth, /eq\("manager_id", account\.id\)/, "主管跨用户读取必须在服务端限定直属下级");
+assert.match(currentUserAuth, /activeDescendantIds\(account\.id\)\)\.includes\(requested\)/, "主管跨用户读取必须在服务端限定有效下属层级");
 assert.match(
   userScopeSelect,
   /setDefaultAll\(Boolean\(body\.default_all\)\)[\s\S]*const selected = \(value === "all" && !canSelectAll \? defaultValue : value\) \|\| \(!initializeDefault \? \(defaultAll \? "all" : defaultValue\) : ""\)/,

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { hasPermission, requireUser } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { activeDescendantIds } from "@/lib/auth/subordinate-scope";
 
 async function access(id: string) {
   const { account, supabase } = await requireUser();
@@ -13,8 +14,7 @@ async function access(id: string) {
     if (!ownerId) return false;
     if (ownerId === account.id || account.role === "ADMIN") return true;
     if (account.role !== "SUPERVISOR" || !account.supervisor_can_view_subordinates) return false;
-    const direct = await admin.from("users").select("id").eq("id", ownerId).eq("manager_id", account.id).eq("status", "ACTIVE").maybeSingle();
-    return Boolean(direct.data);
+    return (await activeDescendantIds(account.id)).includes(ownerId);
   }
   if (attachment.customer_id) {
     const customer = await admin.from("customers").select("owner_id").eq("id", attachment.customer_id).single();

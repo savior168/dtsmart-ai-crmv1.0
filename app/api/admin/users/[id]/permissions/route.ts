@@ -15,7 +15,8 @@ export async function GET(_: NextRequest, context: { params: Promise<{ id: strin
       admin.from("users").select("id,name,email,role,status,supervisor_can_view_subordinates").eq("id", id).maybeSingle(),
       admin.from("user_permission_overrides").select("permission_code,effect,updated_at").eq("user_id", id),
     ]);
-    if (targetError || !target) return NextResponse.json({ error: "用户不存在" }, { status: 404 });
+    if (targetError) throw targetError;
+    if (!target) return NextResponse.json({ error: "用户不存在" }, { status: 404 });
     if (overrideError) throw overrideError;
     const role = normalizeRole(target.role);
     const { data: roleRows, error: roleError } = await admin.from("role_permission_settings")
@@ -49,7 +50,8 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     }
     const admin = createAdminClient();
     const { data: target, error: targetError } = await admin.from("users").select("id,name,email,role").eq("id", id).maybeSingle();
-    if (targetError || !target) return NextResponse.json({ error: "用户不存在" }, { status: 404 });
+    if (targetError) throw targetError;
+    if (!target) return NextResponse.json({ error: "用户不存在" }, { status: 404 });
     if (normalizeRole(target.role) === "ADMIN") return NextResponse.json({ error: "系统管理员固定拥有全部权限" }, { status: 400 });
     const changes = userPermissionChanges(permission, effect);
     if (effect === "INHERIT") {

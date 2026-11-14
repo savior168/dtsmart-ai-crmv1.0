@@ -3,6 +3,7 @@ import { authErrorStatus, hasPermission, requirePermission } from "@/lib/auth/cu
 import { createAdminClient } from "@/lib/supabase/admin";
 import { dedupeVerifiedContactRows, normalizeEmailStrict, normalizePhoneInternational } from "@/lib/ai/contact-intelligence";
 import { canReadCustomerAiEvidence } from "@/lib/ai/customer-evidence-access";
+import { activeDescendantIds } from "@/lib/auth/subordinate-scope";
 
 function cleanStoredDiscoveredValues(value: unknown, type: "EMAIL" | "PHONE", country: unknown, originals: unknown[]) {
   const normalize = (item: unknown) => type === "EMAIL" ? normalizeEmailStrict(String(item || "")) : normalizePhoneInternational(String(item || ""), String(country || ""));
@@ -34,10 +35,10 @@ export async function GET(_: NextRequest, context: { params: Promise<{ id: strin
     if (profileResult.error) throw profileResult.error;
     const customer = customerResult.data;
     const isOwner = customer.owner_id === user.id;
-    const directReport = account.role === "SUPERVISOR" && account.supervisor_can_view_subordinates && customer.owner_id
-      ? await admin.from("users").select("id").eq("id", customer.owner_id).eq("manager_id", account.id).eq("status", "ACTIVE").maybeSingle()
-      : { data: null };
-    const canReadAll = account.role === "ADMIN" || (account.role === "ORDER_CLERK" && Boolean(customer.owner_id)) || Boolean(directReport.data);
+    const subordinateIds = account.role === "SUPERVISOR" && account.supervisor_can_view_subordinates
+      ? await activeDescendantIds(account.id) : [];
+    const subordinateOwner = Boolean(customer.owner_id && subordinateIds.includes(customer.owner_id));
+    const canReadAll = account.role === "ADMIN" || (account.role === "ORDER_CLERK" && Boolean(customer.owner_id)) || subordinateOwner;
     const publicReadOnly = account.role !== "ORDER_CLERK" && isPublicUnclaimed(customer);
     if (!canReadAll && !isOwner && !publicReadOnly) throw new Error("FORBIDDEN");
 
@@ -59,7 +60,7 @@ export async function GET(_: NextRequest, context: { params: Promise<{ id: strin
     const aiCompleted = Boolean(customer.ai_screening_done && latestAi.data);
     const canViewAiEvidence = aiCompleted && fullAiEvidenceAccess && canReadCustomerAiEvidence({
       viewerId: user.id, viewerRole: account.role, customerOwnerId: customer.owner_id,
-      isDirectReport: Boolean(directReport.data),
+      isAuthorizedSubordinate: subordinateOwner,
       canViewCustomerEvidence: hasPermission(account, "customers.ai_evidence_view"),
       canViewAiResults: hasPermission(account, "ai.results.view"),
     });
@@ -98,7 +99,7 @@ export async function GET(_: NextRequest, context: { params: Promise<{ id: strin
     const usersResult = account.role === "ADMIN"
       ? await supabase.from("users").select("id,name,email,role").eq("status", "ACTIVE").order("name")
       : account.role === "SUPERVISOR" && account.supervisor_can_view_subordinates
-        ? await admin.from("users").select("id,name,email,role").eq("status", "ACTIVE").or(`id.eq.${account.id},manager_id.eq.${account.id}`).order("name")
+        ? await admin.from("users").select("id,name,email,role").eq("status", "ACTIVE").in("id", subordinateIds).order("name")
         : { data: [], error: null };
     const latestProtection = (protectionResult.data || [])[0] || null;
     const activeProtection = latestProtection?.status === "ACTIVE" && (!latestProtection.expire_date || new Date(latestProtection.expire_date).getTime() > Date.now()) ? latestProtection : null;

@@ -5,6 +5,9 @@ import { ACCOUNT_STATUSES } from "@/lib/auth/permissions";
 import { readRoleDefinitions, resolveAssignableRole } from "@/lib/auth/role-registry";
 import { canApplyLifecycleAction, canSetTimedLock, canUnlockAccount, effectiveAccountStatus } from "@/lib/auth/lockout";
 import { isUsername, listAuthUsers } from "@/lib/auth/identifiers";
+import { managerAssignmentCreatesCycle } from "@/lib/auth/subordinate-scope";
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function temporaryPassword() {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
@@ -46,10 +49,16 @@ export async function GET(request: NextRequest) {
     const from = (page - 1) * pageSize;
     const { data, count, error } = await query.order("created_at", { ascending: false }).range(from, from + pageSize - 1);
     if (error) throw error;
-    const supervisors = await admin.from("users").select("id,name,email,role").in("role", ["ADMIN", "SUPERVISOR"]).eq("status", "ACTIVE").order("role").order("name");
-    if (supervisors.error) throw supervisors.error;
+    const supervisors: Array<{ id: string; name: string; email: string; role: string; manager_id: string | null; locked_until: string | null }> = [];
+    for (let offset = 0; ; offset += 500) {
+      const batch = await admin.from("users").select("id,name,email,role,manager_id,locked_until")
+        .eq("status", "ACTIVE").order("name").order("id").range(offset, offset + 499);
+      if (batch.error) throw batch.error;
+      supervisors.push(...(batch.data || []));
+      if (!batch.data || batch.data.length < 500) break;
+    }
     const roles = await readRoleDefinitions(admin);
-    return NextResponse.json({ data: (data || []).map(item => ({ ...item, status: effectiveAccountStatus(item.status, item.locked_until) })), count: count || 0, page, pageSize, supervisors: supervisors.data || [], roles: roles.data });
+    return NextResponse.json({ data: (data || []).map(item => ({ ...item, status: effectiveAccountStatus(item.status, item.locked_until) })), count: count || 0, page, pageSize, supervisors, roles: roles.data });
   } catch (error) {
     const message = error instanceof Error ? error.message : "用户列表加载失败";
     return NextResponse.json({ error: message }, { status: authErrorStatus(message) });
@@ -105,14 +114,17 @@ export async function PATCH(request: NextRequest) {
       const role = await resolveAssignableRole(admin, body.role);
       if (!role) return NextResponse.json({ error: "角色不存在、已停用或尚未通过权限安全验证" }, { status: 400 });
       await protectLastAdmin(target, role, undefined);
-      let managerId: string | null = null;
-      if (role === "SALES") {
-        managerId = String(body.manager_id || target.manager_id || "");
-        if (!managerId || managerId === target.id) return NextResponse.json({ error: "销售员必须选择其他已启用的主管或系统管理员作为上级" }, { status: 400 });
+      const managerId = String(body.manager_id !== undefined ? body.manager_id || "" : target.manager_id || "") || null;
+      if (role === "SALES" && !managerId) return NextResponse.json({ error: "销售员必须选择一名已启用的上级" }, { status: 400 });
+      if (managerId === target.id) return NextResponse.json({ error: "用户不能设置自己为上级" }, { status: 400 });
+      if (managerId && await managerAssignmentCreatesCycle(target.id, managerId)) {
+        return NextResponse.json({ error: "不能将下属设为上级，否则会形成循环" }, { status: 400 });
+      }
+      if (managerId) {
         const { data: manager, error: managerError } = await admin.from("users").select("id,role,status,locked_until").eq("id", managerId).maybeSingle();
         if (managerError) throw managerError;
-        if (!manager || !["ADMIN", "SUPERVISOR"].includes(manager.role) || manager.status !== "ACTIVE" || (manager.locked_until && Date.parse(manager.locked_until) > Date.now())) {
-          return NextResponse.json({ error: "请选择未锁定且已启用的主管或系统管理员作为上级" }, { status: 400 });
+        if (!manager || manager.status !== "ACTIVE" || (manager.locked_until && Date.parse(manager.locked_until) > Date.now())) {
+          return NextResponse.json({ error: "请选择未锁定且已启用的用户作为上级" }, { status: 400 });
         }
       }
       Object.assign(update, { role, manager_id: managerId, force_logout_at: new Date().toISOString(), review_reason: reason || null });
@@ -120,12 +132,16 @@ export async function PATCH(request: NextRequest) {
     } else if (action === "UPDATE_MANAGER") {
       const managerId = String(body.manager_id || "");
       if (!managerId) {
-        if (target.role === "SALES") return NextResponse.json({ error: "销售员必须设置一名已启用的主管" }, { status: 400 });
+        if (target.role === "SALES") return NextResponse.json({ error: "销售员必须设置一名已启用的上级" }, { status: 400 });
         Object.assign(update, { manager_id: null, review_reason: reason || null });
       } else {
         if (managerId === target.id) return NextResponse.json({ error: "用户不能设置自己为上级" }, { status: 400 });
-        const { data: manager } = await admin.from("users").select("id,name,email,role,status").eq("id", managerId).maybeSingle();
-        if (!manager || !["ADMIN", "SUPERVISOR"].includes(manager.role) || manager.status !== "ACTIVE") return NextResponse.json({ error: "请选择已启用的主管或系统管理员作为上级" }, { status: 400 });
+        if (await managerAssignmentCreatesCycle(target.id, managerId)) {
+          return NextResponse.json({ error: "不能将下属设为上级，否则会形成循环" }, { status: 400 });
+        }
+        const { data: manager, error: managerError } = await admin.from("users").select("id,name,email,role,status,locked_until").eq("id", managerId).maybeSingle();
+        if (managerError) throw managerError;
+        if (!manager || manager.status !== "ACTIVE" || (manager.locked_until && Date.parse(manager.locked_until) > Date.now())) return NextResponse.json({ error: "请选择未锁定且已启用的用户作为上级" }, { status: 400 });
         Object.assign(update, { manager_id: manager.id, review_reason: reason || null });
       }
     } else if (action === "FORCE_LOGOUT") Object.assign(update, { force_logout_at: new Date().toISOString(), review_reason: reason || "管理员强制退出" });
@@ -182,20 +198,14 @@ export async function POST(request: NextRequest) {
       if (authUsers.some((item) => String(item.user_metadata?.username || item.user_metadata?.name || "").trim().toLowerCase() === normalizedName)) {
         return NextResponse.json({ error: "该用户名已被使用" }, { status: 409 });
       }
+      if (role === "SALES" && !managerId) return NextResponse.json({ error: "请为销售员选择直属上级" }, { status: 400 });
       let effectiveManager: string | null = null;
-      if (role === "SALES") {
-        if (managerId) {
-          const { data: manager } = await admin.from("users").select("id,role,status").eq("id", managerId).maybeSingle();
-          if (!manager || !["ADMIN", "SUPERVISOR"].includes(manager.role) || manager.status !== "ACTIVE") return NextResponse.json({ error: "销售员必须选择已启用的直属主管或系统管理员" }, { status: 400 });
-          effectiveManager = manager.id;
-        } else {
-          const { data: preferredManager } = await admin.from("users").select("id").in("role", ["ADMIN", "SUPERVISOR"]).eq("status", "ACTIVE").or("name.ilike.Eva,email.eq.3041624715@qq.com").order("created_at").limit(1).maybeSingle();
-          if (!preferredManager) {
-            const { data: fallbackManager } = await admin.from("users").select("id").in("role", ["ADMIN", "SUPERVISOR"]).eq("status", "ACTIVE").order("role").order("created_at").limit(1).maybeSingle();
-            if (!fallbackManager) return NextResponse.json({ error: "请先启用至少一名主管或系统管理员，或手动选择上级" }, { status: 400 });
-            effectiveManager = fallbackManager.id;
-          } else effectiveManager = preferredManager.id;
-        }
+      if (managerId) {
+        if (!UUID.test(managerId)) return NextResponse.json({ error: "上级账号无效" }, { status: 400 });
+        const { data: manager, error: managerError } = await admin.from("users").select("id,status,locked_until").eq("id", managerId).maybeSingle();
+        if (managerError) throw managerError;
+        if (!manager || manager.status !== "ACTIVE" || (manager.locked_until && Date.parse(manager.locked_until) > Date.now())) return NextResponse.json({ error: "请选择未锁定且已启用的用户作为上级" }, { status: 400 });
+        effectiveManager = manager.id;
       }
       const password = temporaryPassword();
       const { data: authCreated, error: authCreateError } = await admin.auth.admin.createUser({ email, password, email_confirm: true, user_metadata: { username: name, name } });

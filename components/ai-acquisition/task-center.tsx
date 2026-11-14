@@ -85,6 +85,8 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
     [costOverviewLoading, setCostOverviewLoading] = useState(canViewUsage),
     [costOverviewError, setCostOverviewError] = useState(""),
     [costRetry, setCostRetry] = useState(0),
+    [summaryRetry, setSummaryRetry] = useState(0),
+    [filterRetry, setFilterRetry] = useState(0),
     [costSummaryOpen, setCostSummaryOpen] = useState(false),
     [googleDetailsOpen, setGoogleDetailsOpen] = useState(false),
     [googleBilling, setGoogleBilling] = useState<GoogleBilling | null>(null),
@@ -100,7 +102,6 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
   const loadRequestRef=useRef(0);
   const loadControllerRef=useRef<AbortController|null>(null);
   const costLoadedScopeRef=useRef<string|null>(null);
-  const summaryScopeRef=useRef<string|null>(null);
   const tasksRef=useRef(tasks);
   useEffect(()=>{tasksRef.current=tasks},[tasks]);
   const taskParams=useCallback(()=>{
@@ -126,34 +127,10 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
     setPageUsageError(false);
     try {
       const p = taskParams();
-      const summaryScope=JSON.stringify({scopeUserId,costMode,countries,industries,from,to,search});
-      const refreshSummary=summaryScopeRef.current!==summaryScope;
-      setSummaryLoading(true);
-      setSummaryError("");
-      if(refreshSummary){
-        summaryScopeRef.current=summaryScope;
-        setSummary(null);
-      }
       const coreParams = new URLSearchParams(p);
       coreParams.set("core", "1");
-      // Independent metrics must not wait for the task list or each other.
-      const backgroundRequests:Promise<void>[]=[];
-      backgroundRequests.push((async()=>{
-        try {
-          const summaryParams=new URLSearchParams(p);
-          summaryParams.set("mode","summary");
-          const response=await fetch(`/api/ai-acquisition/tasks?${summaryParams}`,{cache:"no-store",signal:controller.signal});
-          const body=await response.json().catch(()=>({}));
-          if (!response.ok || !body.summary) throw new Error(body.error||"获客统计加载失败");
-          if(requestId===loadRequestRef.current)setSummary(body.summary);
-        } catch (caught) {
-          if(requestId===loadRequestRef.current&&!controller.signal.aborted)setSummaryError(caught instanceof Error?caught.message:"获客统计加载失败");
-        } finally {
-          if(requestId===loadRequestRef.current&&!controller.signal.aborted)setSummaryLoading(false);
-        }
-      })());
       let pageResolved=false;
-      backgroundRequests.push((async()=>{
+      void (async()=>{
         try {
           const pageParams=new URLSearchParams(p);
           pageParams.set("mode","page");
@@ -164,17 +141,7 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
             setPageUsageError(!response.ok||Boolean(body.usage_error));
           }
         } catch { if(requestId===loadRequestRef.current&&!controller.signal.aborted)setPageUsageError(true); }
-      })());
-      backgroundRequests.push((async()=>{
-        try {
-          const filterParams=new URLSearchParams(p);
-          filterParams.set("mode","filters");
-          const response=await fetch(`/api/ai-acquisition/tasks?${filterParams}`,{cache:"no-store",signal:controller.signal});
-          const body=await response.json().catch(()=>({}));
-          if(response.ok&&requestId===loadRequestRef.current&&body.filter_options)setFilterOptions(body.filter_options);
-        } catch { /* Existing selections remain available after a facet error. */ }
-      })());
-      void Promise.all(backgroundRequests);
+      })();
       const r = await fetch(`/api/ai-acquisition/tasks?${coreParams}`, {
         cache: "no-store",
         signal: controller.signal,
@@ -192,11 +159,51 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
     } finally {
       if(requestId===loadRequestRef.current&&!controller.signal.aborted)setLoading(false);
     }
-  }, [taskParams, scopeUserId, costMode, countries, industries, from, to, search]);
+  }, [taskParams]);
   useEffect(() => {
     void load();
     return () => loadControllerRef.current?.abort();
   }, [load]);
+  useEffect(() => {
+    const controller=new AbortController();
+    const params=new URLSearchParams({mode:"summary"});
+    if(scopeUserId)params.set("user_id",scopeUserId);
+    if(costMode)params.set("cost_mode",costMode);
+    if(from)params.set("from",from);
+    if(to)params.set("to",to);
+    if(search)params.set("search",search);
+    for(const industry of industries)params.append("industry",industry);
+    for(const country of countries)params.append("country",country);
+    setSummary(null);
+    setSummaryLoading(true);
+    setSummaryError("");
+    void (async()=>{
+      try{
+        const response=await fetch(`/api/ai-acquisition/tasks?${params}`,{cache:"no-store",signal:controller.signal});
+        const body=await response.json().catch(()=>({}));
+        if(!response.ok||!body.summary)throw new Error(body.error||"获客统计加载失败");
+        if(!controller.signal.aborted)setSummary(body.summary);
+      }catch(caught){
+        if(!controller.signal.aborted)setSummaryError(caught instanceof Error?caught.message:"获客统计加载失败");
+      }finally{
+        if(!controller.signal.aborted)setSummaryLoading(false);
+      }
+    })();
+    return()=>controller.abort();
+  },[scopeUserId,costMode,countries,industries,from,to,search,summaryRetry]);
+  useEffect(()=>{
+    const controller=new AbortController();
+    const params=new URLSearchParams({mode:"filters"});
+    if(scopeUserId)params.set("user_id",scopeUserId);
+    void (async()=>{
+      try{
+        const response=await fetch(`/api/ai-acquisition/tasks?${params}`,{cache:"no-store",signal:controller.signal});
+        const body=await response.json().catch(()=>({}));
+        if(response.ok&&!controller.signal.aborted&&body.filter_options)setFilterOptions(body.filter_options);
+      }catch{/* Keep the last available options; owner changes can be retried by reloading. */}
+    })();
+    return()=>controller.abort();
+  },[scopeUserId,filterRetry]);
   useEffect(() => {
     let active=true;
     let inFlight=false;
@@ -221,13 +228,7 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
         }));
         setCount(Number(body.count||0));
         setError("");
-        if(changed){
-          const summaryParams=taskParams();
-          summaryParams.set("mode","summary");
-          const summaryResponse=await fetch(`/api/ai-acquisition/tasks?${summaryParams}`,{cache:"no-store",signal:controller.signal});
-          const summaryBody=await summaryResponse.json().catch(()=>({}));
-          if(active&&requestId===loadRequestRef.current&&summaryResponse.ok&&summaryBody.summary)setSummary(summaryBody.summary);
-        }
+        if(changed)setSummaryRetry(value=>value+1);
       }catch{/* Keep the last verified state; the next poll or manual refresh retries. */}
       finally{window.clearTimeout(timeout);inFlight=false;controller=null}
     };
@@ -269,8 +270,9 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
   }, [canViewUsage, scopeUserId, costRetry]);
   const refreshAll=()=>{
     costLoadedScopeRef.current=null;
-    summaryScopeRef.current=null;
     setCostRetry(value=>value+1);
+    setSummaryRetry(value=>value+1);
+    setFilterRetry(value=>value+1);
     void load();
   };
   async function openGoogleDetails() {
@@ -346,7 +348,7 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
           return customerScope?<Link key={item.label} href={`/ai-acquisition/customers?scope=${customerScope}${resultScopeQuery?`&${resultScopeQuery}`:""}`} className={className}>{content}</Link>:<button type="button" key={item.label} aria-pressed={metric===item.key} onClick={()=>{setMetric(item.key);setStatus("");setPage(1)}} className={className}>{content}</button>;
         })}
       </section>
-      {summaryError?<div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"><span>获客统计暂不可用：{summaryError}。下方任务列表仍可查看。</span><button type="button" className="font-medium underline" onClick={()=>void load()}>重试统计</button></div>:null}
+      {summaryError?<div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"><span>获客统计暂不可用：{summaryError}。下方任务列表仍可查看。</span><button type="button" className="font-medium underline" onClick={()=>setSummaryRetry(value=>value+1)}>重试统计</button></div>:null}
       <section className={`${panel} flex flex-wrap items-center gap-x-5 gap-y-2 px-4 py-2.5 text-xs text-slate-600`} aria-label="AI获客关联客户统计">
         <b className="cursor-help text-slate-800" title="统计口径：仅统计获客任务关联客户，不代表全系统公海库存。历史入池结果、历史结果差额、仍关联客户的结果、重复关联记录、获客关联的当前公海客户、已关联但不在当前公海、获客关联待认领、获客关联已认领均按当前筛选计算。">关联公海统计 <CircleHelp size={13} className="inline align-[-2px] text-slate-400"/></b>
         <span title={`当前仍关联客户的入池结果 ${summary?formatNumber(summary.accepted):"—"} 条，减去重复关联记录 ${summary?formatNumber(summary.repeated_results):"—"} 条，再减去不在公海的客户 ${summary?formatNumber(summary.out_of_pool_customers):"—"} 位。`}>当前公海客户 <b>{summary?formatNumber(summary.current_customers):"—"}</b></span>

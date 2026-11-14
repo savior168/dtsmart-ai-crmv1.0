@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authErrorStatus, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { activeDescendantIds } from "@/lib/auth/subordinate-scope";
 
 export async function GET(request: NextRequest) {
   try {
@@ -10,17 +11,12 @@ export async function GET(request: NextRequest) {
     const admin = createAdminClient();
     const status = request.nextUrl.searchParams.get("status") || "PENDING";
     let query = admin.from("customer_protection_renewal_requests").select(
-      "id,customer_id,owner_id,renewal_number,reason,next_plan,evidence_attachment_id,status,review_note,created_at,reviewed_at,customer:customers(company_name,country,industry),owner:users!customer_protection_renewal_requests_owner_id_fkey(name,email,manager_id)",
+      "id,customer_id,owner_id,renewal_number,reason,next_plan,evidence_attachment_id,status,review_note,created_at,reviewed_at,customer:customers(company_name,country,industry),owner:users!customer_protection_renewal_requests_owner_id_fkey(name,email)",
     ).eq("status", status).order("created_at", { ascending: false });
-    if (account.role === "SUPERVISOR") query = query.eq("owner.manager_id", account.id);
+    if (account.role === "SUPERVISOR") query = query.in("owner_id", await activeDescendantIds(account.id));
     const result = await query;
     if (result.error) throw result.error;
-    const data = account.role === "SUPERVISOR"
-      ? (result.data || []).filter((item) => {
-          const owner = Array.isArray(item.owner) ? item.owner[0] : item.owner;
-          return owner?.manager_id === account.id;
-        })
-      : result.data || [];
+    const data = result.data || [];
     return NextResponse.json({ data, count: data.length });
   } catch (error) {
     const message = error instanceof Error ? error.message : "续期申请加载失败";

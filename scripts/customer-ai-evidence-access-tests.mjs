@@ -6,14 +6,15 @@ const base = {
   viewerId: "sales-1",
   viewerRole: "SALES",
   customerOwnerId: "sales-1",
-  isDirectReport: false,
+  isAuthorizedSubordinate: false,
   canViewCustomerEvidence: true,
   canViewAiResults: false,
 };
 
 assert.equal(canReadCustomerAiEvidence(base), true, "管理员授权后销售可查看本人客户依据");
-assert.equal(canReadCustomerAiEvidence({ ...base, viewerId: "supervisor-1", viewerRole: "SUPERVISOR", isDirectReport: true }), true, "授权主管可查看直属下属客户依据");
-assert.equal(canReadCustomerAiEvidence({ ...base, viewerId: "supervisor-1", viewerRole: "SUPERVISOR" }), false, "主管不得查看非直属销售客户");
+assert.equal(canReadCustomerAiEvidence({ ...base, viewerId: "supervisor-1", viewerRole: "SUPERVISOR", isAuthorizedSubordinate: true }), true, "授权主管可查看多级下属客户依据");
+assert.equal(canReadCustomerAiEvidence({ ...base, viewerId: "supervisor-1", viewerRole: "SUPERVISOR" }), false, "主管不得查看权限范围外的客户");
+assert.equal(canReadCustomerAiEvidence({ ...base, viewerId: "sales-2", viewerRole: "SALES", isAuthorizedSubordinate: true }), false, "非主管不能通过下属标记读取客户依据");
 assert.equal(canReadCustomerAiEvidence({ ...base, customerOwnerId: "sales-2", canViewAiResults: true }), false, "AI任务权限不能绕过客户当前归属");
 assert.equal(canReadCustomerAiEvidence({ ...base, customerOwnerId: null }), false, "非管理员不能通过公海客户读取依据");
 assert.equal(canReadCustomerAiEvidence({ ...base, canViewCustomerEvidence: false }), false, "依据权限被关闭时不可读取");

@@ -35,7 +35,7 @@ export function parsePiOrderInput(body: Record<string, unknown>) {
       : linkedPiUnitPrices(String(unitPricePayment), "PAYMENT", rate).cny);
     const supplied = priceSource === "CNY" ? unitPricePayment : unitPriceCny;
     if (Math.abs(expected - supplied) > 0.001) throw new Error("人民币与外币单价换算不一致，请核对汇率后重试");
-    if (!validPiSellingPrice(row.unit_price_cny, row.estimated_unit_cost_cny)) throw new Error("每条产品的人民币售价必须高于成本价，请核对后再保存");
+    if (!validPiSellingPrice(row.unit_price_cny, row.estimated_unit_cost_cny)) throw new Error("每条产品的售价和成本须为有效的非负金额，请核对后再保存");
     return {
       item_name: String(row.item_name).trim().slice(0, 160),
       brand: String(row.brand || "").trim().slice(0, 120),

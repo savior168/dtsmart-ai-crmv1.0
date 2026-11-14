@@ -2,14 +2,14 @@ export function canReadCustomerAiEvidence(input: {
   viewerId: string;
   viewerRole: string;
   customerOwnerId: string | null;
-  isDirectReport: boolean;
+  isAuthorizedSubordinate: boolean;
   canViewCustomerEvidence: boolean;
   canViewAiResults: boolean;
 }) {
   // A grant never widens the customer's record scope: only the owner, an
-  // authorized direct-report supervisor, or an administrator may read it.
+  // authorized supervisor in the manager chain, or an administrator may read it.
   const inScope = input.viewerRole === "ADMIN"
-    || input.customerOwnerId === input.viewerId || input.isDirectReport;
+    || input.customerOwnerId === input.viewerId || (input.viewerRole === "SUPERVISOR" && input.isAuthorizedSubordinate);
   return inScope && (input.canViewCustomerEvidence || input.canViewAiResults);
 }
 

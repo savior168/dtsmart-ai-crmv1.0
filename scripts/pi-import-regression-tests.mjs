@@ -88,7 +88,14 @@ basic.B13 = { t: "s", v: "not-an-email" };
 assert.throws(() => parseCustomerPiWorkbook(wholeBytes()), /邮箱格式/);
 basic.B13 = { t: "s", v: "jack@example.com" };
 lines.G2 = { t: "n", v: 120 };
-assert.throws(() => parseCustomerPiWorkbook(wholeBytes()), /售价须高于成本/);
+lines.H2 = { t: "n", v: 120 };
+assert.equal(parseCustomerPiWorkbook(wholeBytes()).document.items[0].unit_price_cny, 120, "PI导入允许售价等于成本");
+lines.H2 = { t: "n", v: 119 };
+assert.equal(parseCustomerPiWorkbook(wholeBytes()).document.items[0].unit_price_cny, 119, "PI导入允许售价低于成本");
+lines.G2 = { t: "n", v: 0 };
+lines.H2 = { t: "n", v: 0 };
+assert.equal(parseCustomerPiWorkbook(wholeBytes()).document.items[0].unit_price_cny, 0, "PI导入允许零售价和零成本");
+lines.H2 = { t: "n", v: 120 };
 lines.G2 = { t: "n", v: 80 };
 
 const wholeHelp = XLSX.utils.sheet_to_json(wholeTemplate.Sheets["PI基本信息"], { header: 1, defval: "" });

@@ -7,6 +7,7 @@ import { postgrestContains } from "@/lib/postgrest-search";
 import { countryFilterOptions, countryFilterRawValues } from "@/lib/countries";
 import { customerIndustryLabels, rawCategoryPatternsForIndustryLabel } from "@/lib/customers/industry-display";
 import { hasCustomerContactMethod } from "@/lib/customer-contact-requirement";
+import { activeDescendantIds } from "@/lib/auth/subordinate-scope";
 
 type PoolDbRow = Record<string, unknown> & {
   id: string;
@@ -57,19 +58,23 @@ export async function GET(request: NextRequest) {
     const selectedIds = [...new Set(params.getAll("selected_id"))];
     const sort = params.get("sort") || "updated_at";
     const direction = params.get("direction") === "asc" ? "asc" : "desc";
-    // Everyone can audit who claimed a customer; only the owner, their direct
+    // Everyone can audit who claimed a customer; only the owner, their
     // supervisor, and admins may see private customer/workflow details.
-    const directReports = account.role === "SUPERVISOR" && account.supervisor_can_view_subordinates
-      ? await admin.from("users").select("id").eq("manager_id", account.id).eq("status", "ACTIVE")
-      : { data: [], error: null };
-    if (directReports.error) console.warn("[public-pool] subordinate scope lookup unavailable; limiting to own records", directReports.error.code || "unknown");
+    let subordinateIds: string[] = [];
+    if (account.role === "SUPERVISOR" && account.supervisor_can_view_subordinates) {
+      try {
+        subordinateIds = await activeDescendantIds(account.id);
+      } catch (error) {
+        console.error("subordinate scope lookup unavailable; limiting to own records", error);
+      }
+    }
     if (params.get("counts") === "1") {
       const baseCount = () => admin.from("customers").select("id", { count: "exact", head: true }).is("deleted_at", null);
       const availableQuery = baseCount().eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "AVAILABLE").eq("status", "UNCLAIMED").is("owner_id", null)
         .eq("ai_screening_done", true).gte("ai_score", 60);
       const claimedQuery = baseCount().eq("acquisition_scope", "PUBLIC_POOL").eq("pool_status", "CLAIMED").neq("status", "UNCLAIMED").not("owner_id", "is", null);
       const pendingQuery = baseCount().eq("acquisition_scope", "PRIVATE").eq("pool_status", "PENDING_ALLOCATION").eq("status", "UNCLAIMED").is("owner_id", null);
-      const renewalQuery = admin.from("customer_protection_renewal_requests").select("id,owner:users!customer_protection_renewal_requests_owner_id_fkey(manager_id)").eq("status", "PENDING");
+      const renewalQuery = admin.from("customer_protection_renewal_requests").select("id,owner_id").eq("status", "PENDING");
       const historyQuery = account.role === "ADMIN"
         ? admin.from("customer_assignment_batches").select("id", { count: "exact", head: true })
         : Promise.resolve({ count: 0, error: null });
@@ -77,10 +82,7 @@ export async function GET(request: NextRequest) {
       const failure = [available.error, claimed.error, pending.error, renewals.error, history.error].find(Boolean);
       if (failure) throw failure;
       const renewalRows = account.role === "SUPERVISOR" && account.supervisor_can_view_subordinates
-        ? (renewals.data || []).filter((item) => {
-            const owner = Array.isArray(item.owner) ? item.owner[0] : item.owner;
-            return owner?.manager_id === account.id;
-          })
+        ? (renewals.data || []).filter((item) => subordinateIds.includes(item.owner_id))
         : renewals.data || [];
       return NextResponse.json({
         available: available.count || 0,
@@ -349,7 +351,7 @@ export async function GET(request: NextRequest) {
     for (const item of supplements.data || []) supplementsByCustomer.set(item.customer_id, [...(supplementsByCustomer.get(item.customer_id) || []), item]);
     const verifiedContactsByCustomer = new Map<string, Record<string, unknown>[]>();
     for (const item of verifiedContactsData) verifiedContactsByCustomer.set(item.customer_id, [...(verifiedContactsByCustomer.get(item.customer_id) || []), item]);
-    const directReportIds = new Set(account.role === "SUPERVISOR" && account.supervisor_can_view_subordinates && !directReports.error ? (directReports.data || []).map((item) => item.id) : []);
+    const directReportIds = new Set(subordinateIds);
     const data = rows.map((row) => {
       const own = row.owner_id === account.id;
       const teamRead = account.role === "ADMIN" || directReportIds.has(String(row.owner_id || ""));

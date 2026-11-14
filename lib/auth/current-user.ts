@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { CORE_PERMISSION_CODES, USER_ROLES, evaluatePermission, normalizeRole, normalizeStatus, permissionPageCode, type AccountStatus, type UserRole } from "@/lib/auth/permissions";
 import { isTimedLockActive } from "@/lib/auth/lockout";
 import { canViewSubordinateData } from "@/lib/auth/supervisor-data-scope";
+import { activeDescendantIds } from "@/lib/auth/subordinate-scope";
 
 const permissionCache = new Map<UserRole, { expires: number; values: string[] }>();
 
@@ -94,11 +95,13 @@ export async function requireUser(options: { allowPasswordChange?: boolean } = {
   if (role !== "ADMIN") {
     // 显式拒绝优先于角色默认与显式允许；表尚未迁移时保持角色权限，避免部署顺序造成登录中断。
     const overrides = await admin.from("user_permission_overrides").select("permission_code,effect").eq("user_id", user.id);
-    if (!overrides.error) {
-      const denied = new Set((overrides.data || []).filter((item) => item.effect === "DENY").map((item) => String(item.permission_code)));
-      const allowed = (overrides.data || []).filter((item) => item.effect === "ALLOW").map((item) => String(item.permission_code));
-      permissions = [...new Set([...rolePermissions, ...allowed])].filter((code) => !denied.has(code));
-    }
+    // Per-user DENY overrides are part of the effective authorization policy.
+    // If their source cannot be read, continuing with role permissions would
+    // silently discard a configured denial and could grant access.
+    if (overrides.error) throw new Error("AUTHORIZATION_UNAVAILABLE");
+    const denied = new Set((overrides.data || []).filter((item) => item.effect === "DENY").map((item) => String(item.permission_code)));
+    const allowed = (overrides.data || []).filter((item) => item.effect === "ALLOW").map((item) => String(item.permission_code));
+    permissions = [...new Set([...rolePermissions, ...allowed])].filter((code) => !denied.has(code));
     permissions = permissions.filter((code) => !CORE_PERMISSION_CODES.has(code) && !CORE_PERMISSION_CODES.has(permissionPageCode(code)));
   }
   const account: CurrentAccount = {
@@ -175,13 +178,10 @@ export async function requestedOwnerId(request: Request, account: CurrentAccount
   if (account.role !== "SUPERVISOR") {
     return !requested || requested.toLowerCase() === "all" ? null : requested;
   }
-  // 主管仅能读本人和直属下级；权限判断必须在服务端执行，不能只依赖
-  // 下拉选项的前端限制。暂不提供“全员”或跨主管聚合范围。
+  // 主管仅能读本人和自己的多级下属；权限判断必须在服务端执行。
   if (!requested || requested === account.id || requested.toLowerCase() === "all") return account.id;
   if (!canViewSubordinateData(account)) return account.id;
-  const { data, error } = await createAdminClient().from("users").select("id").eq("id", requested).eq("manager_id", account.id).eq("status", "ACTIVE").maybeSingle();
-  if (error) throw error;
-  if (!data) throw new Error("FORBIDDEN");
+  if (!(await activeDescendantIds(account.id)).includes(requested)) throw new Error("FORBIDDEN");
   return requested;
 }
 

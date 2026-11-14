@@ -3,6 +3,7 @@ import { authErrorStatus, requireAdmin } from "@/lib/auth/current-user";
 import { resolveAssignableRole } from "@/lib/auth/role-registry";
 import { canApplyLifecycleAction } from "@/lib/auth/lockout";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { managerAssignmentsCreatingCycles } from "@/lib/auth/subordinate-scope";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ACTIONS = new Set(["UPDATE_ROLE", "UPDATE_MANAGER", "DISABLE", "DEPART", "ACTIVATE", "FORCE_LOGOUT", "DELETE"]);
@@ -58,16 +59,21 @@ export async function POST(request: NextRequest) {
     const requiresManager = (action === "UPDATE_MANAGER" && ordered.some((item) => item.role === "SALES"))
       || (action === "UPDATE_ROLE" && requestedRole === "SALES");
     if (requiresManager && !managerId) {
-      return NextResponse.json({ error: "销售员必须设置已启用且未锁定的主管或系统管理员作为上级" }, { status: 400 });
+      return NextResponse.json({ error: "销售员必须设置已启用且未锁定的上级" }, { status: 400 });
     }
-    if ((action === "UPDATE_MANAGER" || requiresManager) && managerId) {
+    if ((action === "UPDATE_MANAGER" || action === "UPDATE_ROLE") && managerId) {
       if (!UUID.test(managerId)) return NextResponse.json({ error: "上级账号无效" }, { status: 400 });
       if (ids.includes(managerId)) return NextResponse.json({ error: "不能把选中用户设置为自己的上级" }, { status: 400 });
       const { data: manager, error: managerError } = await admin.from("users").select("id,role,status,locked_until").eq("id", managerId).maybeSingle();
       if (managerError) throw managerError;
-      if (!manager || !["ADMIN", "SUPERVISOR"].includes(manager.role) || manager.status !== "ACTIVE"
+      if (!manager || manager.status !== "ACTIVE"
         || (manager.locked_until && Date.parse(manager.locked_until) > Date.now())) {
-        return NextResponse.json({ error: "上级必须是已启用且未锁定的主管或系统管理员" }, { status: 400 });
+        return NextResponse.json({ error: "上级必须是已启用且未锁定的用户" }, { status: 400 });
+      }
+      const cycleIds = await managerAssignmentsCreatingCycles(ids, managerId);
+      if (cycleIds.length) {
+        const target = targetById.get(cycleIds[0]);
+        return NextResponse.json({ error: `不能将 ${target?.name || target?.email || "该用户"} 的下属设为其上级` }, { status: 400 });
       }
     }
     if (action === "DELETE") {
@@ -118,7 +124,11 @@ export async function POST(request: NextRequest) {
     const update: Record<string, unknown> = { reviewed_by: user.id, reviewed_at: now, review_reason: reason || null };
     // The database trigger revokes a supervisor grant only when the role
     // actually changes; repeating the same role must not silently revoke it.
-    if (action === "UPDATE_ROLE") Object.assign(update, { role: requestedRole, manager_id: requestedRole === "SALES" ? managerId : null, force_logout_at: now });
+    if (action === "UPDATE_ROLE") Object.assign(update, {
+      role: requestedRole,
+      ...(managerId ? { manager_id: managerId } : requestedRole === "SALES" ? { manager_id: managerId } : {}),
+      force_logout_at: now,
+    });
     if (action === "UPDATE_MANAGER") Object.assign(update, { manager_id: managerId || null, force_logout_at: now });
     if (action === "DISABLE") Object.assign(update, { status: "DISABLED", force_logout_at: now });
     if (action === "DEPART") Object.assign(update, { status: "DEPARTED", departed_at: now, force_logout_at: now });

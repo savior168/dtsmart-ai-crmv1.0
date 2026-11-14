@@ -129,10 +129,9 @@ function parseSystemPiWorkbook(workbook: XLSX.WorkBook) {
     const [item_name, brand, model, quality, description, description_zh, costText, priceText, quantityText, preparation_requirement, internal_note] = fields;
     if (![item_name, brand, model, quality, costText, priceText, quantityText].every(Boolean)) throw new Error(`产品明细第${row}行缺少红色 * 必填项`);
     const estimated_unit_cost_cny = templateMoney(costText, `产品明细第${row}行成本`);
-    const unit_price_cny = templateMoney(priceText, `产品明细第${row}行售价`, false);
+    const unit_price_cny = templateMoney(priceText, `产品明细第${row}行售价`);
     const quantity = Number(quantityText);
     if (!Number.isSafeInteger(quantity) || quantity <= 0) throw new Error(`产品明细第${row}行数量须为正整数`);
-    if (unit_price_cny <= estimated_unit_cost_cny) throw new Error(`产品明细第${row}行售价须高于成本`);
     if ([item_name, brand, model, quality].some((value) => value.length > 160) || description.length > 1000 || description_zh.length > 1000 || preparation_requirement.length > 1000 || internal_note.length > 1000) throw new Error(`产品明细第${row}行文本超出长度限制`);
     const unit_price_payment = fx_rate_cny_per_payment ? money(unit_price_cny / fx_rate_cny_per_payment) : 0;
     items.push({ item_name, brand, model, quality, description, description_zh, quantity, estimated_unit_cost_cny, unit_price_cny, unit_price_payment, amount_payment: money(unit_price_payment * quantity), preparation_requirement, internal_note });
