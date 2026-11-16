@@ -33,9 +33,10 @@ assert.match(ui, /if \(scopeUserId\) params\.set\("user_id", scopeUserId\)/, "�
 assert.ok(!ui.includes('scopeUserId || "all"'), "默认本人范围不得误传为全部用户");
 const customers = await readFile(new URL("../components/customers-view.tsx", import.meta.url), "utf8");
 const ownerSelect = await readFile(new URL("../components/user-scope-select.tsx", import.meta.url), "utf8");
-assert.match(customers, /requested !== "all" \? requested : fallback/, "主管收到旧的 all 参数时应回退本人");
-assert.match(customers, /\["ADMIN", "ORDER_CLERK"\]\.includes\(currentRole\) \? <option value="all">/, "我的客户仅管理员与只读跟单员显示全部用户选项");
-assert.match(ownerSelect, /canSelectAll \? <option value="all">/, "共用归属人筛选仅系统管理员显示全部用户选项");
+assert.match(customers, /const canSelectAll = Boolean\(body\?\.can_select_all\)/, "客户页必须依据服务端授权决定能否选择全部归属人");
+assert.match(customers, /elevated && \(requested !== "all" \|\| canSelectAll\) \? requested : fallback/, "授权主管从工作台下钻时须保留 all 范围，未授权时回退本人");
+assert.match(customers, /<AppSelect value=\{scopeUserId\}[\s\S]*\{canSelectAll \? <option value="all">归属人：全部归属人<\/option>/, "客户页必须复用系统下拉组件并仅在服务端授权时显示全部归属人");
+assert.match(ownerSelect, /canSelectAll \? <option value="all">/, "共用归属人筛选仅在服务端授权时显示全部归属人选项");
 const countryValues = countryFilterRawValues(["IE"]);
 assert.ok(countryValues.includes("IE") && countryValues.includes("爱尔兰"), "国家选项须兼容历史中文名与 ISO 代码");
 const migration = await readFile(new URL("../supabase/migrations/202610100005_dashboard_customer_filter_alignment.sql", import.meta.url), "utf8");

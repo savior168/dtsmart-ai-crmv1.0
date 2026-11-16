@@ -372,7 +372,7 @@ assert.match(userScopeSelect, /if \(!loaded \|\| !elevated\) return null/, "销�
 assert.match(customersView, /show_owner|currentRole[\s\S]*SUPERVISOR/, "客户列表必须识别主管和系统管理员的数据范围");
 assert.match(customerListFields, /key: "owner", label: "归属人"/, "跨用户客户列表必须统一显示归属人字段");
 assert.ok(customersView.indexOf('aria-label="归属人"') < customersView.indexOf('<ImportBatchMultiSelect'), "客户列表归属人筛选必须位于导入批次前面");
-assert.match(customersView, /setScopeUserId\(event\.target\.value\); setSourceBatches\(\[\]\)/, "切换归属人时必须清空旧归属人的批次选择");
+assert.match(customersView, /<AppSelect value=\{scopeUserId\} onChange=\{\(event\) => \{ setScopeUserId\(event\.target\.value\); setSourceBatches\(\[\]\)/, "切换归属人时必须清空旧归属人的批次选择");
 assert.match(customersView, /options=batches\$\{scope\}/, "客户列表导入批次必须随归属人重新加载");
 assert.doesNotMatch(customersView, /负责人/, "客户列表不得混用负责人和归属人口径");
 for (const [name, source] of Object.entries({

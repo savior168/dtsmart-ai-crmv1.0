@@ -25,6 +25,7 @@ import { ImportBatchMultiSelect, type ImportBatchOption } from "@/components/imp
 import { CustomerConflictsPanel, CustomerProtectionPanel } from "@/components/customer-workspace-panels-v2";
 import { AppDialog, DialogActions } from "@/components/ui/app-dialog";
 import { AppTabs } from "@/components/ui/app-tabs";
+import { AppSelect } from "@/components/ui/app-select";
 import { AppPagination } from "@/components/ui/app-pagination";
 import { RowActionItem, RowActionMenu } from "@/components/ui/row-action-menu";
 import { CustomerPublicLink } from "@/components/ui/customer-public-link";
@@ -142,6 +143,7 @@ export function CustomersView({ canCreate, canImport }: { canCreate: boolean; ca
   const [currentRole, setCurrentRole] = useState("");
   const [userOptions, setUserOptions] = useState<Array<{id:string;name:string;email:string}>>([]);
   const [canViewAll, setCanViewAll] = useState(false);
+  const [canSelectAll, setCanSelectAll] = useState(false);
   const [canExport, setCanExport] = useState(false);
   // 默认展示全部在库客户；用户可按 AI 分析状态主动缩小范围。
   const [aiFilter, setAiFilter] = useState<"done" | "pending" | "failed" | "all">("all");
@@ -311,11 +313,13 @@ export function CustomersView({ canCreate, canImport }: { canCreate: boolean; ca
       const elevated = Boolean(body?.can_select_owner);
       const fallback = String(body?.profile?.id || "");
       const requested = new URLSearchParams(window.location.search).get("user_id") || (role === "ORDER_CLERK" ? "all" : fallback);
-      const initialScope = role === "ADMIN" || role === "ORDER_CLERK" ? requested : elevated && requested !== "all" ? requested : fallback;
+      const canSelectAll = Boolean(body?.can_select_all);
+      const initialScope = elevated && (requested !== "all" || canSelectAll) ? requested : fallback;
       setCurrentRole(role);
       setDefaultScopeUserId(fallback);
       setScopeUserId(initialScope);
       setCanViewAll(elevated);
+      setCanSelectAll(canSelectAll);
       setCanExport(role === "ADMIN" || (Array.isArray(body?.profile?.permissions) && body.profile.permissions.includes("customers.export")));
       setUserOptions(elevated && Array.isArray(body.users) ? body.users : []);
       if (elevated) {
@@ -388,7 +392,7 @@ export function CustomersView({ canCreate, canImport }: { canCreate: boolean; ca
           : null,
         followupStatus ? { key: "followupStatus", label: `跟进状态：${FOLLOWUP_STAGE_LABELS[followupStatus as FollowupStage] || followupStatus}` } : null,
         aiFilter !== "all" ? { key: "aiFilter", label: `AI分析状态：${aiFilter === "pending" ? "未分析" : aiFilter === "failed" ? "分析失败" : "已分析"}` } : null,
-        canViewAll ? { key: "scopeUserId", label: scopeUserId === "all" ? "归属人：全部用户" : `归属人：${userOptions.find((item) => item.id === scopeUserId)?.name?.trim() || userOptions.find((item) => item.id === scopeUserId)?.email || "未设置用户名"}` } : null,
+        canViewAll ? { key: "scopeUserId", label: scopeUserId === "all" ? "归属人：全部归属人" : `归属人：${userOptions.find((item) => item.id === scopeUserId)?.name?.trim() || userOptions.find((item) => item.id === scopeUserId)?.email || "未设置用户名"}` } : null,
       ].filter((item): item is { key: string; label: string } => Boolean(item)),
     [search, fromDate, toDate, reportUtc, countries, industries, sourceType, sourceBatches, level, manualGrade, status, target, followupStatus, aiFilter, scopeUserId, userOptions, canViewAll],
   );
@@ -592,9 +596,9 @@ export function CustomersView({ canCreate, canImport }: { canCreate: boolean; ca
           当前数据范围：{!canViewAll
             ? "我的客户"
             : scopeUserId === "all"
-              ? "全部用户"
+              ? "全部归属人"
               : `${userOptions.find((item) => item.id === scopeUserId)?.name?.trim() || userOptions.find((item) => item.id === scopeUserId)?.email || "未设置用户名"}的客户`} ·
-          {currentRole === "SUPERVISOR" ? "主管默认查看本人，可主动切换指定用户" : currentRole === "ADMIN" ? "系统管理员可切换指定用户" : "系统按登录权限自动确定"} · 客户数已按主体去重
+          {currentRole === "SUPERVISOR" ? "主管默认查看本人，可切换授权范围内的归属人" : currentRole === "ADMIN" ? "系统管理员可切换指定用户" : "系统按登录权限自动确定"} · 客户数已按主体去重
           <button type="button" onClick={() => setPermissionOpen(true)} className="float-right text-blue-600 hover:underline">
             查看权限说明 ⓘ
           </button>
@@ -639,7 +643,10 @@ export function CustomersView({ canCreate, canImport }: { canCreate: boolean; ca
             <CompactDateRange label="录入日期" fromLabel="录入开始日期" toLabel="录入结束日期" from={fromDate} to={toDate} onFromChange={(value)=>{setFromDate(value);setPage(1)}} onToChange={(value)=>{setToDate(value);setPage(1)}}/>
             <SearchableMultiSelectFilter className="w-44 shrink-0" label="国家/地区" value={countries} options={filterOptions.countries.map((item)=>({...item,label:countryInfo(item.value).name||item.label||item.value}))} onChange={(value)=>{setCountries(value);setPage(1)}}/>
             <SearchableMultiSelectFilter className="w-44 shrink-0" label="所属行业" value={industries} options={filterOptions.industries} onChange={(value)=>{setIndustries(value);setPage(1)}}/>
-            {canViewAll ? <select value={scopeUserId} onChange={(event) => { setScopeUserId(event.target.value); setSourceBatches([]); setPage(1); setSelected(new Set()); }} className="h-10 w-44 shrink-0 rounded-lg border border-slate-200 px-3 text-sm" aria-label="归属人">{["ADMIN", "ORDER_CLERK"].includes(currentRole) ? <option value="all">归属人：全部用户</option> : null}{userOptions.map((item) => <option key={item.id} value={item.id}>{item.id === defaultScopeUserId && currentRole !== "ORDER_CLERK" ? `归属人：${item.name?.trim() || item.email}（我的客户）` : `归属人：${item.name?.trim() || item.email}`}</option>)}</select> : null}
+            {canViewAll ? <AppSelect value={scopeUserId} onChange={(event) => { setScopeUserId(event.target.value); setSourceBatches([]); setPage(1); setSelected(new Set()); }} aria-label="按归属人筛选" className="h-10 w-44 shrink-0 rounded-lg border border-slate-200 bg-white px-3 text-sm" forceSearch={userOptions.length > 6}>
+              {canSelectAll ? <option value="all">归属人：全部归属人</option> : null}
+              {userOptions.map((item) => <option key={item.id} value={item.id}>{`归属人：${item.name?.trim() || item.email}${item.id === defaultScopeUserId && currentRole !== "ORDER_CLERK" ? "（我的客户）" : ""}`}</option>)}
+            </AppSelect> : null}
             <select value={sourceType} onChange={(event)=>{setSourceType(event.target.value);setSourceBatches([]);setPage(1)}} className="h-10 w-36 shrink-0 rounded-lg border border-slate-200 px-3 text-sm" aria-label="数据来源"><option value="">全部数据来源</option><option value="AI_ACQUISITION">AI获客</option><option value="IMPORT">批量导入</option><option value="MANUAL">手动新增</option></select>
             <ImportBatchMultiSelect
               className="w-44 shrink-0"
