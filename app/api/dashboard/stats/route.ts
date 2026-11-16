@@ -114,11 +114,12 @@ export async function GET(request: NextRequest) {
     const countryTop = normalizeReportCountries(((overview.country_top || []) as CountRow[]).map((item) => ({
       label: item.name || "未知", count: Number(item.count || 0),
     }))).map((item) => ({ name: item.label, count: item.count, percentage: percentage(item.count, totalCustomers) }));
-    // Funnel statuses are intentionally counted directly: they are mutually
-    // meaningful business states, not the remainder after later-stage totals.
-    // These indexed count queries preserve the selected scope and filters.
+    // Funnel statuses are intentionally counted directly. These server-side
+    // counts use the already validated dashboard owner scope, not the separate
+    // My Customers row-visibility policy, so a supervisor's existing team
+    // dashboard remains intact when customer-detail access is disabled.
     const statusCount = (status: "CLAIMED" | "FOLLOWING") => {
-      let query = supabase.from("customers").select("id", { count: "exact", head: true })
+      let query = followupReader.from("customers").select("id", { count: "exact", head: true })
         .is("deleted_at", null).not("owner_id", "is", null).gte("created_at", fromDate.toISOString()).lt("created_at", exclusiveTo.toISOString()).eq("status", status);
       if (scopeUserId) query = query.eq("owner_id", scopeUserId);
       else if (teamOwnerIds) query = query.in("owner_id", teamOwnerIds);
@@ -126,7 +127,7 @@ export async function GET(request: NextRequest) {
       if (aiLevel) query = query.eq("ai_level", aiLevel);
       return query;
     };
-    let validCustomersQuery = supabase.from("customers").select("id", { count: "exact", head: true })
+    let validCustomersQuery = followupReader.from("customers").select("id", { count: "exact", head: true })
       .is("deleted_at", null).not("owner_id", "is", null).neq("status", "RELEASED").gte("created_at", fromDate.toISOString()).lt("created_at", exclusiveTo.toISOString())
       .eq("ai_status", "COMPLETED").eq("ai_screening_done", true).eq("is_target_customer", true);
     if (scopeUserId) validCustomersQuery = validCustomersQuery.eq("owner_id", scopeUserId);

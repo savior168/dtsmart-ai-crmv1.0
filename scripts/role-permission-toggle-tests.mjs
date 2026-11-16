@@ -27,6 +27,9 @@ assert.ok(poolActivation.every((item) => !["customers.mine.view", "customers.edi
 assert.ok(rolePermissionChanges("customers.view", true).some((item) => item.permission_code === "customers.mine.view" && item.enabled));
 assert.ok(userPermissionChanges("customers.view", "DENY").some((item) => item.permission_code === "customers.claim" && item.effect === "DENY"));
 assert.ok(userPermissionChanges("customers.view", "ALLOW").every((item) => item.effect === "ALLOW"));
+assert.ok(!userPermissionChanges("customers.view", "ALLOW").some((item) => item.permission_code === "customers.data_all"));
+assert.ok(!userPermissionChanges("customers.mine.view", "ALLOW").some((item) => item.permission_code === "customers.data_all"));
+assert.deepEqual(userPermissionChanges("customers.data_all", "ALLOW"), [{ permission_code: "customers.data_all", effect: "ALLOW" }]);
 assert.deepEqual(userPermissionChanges("customers.edit", "DENY"), [{ permission_code: "customers.edit", effect: "DENY" }]);
 assert.deepEqual(userPermissionChanges("customers.mine.view", "ALLOW").some((item) => item.permission_code === "customers.view"), false,
   "单独开启客户子页面不得擅自开启客户总权限");

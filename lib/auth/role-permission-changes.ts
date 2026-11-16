@@ -18,6 +18,9 @@ export function rolePermissionChanges(permission: string, enabled: boolean) {
 }
 
 export function userPermissionChanges(permission: string, effect: "ALLOW" | "DENY" | "INHERIT") {
-  return [permission, ...permissionDescendants(permission).map((item) => item.code)]
+  // The subordinate-customer grant is deliberately independent of page
+  // toggles. Enabling My Customers must never create an implicit ALLOW.
+  return [permission, ...permissionDescendants(permission)
+    .filter((item) => item.code !== "customers.data_all").map((item) => item.code)]
     .map((permission_code) => ({ permission_code, effect }));
 }
