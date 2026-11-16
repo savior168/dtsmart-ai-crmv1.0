@@ -66,6 +66,9 @@ assert.equal(discoveryCandidateLooksRelevant({...relevanceBase,companyName:"Comp
 assert.equal(discoveryCandidateLooksRelevant({...relevanceBase,companyName:"Trust Computers & Repairs",types:["electronics_store","service"]},["电脑维修店"],["computer repair shop"]),true,"电脑和维修的复数形式不得被完全匹配误杀");
 assert.equal(discoveryCandidateLooksRelevant({...relevanceBase,companyName:"Birmingham Laptop Repairs",types:["electronics_store","service"]},["电脑维修店"],["computer repair shop"]),true,"电脑维修任务必须把laptop repair识别为同域候选并进入证据核验");
 assert.equal(discoveryCandidateLooksRelevant({...relevanceBase,companyName:"PC Repair Guru",types:["service"]},["电脑维修店"],["computer repair shop"]),true,"电脑维修任务必须把PC repair识别为同域候选并进入证据核验");
+assert.equal(discoveryCandidateLooksRelevant({...relevanceBase,companyName:"Handy Reparatur Berlin",types:["establishment"],matchedTerms:["Handyreparatur in Berlin, Germany"]},["手机维修店"],["mobile phone repair shop"]),true,"德语手机维修商家在泛类别下仍须进入后续证据核验");
+assert.equal(discoveryCandidateLooksRelevant({...relevanceBase,companyName:"Berlin Coffee House",types:["establishment"],matchedTerms:["Handyreparatur in Berlin, Germany"]},["手机维修店"],["mobile phone repair shop"]),false,"搜索表达中的地名不得被误当作目标行业证据");
+assert.equal(discoveryCandidateLooksRelevant({...relevanceBase,companyName:"Uhr Reparatur Berlin",types:["establishment"],matchedTerms:["Handyreparatur in Berlin, Germany"]},["手机维修店"],["mobile phone repair shop"]),false,"德语维修词不能把手表维修等跨行业商家误放进手机维修核验");
 assert.equal(discoveryCandidateLooksRelevant({...relevanceBase,companyName:"iRepairFone",types:["service"]},["手机维修店"],["mobile phone repair"]),true,"紧凑维修品牌名不得因Google泛类别而在补证前被误拒");
 assert.equal(discoveryCandidateLooksRelevant({...relevanceBase,companyName:"360phonefix.co.uk",types:["establishment"]},["手机维修店"],["mobile phone repair"]),true,"包含phone fix的域名式商家名必须进入证据核验");
 assert.equal(discoveryCandidateLooksRelevant({...relevanceBase,companyName:"fixmybrokenscreen.co.uk",types:["establishment"]},["手机维修店"],["mobile phone repair"]),true,"包含screen fix的紧凑商家名必须进入证据核验");
@@ -185,8 +188,8 @@ assert.ok(frenchPlan.terms.includes("computer repair shop")&&frenchPlan.terms.in
 assert.ok(frenchPlan.terms.includes("PC hardware repair service")&&!frenchPlan.terms.includes("computer repair PC hardware repair service"),"PC 同义词不得产生低质量重复拼接");
 assert.equal(acquisitionSearchLanguage("FR","atelier de réparation informatique in Paris, France"),"fr");
 assert.equal(acquisitionSearchLanguage("FR","computer repair shop in Paris, France"),"en");
-const fullFrenchPlan=planAcquisitionSearchTerms("FR",["电脑维修店"],["computer repair shop","PC hardware repair service","desktop motherboard repair","computer screen repair service","computer repair centre",...Array.from({length:25},(_,index)=>`custom computer term ${index}`)]);
-assert.equal(fullFrenchPlan.terms.length,32,"本地语种扩词不能突破每国搜索表达上限");
+const fullFrenchPlan=planAcquisitionSearchTerms("FR",["电脑维修店"],["computer repair shop","PC hardware repair service","desktop motherboard repair","computer screen repair service","computer repair centre",...Array.from({length:120},(_,index)=>`custom computer term ${index}`)]);
+assert.equal(fullFrenchPlan.terms.length,60,"有城市分片的国家不能把超过本任务额度的表达误报为已执行计划");
 assert.ok(fullFrenchPlan.unplannedKeywords.length>0,"因上限未纳入的输入关键词必须明确告知用户");
 assert.match(acquisitionConfig,/ACQUISITION_COUNTRY_SEARCH_AREAS[\s\S]*US: \["New York NY"[\s\S]*GB: \["London"/s,"国家覆盖计划必须包含可审计的城市群或区域分片");
 const searchAreaBlock=acquisitionConfig.match(/ACQUISITION_COUNTRY_SEARCH_AREAS:[\s\S]*?= \{([\s\S]*?)\n\};/)?.[1]||"";
@@ -253,7 +256,9 @@ assert.match(create,/options\.length===1[\s\S]*options\.length>1[\s\S]*请选择
 assert.match(create,/const removed=current\.industries[\s\S]*removedRecommendations[\s\S]*retainedRecommendations[\s\S]*retainedKeywords/,"移除行业时必须清理只属于该行业的自动推荐词并保留其他行业共享词");
 assert.match(acquisitionConfig,/const searchTerm = ACQUISITION_INDUSTRY_TERMS\[industry\] \|\| industry[\s\S]*roleKeywordBuilder[\s\S]*industryKeywordCore\(searchTerm\)/,"关键词推荐必须覆盖整个行业库和自定义行业，不能只服务单一垂直行业");
 assert.match(acquisitionConfig,/acquisitionKeywordRecommendationGroups\(industries\)[\s\S]*knownKeywordOwners[\s\S]*owners\.has\(industry\)/,"多行业检索时自动推荐词必须只用于其所属行业，不能跨行业污染查询");
-assert.match(acquisitionConfig,/MAX_ACQUISITION_INDUSTRIES = 20[\s\S]*MAX_ACQUISITION_KEYWORDS = 30[\s\S]*MAX_ACQUISITION_SEARCH_TERMS = 32/,"行业与关键词输入保持灵活，但执行计划必须限制为精准优先的搜索词规模");
+assert.match(acquisitionConfig,/MAX_ACQUISITION_INDUSTRIES = 40[\s\S]*MAX_ACQUISITION_KEYWORDS = 60[\s\S]*MAX_ACQUISITION_SEARCH_TERMS = 96/,"扩大的行业与关键词输入仍须限制每国实际检索规模");
+assert.doesNotMatch(create,/每国最多 32 条表达/,"搜索计划扩容后不得继续展示过时的 32 条上限");
+assert.match(create,/没有经过核对的当地语种译词[\s\S]*不能仅凭英语表达视为已覆盖当地市场/,"未本地化国家必须明确提示英语检索不能代表当地市场覆盖");
 assert.match(acquisitionConfig,/ACQUISITION_COUNTRY_GROUPS[\s\S]*EUROPE[\s\S]*ASIA[\s\S]*AFRICA[\s\S]*NORTH_AMERICA[\s\S]*SOUTH_AMERICA[\s\S]*OCEANIA/,"获客国家必须按六大业务洲别准确分组");
 assert.match(create,/groupKey[\s\S]*visibleCountryGroups[\s\S]*按洲选择[\s\S]*最多选择8个[\s\S]*grid-cols-3[\s\S]*跨洲搜索结果/,"国家选择器必须提供始终可见的紧凑洲别切换、分组跨洲搜索和选择上限提示");
 assert.match(create,/grid-cols-3 gap-x-1 gap-y-0\.5[\s\S]*min-h-7[\s\S]*py-0\.5[\s\S]*COUNTRY_NAMES\.of\(code\)/,"国家多选列表必须使用紧凑三列布局");
@@ -290,8 +295,8 @@ assert.match(listRoute,/!keywords\.length[\s\S]*请至少选择或输入一个�
 assert.match(listRoute,/submittedIndustries\.length > MAX_ACQUISITION_INDUSTRIES[\s\S]*最多选择[\s\S]*submittedKeywords\.length > MAX_ACQUISITION_KEYWORDS[\s\S]*最多填写/,"接口必须明确拒绝超限条件，不得静默截断行业或关键词");
 assert.match(listRoute,/costMode === "ADAPTIVE" && taskCostLimit !== null/,"标准获客的零费用上限不得被正数校验错误拒绝");
 assert.match(listRoute,/normalizeError[\s\S]*CREATE_AI_ACQUISITION_TASK[\s\S]*create failed/,"任务创建失败必须保留可诊断错误并返回可读信息");
-const industryLimitMigration=fs.readFileSync(new URL("../supabase/migrations/202609160003_ai_acquisition_industry_limit.sql",import.meta.url),"utf8");
-assert.match(industryLimitMigration,/ai_acquisition_tasks_industries_check[\s\S]*cardinality\(industries\) between 1 and 20/,"数据库行业数量上限必须与前端和接口的20项保持一致");
+const industryLimitMigration=fs.readFileSync(new URL("../supabase/migrations/20261116084940_ai_acquisition_expand_industry_limit.sql",import.meta.url),"utf8");
+assert.match(industryLimitMigration,/ai_acquisition_tasks_industries_check[\s\S]*cardinality\(industries\) between 1 and 40/,"数据库行业数量上限必须与前端和接口的40项保持一致");
 const acquisitionWorkflow=fs.readFileSync(new URL("../workflows/ai-acquisition.ts",import.meta.url),"utf8");
 assert.match(acquisitionWorkflow,/verificationState[\s\S]*Promise\.all\([\s\S]*ai_acquisition_tasks[\s\S]*ai_screening_tasks/,"获客任务等待核验时必须在单个可恢复步骤内合并读取父子任务状态");
 assert.match(acquisitionWorkflow,/existingCandidateCount[\s\S]*taskRemainingCapacity[\s\S]*staging\.control==="PAUSED"\|\|staging\.control==="CONTINUE"/,"跨批次发现必须按任务累计候选计算剩余容量并由持久化工作流连续推进");

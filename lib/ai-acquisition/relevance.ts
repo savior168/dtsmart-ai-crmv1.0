@@ -20,7 +20,9 @@ export function discoveryCandidateLooksRelevant(candidate: DiscoveryRelevanceCan
   // Consumer-electronics product words are too broad on their own: a phone
   // retailer or finished-device brand is not necessarily a repair/parts lead.
   const broadFinishedGoodsTerms = new Set(["phone", "mobile", "smartphone", "iphone", "ipad", "macbook", "laptop", "computer", "electronics", "device", "手机", "电脑", "电子", "数码"]);
-  const requested = [...industries, ...keywords, ...(candidate.matchedTerms || [])].flatMap(normalizeTokens);
+  // The matched query contains locations (for example "in Berlin, Germany").
+  // A shared city name is not evidence that a business matches the industry.
+  const requested = [...industries, ...keywords].flatMap(normalizeTokens);
   const requestedDomainTerms = [...new Set(requested.filter((term) => !roleTerms.has(term) && !genericTerms.has(term)))];
   const companyTokens = new Set(normalizeTokens(candidate.companyName));
   const typeTokens = new Set(candidate.types.flatMap(normalizeTokens));
@@ -64,11 +66,15 @@ export function discoveryCandidateLooksRelevant(candidate: DiscoveryRelevanceCan
   const matchedQueryText = (candidate.matchedTerms || []).join(" ").toLowerCase();
   const matchedQueryHasTargetDomain = /(?:phone|mobile|smartphone|cell ?phone|iphone|ipad|computer|pc|laptop|notebook|macbook|screen|手机|电脑|笔记本)/i.test(matchedQueryText);
   const matchedQueryHasTargetRole = /(?:repair|fix|replacement|service|维修|修理|更换)/i.test(matchedQueryText);
+  const matchedGermanRepairQuery = /(?:handy|telefon|smartphone|computer|laptop)/i.test(matchedQueryText)
+    && /(?:reparatur|werkstatt|austausch)/i.test(matchedQueryText);
+  const candidateDeviceSignal = /(?:handy|telefon|smartphone|phone|iphone|computer|laptop|macbook|pc)/i.test(compactBusinessText);
   // Search-query provenance is only a recall signal and never proves the
   // business by itself. A repair-branded result from a precise device-repair
   // query may proceed to evidence verification even when Google returned a
   // generic type or a compact brand such as iRepairFone/fixmybrokenscreen.
-  const preciseRepairQueryRecall = candidateRepairRole && matchedQueryHasTargetDomain && matchedQueryHasTargetRole;
+  const preciseRepairQueryRecall = candidateRepairRole && ((matchedQueryHasTargetDomain && matchedQueryHasTargetRole)
+    || (matchedGermanRepairQuery && candidateDeviceSignal));
   // Discovery is a recall-oriented gate. It may send an uncertain candidate to
   // evidence verification, but must never reject an obvious repair/supply lead
   // merely because Google returned a generic category or a plural/synonym.

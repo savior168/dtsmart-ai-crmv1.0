@@ -14,13 +14,13 @@ export const ACQUISITION_COUNTRY_GROUPS = [
   { key: "SOUTH_AMERICA", label: "南美洲", countries: ["BR","AR","CL","CO","PE"] },
   { key: "OCEANIA", label: "大洋洲", countries: ["AU","NZ"] },
 ] as const satisfies ReadonlyArray<{key:string;label:string;countries:ReadonlyArray<AcquisitionCountry>}>;
-export const MAX_ACQUISITION_INDUSTRIES = 20;
-export const MAX_ACQUISITION_KEYWORDS = 30;
+export const MAX_ACQUISITION_INDUSTRIES = 40;
+export const MAX_ACQUISITION_KEYWORDS = 60;
 // Keep user input expressive, but execute a precision-first search plan. A
 // single 14-industry task previously expanded to 1,000 geographic queries and
 // tens of thousands of weak candidates before quality verification could catch
 // up. Later tasks can continue uncovered scopes through the shared ledger.
-export const MAX_ACQUISITION_SEARCH_TERMS = 32;
+export const MAX_ACQUISITION_SEARCH_TERMS = 96;
 export const DEFAULT_ACQUISITION_DISCOVERY_CEILING = 10000;
 export const ACQUISITION_FRESH_SEARCH_SCOPES_PER_COUNTRY = 120;
 
@@ -282,7 +282,28 @@ export function acquisitionKeywordRecommendationGroups(industries: string[]) {
 }
 
 const COMMON_LOCAL_TERMS: Partial<Record<AcquisitionCountry, Record<string, string>>> = {
-  DE: { "mobile phone repair": "Handyreparatur", "computer repair": "Computerreparatur", "phone parts wholesale": "Handy Ersatzteile Großhandel" },
+  DE: {
+    "mobile phone repair": "Handyreparatur", "computer repair": "Computerreparatur", "phone parts wholesale": "Handy Ersatzteile Großhandel",
+    "mobile phone repair service": "Handyreparatur Service", "mobile phone repair chain": "Handyreparatur Filialen",
+    "apple device repair service": "Apple Geräte Reparatur", "mobile phone repair replacement parts wholesale": "Handy Reparatur Ersatzteile Großhandel",
+    "mobile phone replacement parts distributor": "Handy Ersatzteile Vertrieb", "mobile phone repair parts distributor": "Handy Reparaturteile Vertrieb",
+    "mobile phone lcd screen wholesale": "Handy Display Großhandel", "mobile phone replacement battery wholesale": "Handy Akkus Großhandel",
+    "mobile phone motherboard parts distributor": "Handy Mainboard Ersatzteile Vertrieb", "mobile phone repair tools supplier": "Handy Reparaturwerkzeug Anbieter",
+    "laptop repair service": "Laptop Reparatur Service", "computer parts wholesale": "Computer Ersatzteile Großhandel",
+    "laptop replacement parts distributor": "Laptop Ersatzteile Vertrieb", "electronic components distributor": "Elektronische Bauteile Vertrieb",
+    "electronics repair service": "Elektronik Reparatur Service",
+    "computer repair shop": "Computer Reparaturwerkstatt", "pc hardware repair service": "PC Hardware Reparatur",
+    "desktop motherboard repair": "PC Mainboard Reparatur", "computer screen repair service": "Computer Bildschirm Reparatur",
+    "computer repair centre": "Computer Reparaturzentrum", "laptop repair shop": "Laptop Reparaturwerkstatt",
+    "laptop screen replacement service": "Laptop Display Austausch", "laptop keyboard replacement service": "Laptop Tastatur Austausch",
+    "laptop battery replacement service": "Laptop Akku Austausch", "laptop motherboard repair": "Laptop Mainboard Reparatur",
+    "iphone repair shop": "iPhone Reparaturwerkstatt", "ipad repair service": "iPad Reparatur Service",
+    "macbook repair centre": "MacBook Reparaturzentrum", "apple device screen replacement": "Apple Geräte Display Austausch",
+    "mobile phone repair shop": "Handy Reparaturwerkstatt", "cell phone repair service": "Handy Reparatur Service",
+    "phone screen repair shop": "Handy Display Reparatur", "phone battery replacement service": "Handy Akku Austausch",
+    "smartphone repair centre": "Smartphone Reparaturzentrum", "mobile phone repair parts wholesaler": "Handy Reparaturteile Großhandel",
+    "phone lcd screen wholesale supplier": "Handy Display Großhandel", "phone replacement battery wholesaler": "Handy Ersatzakkus Großhandel",
+  },
   FR: {
     "mobile phone repair": "réparation téléphone mobile", "computer repair": "réparation ordinateur", "phone parts wholesale": "grossiste pièces téléphone",
     "computer repair shop": "atelier de réparation informatique", "pc hardware repair service": "réparation matériel informatique",
@@ -314,6 +335,12 @@ export function acquisitionSearchLanguage(country: AcquisitionCountry, query: st
 }
 
 export function planAcquisitionSearchTerms(country: AcquisitionCountry, industries: string[], keywords: string[]) {
+  // Each term consumes a country-wide scope and, for configured countries,
+  // one regional scope before the next term. Never claim more terms are
+  // planned than the per-country task allowance can actually execute.
+  const scopeCostPerTerm = ACQUISITION_COUNTRY_SEARCH_AREAS[country]?.length ? 2 : 1;
+  const maxTerms = Math.min(MAX_ACQUISITION_SEARCH_TERMS,
+    Math.floor(ACQUISITION_FRESH_SEARCH_SCOPES_PER_COUNTRY / scopeCostPerTerm));
   const industryTerms = industries.map((value) => ACQUISITION_INDUSTRY_TERMS[value] || value);
   const translations = COMMON_LOCAL_TERMS[country] || {};
   const normalizedKeywords = [...new Set(keywords.map((value) => value.trim()).filter(Boolean))];
@@ -332,22 +359,24 @@ export function planAcquisitionSearchTerms(country: AcquisitionCountry, industri
       const owners = knownKeywordOwners.get(keyword.toLowerCase());
       return !owners?.size || owners.has(industry);
     });
-    const expressions: Array<{ text:string; keyword?:string }> = [{ text:term }];
-    if (translated && translated.toLowerCase() !== term.toLowerCase()) expressions.push({ text:translated });
+    const expressions: Array<{ text:string; keyword?:string }> = translated && translated.toLowerCase() !== term.toLowerCase()
+      ? [{ text:translated }]
+      : [{ text:term }];
     // Never combine a local-language industry term with an untranslated
     // English keyword. Keep the original query and add a local equivalent only
     // when a curated translation is available for both parts.
     for (const keyword of applicableKeywords) {
-      expressions.push({ text:keywordAlreadyScopesIndustry(term, keyword) ? keyword : `${term} ${keyword}`, keyword });
       const localKeyword = translations[keyword.toLowerCase()];
       if (translated && localKeyword) expressions.push({ text:keywordAlreadyScopesIndustry(translated, localKeyword) ? localKeyword : `${translated} ${localKeyword}`, keyword });
+      expressions.push({ text:keywordAlreadyScopesIndustry(term, keyword) ? keyword : `${term} ${keyword}`, keyword });
     }
+    if (translated && translated.toLowerCase() !== term.toLowerCase()) expressions.push({ text:term });
     return expressions;
   });
   const requested: string[] = [];
   const plannedKeywords = new Set<string>();
   const seen = new Set<string>();
-  for (let round = 0; requested.length < MAX_ACQUISITION_SEARCH_TERMS; round += 1) {
+  for (let round = 0; requested.length < maxTerms; round += 1) {
     let added = false;
     for (const group of groups) if (group[round]) {
       added = true;
@@ -358,7 +387,7 @@ export function planAcquisitionSearchTerms(country: AcquisitionCountry, industri
         seen.add(key);
         requested.push(entry.text);
       }
-      if (requested.length >= MAX_ACQUISITION_SEARCH_TERMS) break;
+      if (requested.length >= maxTerms) break;
     }
     if (!added) break;
   }
