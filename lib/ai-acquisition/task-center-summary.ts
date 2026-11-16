@@ -105,4 +105,3 @@ export async function loadAcquisitionTaskSummary(admin: ReturnType<typeof create
     failed_tasks: summaryRows.filter((row) => row.status === "FAILED").length,
   };
 }
-

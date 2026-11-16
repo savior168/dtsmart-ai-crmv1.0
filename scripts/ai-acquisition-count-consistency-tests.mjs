@@ -94,4 +94,3 @@ for (const name of ["task_cost_mode", "task_country", "task_industry", "task_fro
 assert.match(resultView, /new URLSearchParams\(taskOriginQuery\)/);
 assert.match(resultRoute, /optionsCacheKey = JSON\.stringify\(\[ownerId[\s\S]*taskCountries[\s\S]*taskIndustries/);
 console.log("AI获客总览、跳转范围和复核计数一致性测试通过");
-
