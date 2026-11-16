@@ -148,15 +148,23 @@ export async function POST(request: NextRequest) {
     const { user } = await requirePermission("ai.acquisition.create");
     const body = await request.json() as Record<string, unknown>;
     const name = String(body.name || "").trim().slice(0, 100);
+    if (Array.isArray(body.industries) && body.industries.some((value) => typeof value !== "string")) return NextResponse.json({ error: "目标行业格式无效，请重新选择" }, { status: 400 });
+    if (Array.isArray(body.keywords) && body.keywords.some((value) => typeof value !== "string")) return NextResponse.json({ error: "搜索关键词格式无效，请重新填写" }, { status: 400 });
+    if (Array.isArray(body.countries) && body.countries.some((value) => typeof value !== "string")) return NextResponse.json({ error: "目标国家格式无效，请重新选择" }, { status: 400 });
     const validIndustry = (value: string) => value.length >= 2 && value.length <= 60 && !/[<>\r\n]/.test(value);
-    const submittedIndustries = Array.isArray(body.industries)
-      ? [...new Set(body.industries.map(String).map((value) => value.trim()).filter(validIndustry))]
-      : validIndustry(String(body.industry || "").trim()) ? [String(body.industry).trim()] : [];
+    const industryInputs = Array.isArray(body.industries)
+      ? body.industries.map(String).map((value) => value.trim()).filter(Boolean)
+      : [String(body.industry || "").trim()].filter(Boolean);
+    if (industryInputs.some((value) => !validIndustry(value))) return NextResponse.json({ error: "目标行业须为2至60个字符，且不能包含尖括号或换行；请修改后重试" }, { status: 400 });
+    const submittedIndustries = [...new Set(industryInputs)];
     if (submittedIndustries.length > MAX_ACQUISITION_INDUSTRIES) return NextResponse.json({ error: `目标行业最多选择${MAX_ACQUISITION_INDUSTRIES}个，请拆分任务后重试` }, { status: 400 });
     const industries = submittedIndustries;
     const industry = industries.join("、");
+    if (Array.isArray(body.countries) && body.countries.some((value) => !normalizeAcquisitionCountries([value]).length)) return NextResponse.json({ error: "目标国家包含不受支持的选项，请重新选择；系统不会静默忽略国家" }, { status: 400 });
     const countries = normalizeAcquisitionCountries(body.countries);
-    const submittedKeywords = Array.isArray(body.keywords) ? [...new Set(body.keywords.map(String).map((value) => value.trim()).filter((value) => value.length <= 80))] : [];
+    const keywordInputs = Array.isArray(body.keywords) ? body.keywords.map(String).map((value) => value.trim()).filter(Boolean) : [];
+    if (keywordInputs.some((value) => value.length > 80)) return NextResponse.json({ error: "每个搜索关键词最多80个字符；请缩短后重试，系统不会静默丢弃关键词" }, { status: 400 });
+    const submittedKeywords = [...new Set(keywordInputs)];
     if (submittedKeywords.length > MAX_ACQUISITION_KEYWORDS) return NextResponse.json({ error: `搜索关键词最多填写${MAX_ACQUISITION_KEYWORDS}个，请合并同义词或拆分任务后重试` }, { status: 400 });
     const keywords = submittedKeywords;
     const requestKey = String(body.request_key || "").trim();
@@ -165,6 +173,7 @@ export async function POST(request: NextRequest) {
       ? requestedSchedule.toISOString()
       : null;
     const targetCount = DEFAULT_ACQUISITION_DISCOVERY_CEILING;
+    if (body.cost_mode != null && !["FREE_ONLY", "ADAPTIVE"].includes(String(body.cost_mode))) return NextResponse.json({ error: "获客模式无效，请重新选择后再创建任务" }, { status: 400 });
     const costMode = body.cost_mode === "FREE_ONLY" ? "FREE_ONLY" : "ADAPTIVE";
     const rawTaskCostLimit = body.task_cost_limit_usd;
     const taskCostLimit = costMode === "FREE_ONLY"

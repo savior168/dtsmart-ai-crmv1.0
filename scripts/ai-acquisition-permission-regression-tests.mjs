@@ -4,6 +4,11 @@ import { resolve } from "node:path";
 
 const root = process.cwd();
 const read = (path) => readFileSync(resolve(root, path), "utf8");
+const taskCreateRoute = read("app/api/ai-acquisition/tasks/route.ts");
+assert.match(taskCreateRoute, /industryInputs\.some\(\(value\) => !validIndustry\(value\)\)[\s\S]*目标行业须为2至60个字符/, "无效目标行业必须明确报错，不能静默丢弃");
+assert.match(taskCreateRoute, /body\.countries\.some\(\(value\) => !normalizeAcquisitionCountries\(\[value\]\)\.length\)[\s\S]*目标国家包含不受支持的选项/, "不支持的国家必须明确报错，不能静默忽略");
+assert.match(taskCreateRoute, /keywordInputs\.some\(\(value\) => value\.length > 80\)[\s\S]*系统不会静默丢弃关键词/, "超长关键词必须明确报错，不能静默丢弃");
+assert.match(taskCreateRoute, /body\.cost_mode != null && !\["FREE_ONLY", "ADAPTIVE"\]\.includes\(String\(body\.cost_mode\)\)[\s\S]*获客模式无效/, "未知获客模式不得被静默转换为可能付费的智能获客");
 
 for (const path of ["app/ai-acquisition/layout.tsx", "app/ai-acquisition/page.tsx", "supabase/migrations/202609150002_ai_acquisition_permissions.sql", "supabase/migrations/202609150003_ai_acquisition_admin_default.sql", "supabase/migrations/202609170003_ai_modules_admin_default.sql"]) {
   assert.equal(existsSync(resolve(root, path)), true, `缺少AI获客权限文件：${path}`);
