@@ -35,7 +35,7 @@ export async function GET(_: NextRequest, context: { params: Promise<{ id: strin
     if (profileResult.error) throw profileResult.error;
     const customer = customerResult.data;
     const isOwner = customer.owner_id === user.id;
-    const subordinateIds = account.role === "SUPERVISOR" && account.supervisor_can_view_subordinates
+    const subordinateIds = account.role === "SUPERVISOR" && hasPermission(account, "customers.data_all")
       ? await activeDescendantIds(account.id) : [];
     const subordinateOwner = Boolean(customer.owner_id && subordinateIds.includes(customer.owner_id));
     const canReadAll = account.role === "ADMIN" || (account.role === "ORDER_CLERK" && Boolean(customer.owner_id)) || subordinateOwner;
@@ -98,7 +98,7 @@ export async function GET(_: NextRequest, context: { params: Promise<{ id: strin
     const currentOwner = customer.owner_id ? historyUsersById.get(customer.owner_id) || null : null;
     const usersResult = account.role === "ADMIN"
       ? await supabase.from("users").select("id,name,email,role").eq("status", "ACTIVE").order("name")
-      : account.role === "SUPERVISOR" && account.supervisor_can_view_subordinates
+      : account.role === "SUPERVISOR" && hasPermission(account, "customers.data_all")
         ? await admin.from("users").select("id,name,email,role").eq("status", "ACTIVE").in("id", subordinateIds).order("name")
         : { data: [], error: null };
     const latestProtection = (protectionResult.data || [])[0] || null;

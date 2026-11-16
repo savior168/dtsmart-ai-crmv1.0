@@ -101,7 +101,11 @@ for (const permission of ["dashboard.data_all", "customers.data_all", "orders.da
   assert.equal(SUPERVISOR_TEAM_ALL_PERMISSIONS.has(permission), true, permission);
 }
 assert.equal(SUPERVISOR_TEAM_ALL_PERMISSIONS.has("imports.data_all"), false);
-assert.match(currentUser, /requested\.toLowerCase\(\) === "all"[\s\S]*?canViewSubordinateData\(account\)\) return null/);
+assert.match(currentUser, /requested\.toLowerCase\(\) === "all"[\s\S]*?dataPermission === "customers\.data_all" \? account\.supervisor_can_view_customers : canViewSubordinateData\(account\)\)\) return null/);
+const customerScopeMigration = await read("../supabase/migrations/20261116064426_my_customers_independent_subordinate_scope.sql");
+assert.match(customerScopeMigration, /o\.permission_code = 'customers\.data_all'[\s\S]*?o\.effect = 'ALLOW'/);
+assert.match(customerScopeMigration, /create policy customers_supervisor_data_scope[\s\S]*?supervisor_can_read_customer_owner/);
+assert.match(adminPanel, /我的客户 · 查看下属客户/);
 assert.match(dashboardApi, /teamOwnerIds[\s\S]*?activeDescendantIds\(account\.id\)/);
 assert.match(dashboardApi, /followupsQuery\.in\("owner_id", teamOwnerIds\)/);
 assert.match(authorizedAllMigration, /actor\.role <> ''SUPERVISOR'' or public\.supervisor_can_read_user\(c\.owner_id\)/);

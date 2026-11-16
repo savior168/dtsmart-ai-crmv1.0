@@ -48,6 +48,7 @@ export type CurrentAccount = {
   locked_until: string | null;
   manager_id: string | null;
   supervisor_can_view_subordinates: boolean;
+  supervisor_can_view_customers: boolean;
   permissions: string[];
 };
 
@@ -93,6 +94,7 @@ export async function requireUser(options: { allowPasswordChange?: boolean } = {
     permissionCache.set(role, { expires: Date.now() + 15000, values: rolePermissions });
   }
   let permissions = rolePermissions;
+  let customerScopeGranted = false;
   if (role !== "ADMIN") {
     // 显式拒绝优先于角色默认与显式允许；表尚未迁移时保持角色权限，避免部署顺序造成登录中断。
     const overrides = await admin.from("user_permission_overrides").select("permission_code,effect").eq("user_id", user.id);
@@ -102,6 +104,7 @@ export async function requireUser(options: { allowPasswordChange?: boolean } = {
     if (overrides.error) throw new Error("AUTHORIZATION_UNAVAILABLE");
     const denied = new Set((overrides.data || []).filter((item) => item.effect === "DENY").map((item) => String(item.permission_code)));
     const allowed = (overrides.data || []).filter((item) => item.effect === "ALLOW").map((item) => String(item.permission_code));
+    customerScopeGranted = allowed.includes("customers.data_all");
     permissions = [...new Set([...rolePermissions, ...allowed])].filter((code) => !denied.has(code));
     permissions = permissions.filter((code) => !CORE_PERMISSION_CODES.has(code) && !CORE_PERMISSION_CODES.has(permissionPageCode(code)));
   }
@@ -116,6 +119,7 @@ export async function requireUser(options: { allowPasswordChange?: boolean } = {
     locked_until: data.locked_until ? String(data.locked_until) : null,
     manager_id: data.manager_id ? String(data.manager_id) : null,
     supervisor_can_view_subordinates: role === "SUPERVISOR" && data.supervisor_can_view_subordinates === true,
+    supervisor_can_view_customers: role === "SUPERVISOR" && customerScopeGranted,
     permissions,
   };
   if (account.status !== "ACTIVE") throw new Error(`ACCOUNT_${account.status}`);
@@ -184,10 +188,10 @@ export async function requestedOwnerId(request: Request, account: CurrentAccount
   // their service-role queries and SECURITY DEFINER functions are audited.
   if (requested.toLowerCase() === "all"
     && SUPERVISOR_TEAM_ALL_PERMISSIONS.has(dataPermission)
-    && canViewSubordinateData(account)) return null;
+    && (dataPermission === "customers.data_all" ? account.supervisor_can_view_customers : canViewSubordinateData(account))) return null;
   // 主管仅能读本人和自己的多级下属；权限判断必须在服务端执行。
   if (!requested || requested === account.id || requested.toLowerCase() === "all") return account.id;
-  if (!canViewSubordinateData(account)) return account.id;
+  if (!(dataPermission === "customers.data_all" ? account.supervisor_can_view_customers : canViewSubordinateData(account))) return account.id;
   if (!(await activeDescendantIds(account.id)).includes(requested)) throw new Error("FORBIDDEN");
   return requested;
 }

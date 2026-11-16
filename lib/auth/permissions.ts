@@ -206,13 +206,18 @@ export type PermissionAccount = {
   role: UserRole;
   permissions: string[];
   supervisor_can_view_subordinates?: boolean;
+  supervisor_can_view_customers?: boolean;
 };
 
 /** The same decision is used by server handlers and the role regression matrix. */
 export function evaluatePermission(account: PermissionAccount, permission: string) {
   if (account.role === "ADMIN") return true;
+  // My Customers has a separate, explicit per-user grant. A role default or
+  // the general supervisor switch must never expose subordinate customers.
+  if (account.role === "SUPERVISOR" && permission === "customers.data_all"
+    && !account.supervisor_can_view_customers) return false;
   if (account.role === "SUPERVISOR" && !canViewSubordinateData(account)
-    && isSubordinateDataPermission(permission)) return false;
+    && isSubordinateDataPermission(permission) && permission !== "customers.data_all") return false;
   const pagePermission = permissionPageCode(permission);
   if (CORE_PERMISSION_CODES.has(permission) || CORE_PERMISSION_CODES.has(pagePermission)) return false;
   if (!account.permissions.includes(permission)) return false;

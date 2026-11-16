@@ -10,15 +10,16 @@ async function access(id: string) {
   if (error || !attachment) throw error || new Error("附件不存在");
 
   let allowed = account.role === "ADMIN";
-  async function canReadOwner(ownerId: string | null | undefined) {
+  async function canReadOwner(ownerId: string | null | undefined, customer = false) {
     if (!ownerId) return false;
     if (ownerId === account.id || account.role === "ADMIN") return true;
-    if (account.role !== "SUPERVISOR" || !account.supervisor_can_view_subordinates) return false;
+    if (account.role !== "SUPERVISOR" || (customer
+      ? !hasPermission(account, "customers.data_all") : !account.supervisor_can_view_subordinates)) return false;
     return (await activeDescendantIds(account.id)).includes(ownerId);
   }
   if (attachment.customer_id) {
     const customer = await admin.from("customers").select("owner_id").eq("id", attachment.customer_id).single();
-    allowed ||= await canReadOwner(customer.data?.owner_id);
+    allowed ||= await canReadOwner(customer.data?.owner_id, true);
   }
   if (attachment.quote_id) {
     const quote = await admin.from("quotes").select("owner_id").eq("id", attachment.quote_id).single();
@@ -58,7 +59,7 @@ async function access(id: string) {
   if (attachment.followup_id && !attachment.customer_id) {
     const followup = await admin.from("followups").select("customer:customers!inner(owner_id)").eq("id", attachment.followup_id).single();
     const customer = Array.isArray(followup.data?.customer) ? followup.data?.customer[0] : followup.data?.customer;
-    allowed ||= await canReadOwner(customer?.owner_id);
+    allowed ||= await canReadOwner(customer?.owner_id, true);
   }
   if (!allowed) throw new Error("FORBIDDEN");
   return { account, admin, attachment };

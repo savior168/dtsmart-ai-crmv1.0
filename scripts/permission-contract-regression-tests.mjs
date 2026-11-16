@@ -127,7 +127,7 @@ assert.match(sidebar, /href: "\/supplier-reconciliation", permission: "supplier\
 
 const adminPanels = read("components/admin-settings-panels.tsx");
 assert.match(adminPanels, /const changes=Array\.isArray\(body\.changes\)[\s\S]*new Map\(changes\.map[\s\S]*changed\.get\(row\.permission_code\)/, "角色权限前端必须使用后端实际变更同步父子开关状态");
-assert.match(adminPanels, /const effective=evaluatePermission\(\{role:user\.role,permissions:\[\.\.\.effectiveCodes\],supervisor_can_view_subordinates:payload\?\.user\.supervisor_can_view_subordinates\},item\.code\)/, "用户权限最终生效列须使用服务端同源判断及主管范围开关");
+assert.match(adminPanels, /const effective=evaluatePermission\(\{role:user\.role,permissions:\[\.\.\.effectiveCodes\],supervisor_can_view_subordinates:payload\?\.user\.supervisor_can_view_subordinates,supervisor_can_view_customers:overrideByCode\.get\("customers\.data_all"\)==="ALLOW"\},item\.code\)/, "用户权限最终生效列须使用服务端同源判断及客户独立授权");
 assert.match(adminPanels, /disabled=\{Boolean\(saving\)\} onClick=\{\(\)=>setRole\(item\.code\)\}/, "权限保存期间不得切换角色造成并发误操作");
 assert.match(adminPanels, /const locked=!roleDefinitions[\s\S]*\|\|Boolean\(saving\)/, "角色子权限保存期间须锁定同一权限面板");
 

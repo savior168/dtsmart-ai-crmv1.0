@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requirePermission, writeAudit } from "@/lib/auth/current-user";
+import { hasPermission, requirePermission, writeAudit } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { permanentlyDeleteCustomers } from "@/lib/customers/soft-delete";
 import { customerIndexIdentityKeys, customerLookupIdentityKeys } from "@/lib/import-dedupe";
@@ -74,7 +74,7 @@ export async function GET(_: NextRequest, context: { params: Promise<{ id: strin
     const { data, error } = await admin.from("customers").select("*").eq("id", id).is("deleted_at", null).single();
     if (error) throw error;
     const publicUnclaimed = !data.owner_id && data.acquisition_scope === "PUBLIC_POOL" && data.pool_status === "AVAILABLE" && data.status === "UNCLAIMED";
-    const subordinateOwner = account.role === "SUPERVISOR" && account.supervisor_can_view_subordinates && data.owner_id
+    const subordinateOwner = account.role === "SUPERVISOR" && hasPermission(account, "customers.data_all") && data.owner_id
       ? (await activeDescendantIds(account.id)).includes(data.owner_id)
       : false;
     const mayRead = account.role === "ADMIN" || (account.role === "ORDER_CLERK" && Boolean(data.owner_id)) || data.owner_id === user.id || subordinateOwner || (account.role !== "ORDER_CLERK" && publicUnclaimed);

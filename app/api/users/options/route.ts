@@ -19,7 +19,8 @@ export async function GET(request: Request) {
     if (!canSelectOwner) return NextResponse.json({ profile, users: [], can_select_owner: false });
     if (creatorOptions && !["orders.data_all", "stock.data_all"].includes(permission)) throw new Error("FORBIDDEN");
     const admin = createAdminClient();
-    const descendantIds = profile.role === "SUPERVISOR" && profile.supervisor_can_view_subordinates
+    const descendantIds = profile.role === "SUPERVISOR" && (permission === "customers.data_all"
+      ? profile.supervisor_can_view_customers : profile.supervisor_can_view_subordinates)
       ? await activeDescendantIds(profile.id) : null;
     const users: Array<{ id: string; name: string; email: string; role: string; status: string }> = [];
     const pageSize = 500;
