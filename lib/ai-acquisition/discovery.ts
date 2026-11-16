@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { releaseApiCostBudget, reserveApiCostBudget } from "@/lib/api-cost-budget";
 import { ACQUISITION_COUNTRY_SEARCH_AREAS, ACQUISITION_FRESH_SEARCH_SCOPES_PER_COUNTRY, acquisitionSearchLanguage, localizedSearchTerms, type AcquisitionCountry } from "./config";
+import { prioritizeDiscoveryCandidates } from "./relevance";
 export { discoveryCandidateLooksRelevant } from "./relevance";
 
 export type DiscoveredBusiness = {
@@ -89,6 +90,7 @@ export async function discoverBusinesses(input: {
   const coveragePlan = await prioritizeUncoveredQueries(input.country, discoveryQueries(input.country, countryName, terms));
   const queries = coveragePlan.queries;
   const results = new Map<string, DiscoveredBusiness>();
+  const rankedBusinesses = () => prioritizeDiscoveryCandidates([...results.values()], input.industries, input.keywords, input.limit);
   let freshSearchScopes = 0;
   const taskScopeUsage=await createAdminClient().from("ai_acquisition_discovery_checkpoints").select("query_text",{count:"exact",head:true}).eq("task_id",input.acquisitionTaskId).eq("country",input.country).in("status",["RUNNING","PAUSED","COMPLETED","BUDGET_LIMITED"]);
   if(taskScopeUsage.error)throw taskScopeUsage.error;
@@ -133,11 +135,11 @@ export async function discoverBusinesses(input: {
     for (let page = firstPage; page <= 3 && results.size < input.limit; page += 1) {
       const control = await admin.from("ai_acquisition_tasks").select("status,cancel_requested").eq("id",input.acquisitionTaskId).single();
       if(control.error) throw control.error;
-      if(control.data.cancel_requested) return { businesses:[...results.values()].slice(0,input.limit), control:"CANCELLED" as const };
+      if(control.data.cancel_requested) return { businesses:rankedBusinesses(), control:"CANCELLED" as const };
       if(["PAUSING","PAUSED"].includes(String(control.data.status))) {
         const paused=await admin.from("ai_acquisition_discovery_checkpoints").upsert({task_id:input.acquisitionTaskId,country:input.country,query_text:query,next_page:page,next_page_token:pageToken||null,status:"PAUSED",result_count:queryResults.size,results:[...queryResults.values()],updated_at:new Date().toISOString()},{onConflict:"task_id,country,query_text"});
         if(paused.error)throw paused.error;
-        return { businesses:[...results.values()].slice(0,input.limit), control:"PAUSED" as const };
+        return { businesses:rankedBusinesses(), control:"PAUSED" as const };
       }
       const heartbeat=await admin.from("ai_acquisition_tasks").update({executor_heartbeat_at:new Date().toISOString(),updated_at:new Date().toISOString()}).eq("id",input.acquisitionTaskId).eq("status","RUNNING");
       if(heartbeat.error)throw heartbeat.error;
@@ -146,14 +148,14 @@ export async function discoverBusinesses(input: {
       if (input.costMode === "FREE_ONLY" && !insideFreeCap) {
         const limited=await admin.from("ai_acquisition_discovery_checkpoints").upsert({task_id:input.acquisitionTaskId,country:input.country,query_text:query,next_page:page,next_page_token:pageToken||null,status:"BUDGET_LIMITED",stop_reason:"FREE_MODE",result_count:queryResults.size,results:[...queryResults.values()],updated_at:new Date().toISOString()},{onConflict:"task_id,country,query_text"});
         if(limited.error)throw limited.error;
-        return { businesses:[...results.values()].slice(0,input.limit), control:"BUDGET_LIMITED" as const };
+        return { businesses:rankedBusinesses(), control:"BUDGET_LIMITED" as const };
       }
       const effectivePrice = insideFreeCap ? 0 : GOOGLE_TEXT_SEARCH_PRO_UNIT_PRICE;
       const reservation = await reserveApiCostBudget("GOOGLE_PLACES", effectivePrice, { userId: input.userId, taskId: input.screeningTaskId, operation: "AI获客目标商家搜索" });
       if (!reservation.allowed) {
         const limited=await admin.from("ai_acquisition_discovery_checkpoints").upsert({task_id:input.acquisitionTaskId,country:input.country,query_text:query,next_page:page,next_page_token:pageToken||null,status:"BUDGET_LIMITED",stop_reason:reservation.period||"BUDGET",result_count:queryResults.size,results:[...queryResults.values()],updated_at:new Date().toISOString()},{onConflict:"task_id,country,query_text"});
         if(limited.error)throw limited.error;
-        return { businesses:[...results.values()].slice(0,input.limit), control:"BUDGET_LIMITED" as const };
+        return { businesses:rankedBusinesses(), control:"BUDGET_LIMITED" as const };
       }
       try {
         const running=await admin.from("ai_acquisition_discovery_checkpoints").upsert({task_id:input.acquisitionTaskId,country:input.country,query_text:query,next_page:page,next_page_token:pageToken||null,status:"RUNNING",stop_reason:null,result_count:queryResults.size,results:[...queryResults.values()],updated_at:new Date().toISOString()},{onConflict:"task_id,country,query_text"});
@@ -208,7 +210,7 @@ export async function discoverBusinesses(input: {
     }
   }
   const shouldContinue=stepScopeLimit>0&&freshSearchScopes>=stepScopeLimit&&remainingScopeAllowance>freshSearchScopes&&results.size<input.limit;
-  return { businesses:[...results.values()].slice(0, input.limit), control:shouldContinue?"CONTINUE" as const:null };
+  return { businesses:rankedBusinesses(), control:shouldContinue?"CONTINUE" as const:null };
 }
 
 export function plannedDiscoveryScopeCount(country: AcquisitionCountry, industries: string[], keywords: string[]) {

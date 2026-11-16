@@ -85,3 +85,17 @@ export function discoveryCandidateLooksRelevant(candidate: DiscoveryRelevanceCan
     && !(explicitlyIrrelevantType && !requestedMatch)
     && requestedMatch;
 }
+
+// Reorder only already-fetched results. This does not affect search pagination
+// or the number of provider requests, and keeps the provider order within each
+// group so checkpoint resumes remain deterministic.
+export function prioritizeDiscoveryCandidates<T extends DiscoveryRelevanceCandidate>(
+  candidates: T[], industries: string[], keywords: string[], limit: number,
+): T[] {
+  const relevant: T[] = [];
+  const other: T[] = [];
+  for (const candidate of candidates) {
+    (discoveryCandidateLooksRelevant(candidate, industries, keywords) ? relevant : other).push(candidate);
+  }
+  return relevant.concat(other).slice(0, limit);
+}
