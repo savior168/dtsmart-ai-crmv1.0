@@ -57,12 +57,18 @@ export async function loadAcquisitionTaskSummary(admin: ReturnType<typeof create
   for (const candidate of linkedAccepted) acceptedByTask[candidate.task_id] = (acceptedByTask[candidate.task_id] || 0) + 1;
   const acceptedCustomerIds = [...new Set(linkedAccepted.map((row) => String(row.imported_customer_id)))];
   const customerProfiles: Array<{id:string;company_name:string|null;deleted_at:string|null;acquisition_scope:string|null;pool_status:string|null;status:string|null;owner_id:string|null}> = [];
-  for (let offset = 0; offset < acceptedCustomerIds.length; offset += 200) {
-    const profilePage = await admin.from("customers")
+  // Profile lookups are independent. Fetch four bounded batches concurrently
+  // so the summary no longer waits for every 200-customer round trip in turn.
+  for (let offset = 0; offset < acceptedCustomerIds.length; offset += 800) {
+    const batches = Array.from({ length: 4 }, (_, index) => acceptedCustomerIds.slice(offset + index * 200, offset + (index + 1) * 200))
+      .filter((ids) => ids.length > 0);
+    const pages = await Promise.all(batches.map((ids) => admin.from("customers")
       .select("id,company_name,deleted_at,acquisition_scope,pool_status,status,owner_id")
-      .in("id", acceptedCustomerIds.slice(offset, offset + 200));
-    if (profilePage.error) throw profilePage.error;
-    customerProfiles.push(...(profilePage.data || []));
+      .in("id", ids)));
+    for (const profilePage of pages) {
+      if (profilePage.error) throw profilePage.error;
+      customerProfiles.push(...(profilePage.data || []));
+    }
   }
   const currentCustomers = customerProfiles.filter((row) => !row.deleted_at && row.acquisition_scope === "PUBLIC_POOL" && ["AVAILABLE", "CLAIMED"].includes(String(row.pool_status || "")));
   const currentCustomerIds = new Set(currentCustomers.map((row) => row.id));
@@ -99,3 +105,4 @@ export async function loadAcquisitionTaskSummary(admin: ReturnType<typeof create
     failed_tasks: summaryRows.filter((row) => row.status === "FAILED").length,
   };
 }
+

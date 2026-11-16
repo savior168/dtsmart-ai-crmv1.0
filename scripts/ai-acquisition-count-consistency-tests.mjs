@@ -49,6 +49,33 @@ assert.equal(summary.historical_accepted, 3, "历史累计也要从候选决策�
 assert.equal(summary.removed_results, 1);
 assert.equal(summary.today_accepted, 1);
 
+let profileReadsInFlight = 0;
+let maxProfileReadsInFlight = 0;
+class DelayedCustomerQuery extends Query {
+  then(resolve, reject) {
+    profileReadsInFlight += 1;
+    maxProfileReadsInFlight = Math.max(maxProfileReadsInFlight, profileReadsInFlight);
+    return new Promise((done) => setTimeout(done, 0)).then(() => this.result())
+      .finally(() => { profileReadsInFlight -= 1; }).then(resolve, reject);
+  }
+}
+const bulkCandidates = Array.from({ length: 401 }, (_, index) => ({
+  id: `candidate-${index}`, task_id: "bulk-task", decision: "ACCEPTED",
+  imported_customer_id: `customer-${index}`, processed_at: "2026-09-29T02:00:00Z",
+}));
+const bulkCustomers = bulkCandidates.map((row) => ({
+  id: row.imported_customer_id, company_name: row.imported_customer_id, deleted_at: null,
+  acquisition_scope: "PUBLIC_POOL", pool_status: "AVAILABLE", status: "UNCLAIMED", owner_id: null,
+}));
+const bulkAdmin = { from(table) {
+  if (table === "customers") return new DelayedCustomerQuery(bulkCustomers);
+  return new Query(table === "ai_acquisition_tasks" ? [{ id: "bulk-task", status: "COMPLETED" }] : bulkCandidates);
+} };
+const bulkSummary = await loadAcquisitionTaskSummary(bulkAdmin, filters);
+assert.equal(bulkSummary.accepted, 401);
+assert.equal(bulkSummary.available_customers, 401);
+assert.equal(maxProfileReadsInFlight, 3, "独立客户资料批次应有界并行，不能逐批串行或无上限并发");
+
 const manyCandidates = Array.from({ length: 1300 }, (_, index) => ({ id: `accepted-${index}`, task_id: "large-task", decision: "ACCEPTED" }));
 manyCandidates.push(...Array.from({ length: 65 }, (_, index) => ({ id: `review-${index}`, task_id: "large-task", decision: "REVIEW" })));
 const largeAdmin = { from() { return new Query(manyCandidates); } };
@@ -67,3 +94,4 @@ for (const name of ["task_cost_mode", "task_country", "task_industry", "task_fro
 assert.match(resultView, /new URLSearchParams\(taskOriginQuery\)/);
 assert.match(resultRoute, /optionsCacheKey = JSON\.stringify\(\[ownerId[\s\S]*taskCountries[\s\S]*taskIndustries/);
 console.log("AI获客总览、跳转范围和复核计数一致性测试通过");
+
