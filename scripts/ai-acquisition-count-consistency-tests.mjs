@@ -76,6 +76,27 @@ assert.equal(bulkSummary.accepted, 401);
 assert.equal(bulkSummary.available_customers, 401);
 assert.equal(maxProfileReadsInFlight, 3, "独立客户资料批次应有界并行，不能逐批串行或无上限并发");
 
+let candidateReadsInFlight = 0;
+let maxCandidateReadsInFlight = 0;
+class DelayedCandidateQuery extends Query {
+  range(start, end) {
+    candidateReadsInFlight += 1;
+    maxCandidateReadsInFlight = Math.max(maxCandidateReadsInFlight, candidateReadsInFlight);
+    return new Promise((done) => setTimeout(done, 0)).then(() => this.result(start, end))
+      .finally(() => { candidateReadsInFlight -= 1; });
+  }
+}
+const pagedCandidates = Array.from({ length: 2600 }, (_, index) => ({
+  id: `paged-${index}`, task_id: "paged-task", decision: "REVIEW", imported_customer_id: null, processed_at: "2026-09-29T02:00:00Z",
+}));
+const pagedAdmin = { from(table) {
+  if (table === "ai_acquisition_candidates") return new DelayedCandidateQuery(pagedCandidates);
+  return new Query(table === "ai_acquisition_tasks" ? [{ id: "paged-task", status: "COMPLETED" }] : []);
+} };
+const pagedSummary = await loadAcquisitionTaskSummary(pagedAdmin, filters);
+assert.equal(pagedSummary.review, 2600, "超过单页上限的待复核候选必须全部计入统计");
+assert.equal(maxCandidateReadsInFlight, 2, "候选分页应有界并行读取，不能逐页串行或无限并发");
+
 const manyCandidates = Array.from({ length: 1300 }, (_, index) => ({ id: `accepted-${index}`, task_id: "large-task", decision: "ACCEPTED" }));
 manyCandidates.push(...Array.from({ length: 65 }, (_, index) => ({ id: `review-${index}`, task_id: "large-task", decision: "REVIEW" })));
 const largeAdmin = { from() { return new Query(manyCandidates); } };

@@ -34,17 +34,27 @@ export async function loadAcquisitionTaskSummary(admin: ReturnType<typeof create
   const decisionCandidates: Array<{ task_id:string; decision:string; imported_customer_id:string|null; processed_at:string|null }> = [];
   const summaryTaskIds = summaryRows.map((row) => row.id);
   for (let offset = 0; offset < summaryTaskIds.length; offset += 150) {
-    for (let rowOffset = 0; ; rowOffset += 1000) {
-      const result = await admin.from("ai_acquisition_candidates")
-        .select("task_id,decision,imported_customer_id,processed_at")
-        .in("task_id", summaryTaskIds.slice(offset, offset + 150))
+    const taskIds = summaryTaskIds.slice(offset, offset + 150);
+    const loadPage = (rowOffset: number, withCount = false) => admin.from("ai_acquisition_candidates")
+        .select("task_id,decision,imported_customer_id,processed_at", withCount ? { count: "exact" } : undefined)
+        .in("task_id", taskIds)
         .in("decision", ["ACCEPTED", "REVIEW"])
         .order("processed_at", { ascending:false, nullsFirst:false })
         .order("id", { ascending:true })
         .range(rowOffset, rowOffset + 999);
-      if (result.error) throw result.error;
-      decisionCandidates.push(...(result.data || []));
-      if ((result.data || []).length < 1000) break;
+    const firstPage = await loadPage(0, true);
+    if (firstPage.error) throw firstPage.error;
+    decisionCandidates.push(...(firstPage.data || []));
+    const total = Number(firstPage.count || 0);
+    // Keep every database request under the 1000-row API limit, but fetch
+    // independent pages in bounded waves instead of serial round trips.
+    for (let rowOffset = 1000; rowOffset < total; rowOffset += 4000) {
+      const offsets = [0, 1000, 2000, 3000].map((step) => rowOffset + step).filter((value) => value < total);
+      const pages = await Promise.all(offsets.map((value) => loadPage(value)));
+      for (const page of pages) {
+        if (page.error) throw page.error;
+        decisionCandidates.push(...(page.data || []));
+      }
     }
   }
   const acceptedCandidates = decisionCandidates.filter((row) => row.decision === "ACCEPTED");
