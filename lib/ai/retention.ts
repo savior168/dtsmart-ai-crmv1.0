@@ -40,16 +40,19 @@ export async function cleanExpiredAiData(now = new Date()) {
     .neq("results", "[]")
     .limit(CHECKPOINT_BATCH_SIZE);
   if (checkpoints.error) throw checkpoints.error;
-  for (const checkpoint of checkpoints.data || []) {
-      const cleared = await admin.from("ai_acquisition_discovery_checkpoints")
+  const checkpointRows = checkpoints.data || [];
+  for (let offset = 0; offset < checkpointRows.length; offset += 8) {
+    const results = await Promise.all(checkpointRows.slice(offset, offset + 8).map((checkpoint) => admin.from("ai_acquisition_discovery_checkpoints")
         .update({ results: [], next_page_token: null })
         .eq("task_id", checkpoint.task_id)
         .eq("country", checkpoint.country)
         .eq("query_text", checkpoint.query_text)
         .neq("results", "[]")
-        .select("task_id");
+        .select("task_id")));
+    for (const cleared of results) {
       if (cleared.error) throw cleared.error;
       clearedCheckpoints += (cleared.data || []).length;
+    }
   }
   return { deletedCacheRows: expiredIds.length, clearedCheckpoints };
 }
