@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { activeDescendantIds } from "@/lib/auth/subordinate-scope";
 import { requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { AI_CLOUD_DISPATCH_POLICY, AI_CLOUD_EXECUTION_MODE, type AiDispatchPolicy, type AiExecutionMode, type AiStrategy } from "@/lib/ai/task-types";
@@ -15,9 +16,12 @@ export async function GET(request: NextRequest) {
     const step = params.get("step") || "";
     const retry = params.get("retry") || "";
     const scopeUserId = await requestedOwnerId(request, account, "ai.data_all");
+    const teamOwnerIds = account.role === "SUPERVISOR" && scopeUserId === null
+      ? await activeDescendantIds(account.id) : null;
     const admin = createAdminClient();
     let tasksQuery = admin.from("ai_screening_tasks").select("id,name,task_number,strategy,user_id");
     if (scopeUserId) tasksQuery = tasksQuery.eq("user_id", scopeUserId);
+    else if (teamOwnerIds) tasksQuery = tasksQuery.in("user_id", teamOwnerIds);
     const tasks = await tasksQuery;
     if (tasks.error) throw tasks.error;
     let taskIds = (tasks.data || []).map((item) => item.id);
@@ -26,6 +30,7 @@ export async function GET(request: NextRequest) {
     const safeSearch = search.replace(/[,%()]/g, " ").trim();
     let query = admin.from("ai_screening_task_items").select("*,customer:customers!inner(id,company_name,email,phone),task:ai_screening_tasks!inner(id,name,task_number,strategy,user_id)", { count: "exact" }).eq("status", "FAILED");
     if (scopeUserId) query = query.eq("task.user_id", scopeUserId);
+    else if (teamOwnerIds) query = query.in("task.user_id", teamOwnerIds);
     if (taskId) query = query.eq("task_id", taskId);
     if (safeSearch) query = query.or(`company_name.ilike.%${safeSearch}%,email.ilike.%${safeSearch}%,phone.ilike.%${safeSearch}%`, { referencedTable: "customers" });
     if (step) query = query.eq("current_step", step);

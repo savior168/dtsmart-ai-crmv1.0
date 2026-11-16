@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { activeDescendantIds } from "@/lib/auth/subordinate-scope";
 import { authErrorStatus, hasPermission, requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { actualCostUsd, isActuallyIncurredCost } from "@/lib/api-cost-actual";
@@ -15,6 +16,8 @@ export async function GET(request: NextRequest) {
   try {
     const { account } = await requirePermission("ai.acquisition.usage.view");
     const ownerId = await requestedOwnerId(request, account, "ai.acquisition.data_all");
+    const teamOwnerIds = account.role === "SUPERVISOR" && ownerId === null
+      ? await activeDescendantIds(account.id) : null;
     const params = request.nextUrl.searchParams;
     const today = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const rawFrom = params.get("from") || today;
@@ -30,6 +33,7 @@ export async function GET(request: NextRequest) {
     const admin = createAdminClient();
     let taskQuery = admin.from("ai_acquisition_tasks").select("id,user_id,task_number,name,status,cost_mode,discovered_count,processed_count,accepted_count,elapsed_ms,created_at,updated_at,owner:users!ai_acquisition_tasks_user_id_fkey(id,name,email)");
     if (ownerId) taskQuery = taskQuery.eq("user_id", ownerId);
+    else if (teamOwnerIds) taskQuery = taskQuery.in("user_id", teamOwnerIds);
     if (status) taskQuery = taskQuery.eq("status", status);
     if (["FREE_ONLY", "ADAPTIVE"].includes(costMode)) taskQuery = taskQuery.eq("cost_mode", costMode);
     const taskResult = await taskQuery.order("updated_at", { ascending: false });

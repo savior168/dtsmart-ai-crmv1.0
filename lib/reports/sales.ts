@@ -37,10 +37,10 @@ export function normalizeReportCountries(rows: ReportCountRow[]): ReportCountRow
   return [...grouped.values()].sort((left, right) => right.count - left.count || left.label.localeCompare(right.label, "zh-CN")).slice(0, 10);
 }
 
-export async function loadSalesReport(supabase: Client, authUserId: string, from: string, to: string, requestedUserId?: string | null) {
+export async function loadSalesReport(supabase: Client, authUserId: string, from: string, to: string, requestedUserId?: string | null, canViewOtherUsers = false) {
   const { data: profile, error: profileError } = await supabase.from("users").select("id,name,email,role,supervisor_can_view_subordinates").eq("id", authUserId).single();
   if (profileError) throw profileError;
-  const canViewAll = profile.role === "ADMIN" || (profile.role === "SUPERVISOR" && profile.supervisor_can_view_subordinates === true);
+  const canViewAll = profile.role === "ADMIN" || (profile.role === "SUPERVISOR" && profile.supervisor_can_view_subordinates === true && canViewOtherUsers);
   const reportScope = canViewAll ? requestedUserId || null : authUserId;
   const [performance, detail] = await Promise.all([
     supabase.rpc("sales_performance_report", { p_from: from, p_to: to }),

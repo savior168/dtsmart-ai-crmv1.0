@@ -7,6 +7,7 @@ import { AI_CLOUD_DISPATCH_POLICY, AI_CLOUD_EXECUTION_MODE, AI_COST_MODES, type 
 import { dispatchAiScreeningTask } from "@/lib/ai/task-dispatch";
 import { createScreeningTaskNumber } from "@/lib/ai/task-number";
 import { costLedgerRange, shanghaiToday } from "@/lib/cost-center";
+import { activeDescendantIds } from "@/lib/auth/subordinate-scope";
 
 export async function GET(request: NextRequest) {
   try {
@@ -26,6 +27,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "创建日期范围无效" }, { status: 400 });
     }
     const scopeUserId = await requestedOwnerId(request, account, "ai.data_all");
+    const teamOwnerIds = account.role === "SUPERVISOR" && scopeUserId === null
+      ? await activeDescendantIds(account.id) : null;
     const admin = createAdminClient();
     const acquisitionChildIds = new Set<string>();
     for (let offset = 0; ; offset += 1000) {
@@ -36,6 +39,7 @@ export async function GET(request: NextRequest) {
     }
     let query = admin.from("ai_screening_tasks").select("*", { count: "exact" }).is("archived_at", null);
     if (scopeUserId) query = query.eq("user_id", scopeUserId);
+    else if (teamOwnerIds) query = query.in("user_id", teamOwnerIds);
     if (status === "ACTIVE") query = query.in("status", ["QUEUED", "RUNNING", "PAUSING"]);
     else if (status) query = query.eq("status", status);
     if (search) query = query.or(`name.ilike.%${search}%,task_number.ilike.%${search}%`);
@@ -74,6 +78,7 @@ export async function GET(request: NextRequest) {
         .is("archived_at", null)
         .order("updated_at", { ascending: false });
       if (scopeUserId) statsQuery = statsQuery.eq("user_id", scopeUserId);
+      else if (teamOwnerIds) statsQuery = statsQuery.in("user_id", teamOwnerIds);
       const stats = await statsQuery.range(offset, offset + 999);
       if (stats.error) throw stats.error;
       const rows = stats.data || [];
@@ -114,6 +119,7 @@ export async function GET(request: NextRequest) {
       for (let rowOffset = 0; ; rowOffset += 1000) {
         let callsQuery = admin.from("ai_screening_usage_ledger").select("task_id,cost_usd").gte("occurred_at", todayStart);
         if (scopeUserId) callsQuery = callsQuery.eq("user_id", scopeUserId);
+        else if (teamOwnerIds) callsQuery = callsQuery.in("user_id", teamOwnerIds);
         const calls = await callsQuery.range(rowOffset, rowOffset + 999);
         if (calls.error) throw calls.error;
         const rows = calls.data || [];
@@ -126,16 +132,17 @@ export async function GET(request: NextRequest) {
       .select("source_task_item_id", { count: "exact", head: true })
       .gte("completed_at", todayStart);
     if (scopeUserId) todayCompletedQuery = todayCompletedQuery.eq("user_id", scopeUserId);
+    else if (teamOwnerIds) todayCompletedQuery = todayCompletedQuery.in("user_id", teamOwnerIds);
     const pendingScope = await resolveAiOwnerScope(account);
     // 待筛选统计遵循创建任务时可选择的数据范围：销售员仅本人；主管为
-    // 本人及直属下属；系统管理员为全系统（含尚未归属的公海客户）。
+    // 本人及多级下属；系统管理员为全系统（含尚未归属的公海客户）。
     // 同时排除已被活动任务占用的客户，确保卡片数字与创建任务页完全一致。
     const [retryableCount, todayCompleted, todayFailedCount, todayCost, pendingCustomerCount] = await Promise.all([
       countItems("FAILED", undefined, true),
       todayCompletedQuery,
       countItems("FAILED", todayStart),
       todayCostPromise,
-      countEligiblePendingAiCustomers(pendingScope.ownerIds),
+      countEligiblePendingAiCustomers(scopeUserId ? [scopeUserId] : teamOwnerIds || pendingScope.ownerIds),
     ]);
     if (todayCompleted.error) throw todayCompleted.error;
     let acquisitionTodayCompleted = 0;
@@ -143,6 +150,7 @@ export async function GET(request: NextRequest) {
     for (let offset = 0; offset < childIds.length; offset += 100) {
       let childQuery = admin.from("ai_screening_completion_ledger").select("source_task_item_id", { count: "exact", head: true }).in("task_id", childIds.slice(offset, offset + 100)).gte("completed_at", todayStart);
       if (scopeUserId) childQuery = childQuery.eq("user_id", scopeUserId);
+      else if (teamOwnerIds) childQuery = childQuery.in("user_id", teamOwnerIds);
       const childCount = await childQuery;
       if (childCount.error) throw childCount.error;
       acquisitionTodayCompleted += childCount.count || 0;

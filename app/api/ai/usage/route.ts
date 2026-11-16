@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { authErrorStatus, hasPermission, requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { summarizeUsagePurposes } from "@/lib/api-usage-purpose";
+import { activeDescendantIds } from "@/lib/auth/subordinate-scope";
 
 type UsageCall = {
   source_call_id: string; task_id: string; task_name: string; task_number: string | null;
@@ -40,6 +41,8 @@ export async function GET(request: NextRequest) {
     const status = params.get("status")?.trim() || "";
     const taskId = params.get("task_id")?.trim() || "";
     const scopeUserId = await requestedOwnerId(request, account, "ai.usage.view_all");
+    const teamOwnerIds = account.role === "SUPERVISOR" && scopeUserId === null
+      ? await activeDescendantIds(account.id) : null;
     const page = Math.max(1, Number(params.get("page") || 1));
     const pageSize = Math.min(500, Math.max(10, Number(params.get("pageSize") || 20)));
     const returnAll = params.get("all") === "true";
@@ -55,6 +58,7 @@ export async function GET(request: NextRequest) {
         .select("source_call_id,task_id,task_name,task_number,task_status,task_total_count,task_created_at,customer_id,channel,model,input_tokens,cached_input_tokens,output_tokens,total_tokens,cost_usd,call_status,duration_ms,error_message,occurred_at")
         .gte("occurred_at", start).lte("occurred_at", end);
       if (scopeUserId) query = query.eq("user_id", scopeUserId);
+      else if (teamOwnerIds) query = query.in("user_id", teamOwnerIds);
       if (taskId) query = query.eq("task_id", taskId);
       const result = await query.order("occurred_at", { ascending: false }).range(offset, offset + 999);
       if (result.error) throw result.error;
@@ -69,6 +73,7 @@ export async function GET(request: NextRequest) {
         .select("source_task_item_id,task_id,task_name,task_number,task_status,task_total_count,task_created_at,customer_id,completed_at")
         .gte("completed_at", start).lte("completed_at", end);
       if (scopeUserId) query = query.eq("user_id", scopeUserId);
+      else if (teamOwnerIds) query = query.in("user_id", teamOwnerIds);
       if (taskId) query = query.eq("task_id", taskId);
       const result = await query.order("completed_at", { ascending: false }).range(offset, offset + 999);
       if (result.error) throw result.error;
@@ -83,6 +88,7 @@ export async function GET(request: NextRequest) {
         .select("task_id,customer_id,provider,operation,model_or_sku,quantity,input_tokens,cached_input_tokens,output_tokens,amount_usd,metadata,occurred_at")
         .eq("service", "AI筛选").gte("occurred_at", start).lte("occurred_at", end);
       if (scopeUserId) query = query.eq("user_id", scopeUserId);
+      else if (teamOwnerIds) query = query.in("user_id", teamOwnerIds);
       if (taskId) query = query.eq("task_id", taskId);
       const result = await query.order("occurred_at", { ascending: false }).range(offset, offset + 999);
       if (result.error) throw result.error;
@@ -113,6 +119,7 @@ export async function GET(request: NextRequest) {
     for (let offset = 0; offset < sourceTaskIds.length; offset += 200) {
       let existingQuery = admin.from("ai_screening_tasks").select("id,status").in("id", sourceTaskIds.slice(offset, offset + 200));
       if (scopeUserId) existingQuery = existingQuery.eq("user_id", scopeUserId);
+      else if (teamOwnerIds) existingQuery = existingQuery.in("user_id", teamOwnerIds);
       const result = await existingQuery;
       if (result.error) throw result.error;
       for (const row of result.data || []) {

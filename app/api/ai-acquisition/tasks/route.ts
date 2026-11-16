@@ -8,6 +8,7 @@ import { aiAcquisitionWorkflow } from "@/workflows/ai-acquisition";
 import { acquisitionTaskNumberPrefix, createAcquisitionTaskNumber } from "@/lib/ai/task-number";
 import { loadAcquisitionTaskSummary } from "@/lib/ai-acquisition/task-center-summary";
 import { countryFilterOptions, countryFilterRawValues } from "@/lib/countries";
+import { activeDescendantIds } from "@/lib/auth/subordinate-scope";
 
 function presentTask<T extends Record<string, unknown>>(task: T) {
   const scheduled = task.status === "QUEUED" && !task.started_at && task.last_dispatch_at && new Date(String(task.last_dispatch_at)).getTime() > Date.now()
@@ -24,6 +25,8 @@ export async function GET(request: NextRequest) {
   try {
     const { account } = await requirePermission("ai.acquisition.view");
     const ownerId = await requestedOwnerId(request, account, "ai.acquisition.data_all");
+    const teamOwnerIds = account.role === "SUPERVISOR" && ownerId === null
+      ? await activeDescendantIds(account.id) : null;
     const mode = request.nextUrl.searchParams.get("mode") || "";
     const coreOnly = request.nextUrl.searchParams.get("core") === "1";
     const page = Math.max(1, Number(request.nextUrl.searchParams.get("page") || 1));
@@ -39,13 +42,14 @@ export async function GET(request: NextRequest) {
     const admin = createAdminClient();
     const today = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
     if (mode === "summary") {
-      const summary = await loadAcquisitionTaskSummary(admin, { ownerId, costMode, countries, industries, from, to, search, today });
+      const summary = await loadAcquisitionTaskSummary(admin, { ownerId, ownerIds: teamOwnerIds, costMode, countries, industries, from, to, search, today });
       return NextResponse.json({ summary });
     }
     const optionRows: Array<{countries:string[] | null;industries:string[] | null;industry:string | null}> = [];
     for(let offset=0;(!coreOnly && mode !== "page")&&offset<20000;offset+=1000){
       let optionQuery=admin.from("ai_acquisition_tasks").select("countries,industries,industry");
       if(ownerId)optionQuery=optionQuery.eq("user_id",ownerId);
+      else if(teamOwnerIds)optionQuery=optionQuery.in("user_id",teamOwnerIds);
       const optionPage=await optionQuery.order("created_at",{ascending:false}).range(offset,offset+999);
       if(optionPage.error)throw optionPage.error;
       optionRows.push(...(optionPage.data||[]));
@@ -72,6 +76,7 @@ export async function GET(request: NextRequest) {
     }
     let query = admin.from("ai_acquisition_tasks").select("*,owner:users!ai_acquisition_tasks_user_id_fkey(id,name,email)", { count: "exact" });
     if (ownerId) query = query.eq("user_id", ownerId);
+    else if (teamOwnerIds) query = query.in("user_id", teamOwnerIds);
     if (status) query = query.eq("status", status);
     else if (metric === "active") query = query.in("status", ["QUEUED", "RUNNING", "PAUSING", "PAUSED"]);
     else if (metric === "completed") query = query.eq("status", "COMPLETED");
@@ -128,7 +133,7 @@ export async function GET(request: NextRequest) {
       presentedTasks = (result.data || []).map((row) => { const taskId=String(row.id);const progress=checkpointByTask.get(taskId); return presentTask({ ...row, search_completed_count:progress?.completed||0, search_raw_hits:progress?.rawHits||0, usage:usageByTask.get(taskId)||null, can_control:hasPermission(account,"ai.acquisition.control")&&(row.user_id===account.id||account.role==="ADMIN") }); });
     }
     if (mode === "page") return NextResponse.json({ data: presentedTasks, count: result.count || 0, usage_error: usageUnavailable });
-    const summary = await loadAcquisitionTaskSummary(admin, { ownerId, costMode, countries, industries, from, to, search, today });
+    const summary = await loadAcquisitionTaskSummary(admin, { ownerId, ownerIds: teamOwnerIds, costMode, countries, industries, from, to, search, today });
     return NextResponse.json({ data: presentedTasks, count: result.count || 0, summary, filter_options:filterOptions, can_create: hasPermission(account, "ai.acquisition.create"), can_control: hasPermission(account, "ai.acquisition.control"), can_view_evidence: hasPermission(account, "ai.acquisition.evidence.view"), can_view_usage: hasPermission(account, "ai.acquisition.usage.view"), can_manage_settings: hasPermission(account, "ai.acquisition.settings.manage"), show_owner: hasPermission(account, "ai.acquisition.data_all") });
   } catch (error) {
     const message = error instanceof Error ? error.message : "AI获客任务加载失败";

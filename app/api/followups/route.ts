@@ -4,6 +4,7 @@ import { followupDayBounds } from "@/lib/customers/followup-day";
 import { countryFilterRawValues } from "@/lib/countries";
 import { CUSTOMER_STATUSES } from "@/lib/types";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { activeDescendantIds } from "@/lib/auth/subordinate-scope";
 
 const scopes = new Set(["today", "overdue", "upcoming", "unscheduled", "history"]);
 
@@ -20,6 +21,8 @@ export async function GET(request: Request) {
     if (stage && !new Set<string>(CUSTOMER_STATUSES).has(stage)) return NextResponse.json({ error: "无效的客户阶段" }, { status: 400 });
     const countries = [...new Set(params.getAll("country").map((item) => item.trim()).filter(Boolean))];
     const scopeUserId = await requestedOwnerId(request, account, "followups.data_all");
+    const teamOwnerIds = account.role === "SUPERVISOR" && scopeUserId === null
+      ? await activeDescendantIds(account.id) : null;
     const followupReader = createAdminClient();
     const { start, end } = followupDayBounds();
 
@@ -27,6 +30,7 @@ export async function GET(request: Request) {
       let query = followupReader.from("customer_followup_history")
         .select("id,customer_id,user_id,type,content,next_follow_date,created_at,company_name,contact_name,country,ai_level,ai_score,status,actor_name,actor_email", { count: "exact" });
       if (scopeUserId) query = query.eq("owner_id", scopeUserId);
+      else if (teamOwnerIds) query = query.in("owner_id", teamOwnerIds);
       if (stage) query = query.eq("status", stage);
       if (countries.length) query = query.in("country", countryFilterRawValues(countries));
       if (search) query = query.or(`content.ilike.%${search}%,company_name.ilike.%${search}%,contact_name.ilike.%${search}%,phone.ilike.%${search}%,email.ilike.%${search}%`);
@@ -41,6 +45,7 @@ export async function GET(request: Request) {
     let query = followupReader.from("customer_followup_queue")
       .select("id,customer_id,owner_id,type,content,next_follow_date,created_at,company_name,contact_name,country,ai_level,ai_score,status,owner_name,owner_email", { count: "exact" });
     if (scopeUserId) query = query.eq("owner_id", scopeUserId);
+    else if (teamOwnerIds) query = query.in("owner_id", teamOwnerIds);
     if (stage) query = query.eq("status", stage);
     if (countries.length) query = query.in("country", countryFilterRawValues(countries));
     if (search) query = query.or(`content.ilike.%${search}%,company_name.ilike.%${search}%,contact_name.ilike.%${search}%,phone.ilike.%${search}%,email.ilike.%${search}%`);

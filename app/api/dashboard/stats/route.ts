@@ -10,6 +10,7 @@ import { stockProgressLabel, summarizeStockProgress } from "@/lib/stock-progress
 import { loadOrderCustomerNames } from "@/lib/order-customer-name";
 import { dashboardStockActivityText } from "@/lib/dashboard-stock-activity";
 import { STOCK_STATUS_LABELS } from "@/lib/types";
+import { activeDescendantIds } from "@/lib/auth/subordinate-scope";
 
 type CountRow = { grade?: string; name?: string; count: number };
 
@@ -60,6 +61,8 @@ export async function GET(request: NextRequest) {
   try {
     const { supabase, account } = await requirePermission("dashboard.view");
     const scopeUserId = await requestedOwnerId(request, account, "dashboard.data_all");
+    const teamOwnerIds = account.role === "SUPERVISOR" && scopeUserId === null
+      ? await activeDescendantIds(account.id) : null;
     // The invoker follow-up view requires table-level customers SELECT, while
     // authenticated callers intentionally have only safe column grants.
     // Read it server-side after the requested owner scope has been validated.
@@ -78,6 +81,9 @@ export async function GET(request: NextRequest) {
       if (scopeUserId) {
         followupsQuery = followupsQuery.eq("owner_id", scopeUserId);
         protectionsQuery = protectionsQuery.eq("owner_id", scopeUserId);
+      } else if (teamOwnerIds) {
+        followupsQuery = followupsQuery.in("owner_id", teamOwnerIds);
+        protectionsQuery = protectionsQuery.in("owner_id", teamOwnerIds);
       }
       const [followups, protections] = await Promise.all([followupsQuery, protectionsQuery]);
       if (followups.error) throw preserveDatabaseError(followups.error, "summary-followups");
@@ -115,6 +121,7 @@ export async function GET(request: NextRequest) {
       let query = supabase.from("customers").select("id", { count: "exact", head: true })
         .is("deleted_at", null).not("owner_id", "is", null).gte("created_at", fromDate.toISOString()).lt("created_at", exclusiveTo.toISOString()).eq("status", status);
       if (scopeUserId) query = query.eq("owner_id", scopeUserId);
+      else if (teamOwnerIds) query = query.in("owner_id", teamOwnerIds);
       if (countryValues.length) query = query.in("country", countryValues);
       if (aiLevel) query = query.eq("ai_level", aiLevel);
       return query;
@@ -123,6 +130,7 @@ export async function GET(request: NextRequest) {
       .is("deleted_at", null).not("owner_id", "is", null).neq("status", "RELEASED").gte("created_at", fromDate.toISOString()).lt("created_at", exclusiveTo.toISOString())
       .eq("ai_status", "COMPLETED").eq("ai_screening_done", true).eq("is_target_customer", true);
     if (scopeUserId) validCustomersQuery = validCustomersQuery.eq("owner_id", scopeUserId);
+    else if (teamOwnerIds) validCustomersQuery = validCustomersQuery.in("owner_id", teamOwnerIds);
     if (countryValues.length) validCustomersQuery = validCustomersQuery.in("country", countryValues);
     if (aiLevel) validCustomersQuery = validCustomersQuery.eq("ai_level", aiLevel);
     const followupDay = followupDayBounds(now);
@@ -131,10 +139,12 @@ export async function GET(request: NextRequest) {
       .gte("next_follow_date", followupDay.start).lt("next_follow_date", followupDay.end)
       .order("next_follow_date", { ascending: true }).order("customer_id", { ascending: true }).limit(5);
     if (scopeUserId) todayFollowupsQuery = todayFollowupsQuery.eq("owner_id", scopeUserId);
+    else if (teamOwnerIds) todayFollowupsQuery = todayFollowupsQuery.in("owner_id", teamOwnerIds);
     if (countryValues.length) todayFollowupsQuery = todayFollowupsQuery.in("country", countryValues);
     let allTimeDealsQuery = followupReader.from("customers").select("id", { count: "exact", head: true })
       .is("deleted_at", null).not("owner_id", "is", null).eq("status", "DEAL");
     if (scopeUserId) allTimeDealsQuery = allTimeDealsQuery.eq("owner_id", scopeUserId);
+    else if (teamOwnerIds) allTimeDealsQuery = allTimeDealsQuery.in("owner_id", teamOwnerIds);
     const [potentialCustomersResult, followingCustomersResult, validCustomersResult, todayFollowupsResult, systemCustomersResult, allTimeDealsResult] = await Promise.all([
       statusCount("CLAIMED"), statusCount("FOLLOWING"), validCustomersQuery, todayFollowupsQuery,
       account.role === "ADMIN" ? followupReader.from("customers").select("id", { count: "exact", head: true }).is("deleted_at", null).or("pool_status.is.null,pool_status.neq.AI_STAGING") : Promise.resolve(null),
@@ -166,7 +176,8 @@ export async function GET(request: NextRequest) {
         .in("status", ["WAITING", "PREPARING", "RECEIVED", "SORTING", "READY_TO_SHIP", "SHIPPED", "SHORTAGE"])
         .gte("updated_at", fromDate.toISOString()).lt("updated_at", exclusiveTo.toISOString())
         .order("updated_at", { ascending: false }).order("id", { ascending: true }).limit(5);
-      if (stockOwnerId) stockQuery = stockQuery.eq("sales_user_id", stockOwnerId);
+      if (teamOwnerIds && hasPermission(account, "stock.data_all")) stockQuery = stockQuery.in("sales_user_id", teamOwnerIds);
+      else if (stockOwnerId) stockQuery = stockQuery.eq("sales_user_id", stockOwnerId);
       if (countryValues.length) stockQuery = stockQuery.in("destination_country", countryValues);
       const stockRows = await stockQuery;
       if (stockRows.error) throw preserveDatabaseError(stockRows.error, "stock-activity");

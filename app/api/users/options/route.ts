@@ -3,6 +3,7 @@ import { hasPermission, requireUser } from "@/lib/auth/current-user";
 import { PERMISSION_CATALOG } from "@/lib/auth/permissions";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { activeDescendantIds } from "@/lib/auth/subordinate-scope";
+import { SUPERVISOR_TEAM_ALL_PERMISSIONS } from "@/lib/auth/supervisor-data-scope";
 
 export async function GET(request: Request) {
   try {
@@ -34,7 +35,9 @@ export async function GET(request: Request) {
       if (!data || data.length < pageSize) break;
     }
     return NextResponse.json({ profile, users, can_select_owner: true,
-      can_select_all: profile.role !== "SUPERVISOR" || Boolean(permission === "sales.performance.data_all" && descendantIds && descendantIds.length > 1),
+      can_select_all: profile.role !== "SUPERVISOR" || Boolean(
+        (creatorOptions || permission === "sales.performance.data_all" || SUPERVISOR_TEAM_ALL_PERMISSIONS.has(permission))
+        && descendantIds && descendantIds.length > 1),
       default_all: !["ADMIN", "SUPERVISOR"].includes(profile.role) || creatorOptions });
   } catch (error) {
     const message = error instanceof Error ? error.message : "用户加载失败";

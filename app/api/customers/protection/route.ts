@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { activeDescendantIds } from "@/lib/auth/subordinate-scope";
 import { uploadWorkflowEvidence, validateWorkflowEvidence } from "@/lib/customer-workflow-evidence";
 import { countryFilterRawValues } from "@/lib/countries";
 
@@ -11,6 +12,8 @@ export async function GET(request: NextRequest) {
     const { account } = await requirePermission("customers.view");
     const admin = createAdminClient();
     const scopeUserId = await requestedOwnerId(request, account, "customers.data_all");
+    const teamOwnerIds = account.role === "SUPERVISOR" && scopeUserId === null
+      ? await activeDescendantIds(account.id) : null;
     const dashboardMode = request.nextUrl.searchParams.get("dashboard") === "1";
     const dashboardFrom = request.nextUrl.searchParams.get("from") || "";
     const dashboardTo = request.nextUrl.searchParams.get("to") || "";
@@ -36,6 +39,9 @@ export async function GET(request: NextRequest) {
     if (scopeUserId && !dashboardMode) {
       protectionsQuery = protectionsQuery.eq("owner_id", scopeUserId);
       expiredQuery = expiredQuery.eq("owner_id", scopeUserId);
+    } else if (teamOwnerIds) {
+      protectionsQuery = protectionsQuery.in("owner_id", teamOwnerIds);
+      expiredQuery = expiredQuery.in("owner_id", teamOwnerIds);
     }
     const [protections, expired] = await Promise.all([protectionsQuery, dashboardMode ? Promise.resolve({ data: [], error: null }) : expiredQuery]);
     if (protections.error) throw protections.error;
@@ -105,6 +111,7 @@ export async function GET(request: NextRequest) {
         return item.status === "ACTIVE" && expires >= dayStart.getTime() && expires < dayEnd.getTime()
           && created >= dashboardStart && created < dashboardEnd && customer?.status != null && customer.status !== "RELEASED"
           && (!scopeUserId || customer?.owner_id === scopeUserId)
+          && (!teamOwnerIds || teamOwnerIds.includes(String(customer?.owner_id || "")))
           && (!countryValues || countryValues.has(String(customer?.country || "")));
       });
     }

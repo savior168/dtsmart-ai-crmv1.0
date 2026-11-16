@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { canViewSubordinateData, isSubordinateDataPermission } from "../lib/auth/supervisor-data-scope.ts";
+import { canViewSubordinateData, isSubordinateDataPermission, SUPERVISOR_TEAM_ALL_PERMISSIONS } from "../lib/auth/supervisor-data-scope.ts";
 import { descendantIds, wouldCreateManagerCycle } from "../lib/auth/subordinate-tree.ts";
 
 assert.deepEqual(descendantIds("boss", [
@@ -89,4 +89,46 @@ assert.match(hierarchyMigration, /from public\.users child join descendants d on
 assert.doesNotMatch(adminPanel, /setTab\("supervisor-data"\)/);
 assert.match(adminPanel, /function UserPermissionDialog[\s\S]*?查看多级下属数据/);
 assert.match(adminPanel, /function UserPermissionDialog[\s\S]*?changeSupervisorScope[\s\S]*?\/api\/admin\/supervisor-data-access/);
+const ownerOptions = await read("../app/api/users/options/route.ts");
+const dashboardApi = await read("../app/api/dashboard/stats/route.ts");
+const salesReport = await read("../lib/reports/sales.ts");
+const salesReportApi = await read("../app/api/reports/sales/route.ts");
+const salesReportExportApi = await read("../app/api/reports/sales/export/route.ts");
+const authorizedAllMigration = await read("../supabase/migrations/20261116034439_authorized_owner_all_scope.sql");
+assert.match(ownerOptions, /SUPERVISOR_TEAM_ALL_PERMISSIONS\.has\(permission\)/);
+assert.match(currentUser, /SUPERVISOR_TEAM_ALL_PERMISSIONS\.has\(dataPermission\)/);
+for (const permission of ["dashboard.data_all", "customers.data_all", "orders.data_all", "stock.data_all", "quotes.data_all", "reports.data_all", "followups.data_all", "ai.acquisition.data_all", "ai.data_all", "ai.usage.view_all"]) {
+  assert.equal(SUPERVISOR_TEAM_ALL_PERMISSIONS.has(permission), true, permission);
+}
+assert.equal(SUPERVISOR_TEAM_ALL_PERMISSIONS.has("imports.data_all"), false);
+assert.match(currentUser, /requested\.toLowerCase\(\) === "all"[\s\S]*?canViewSubordinateData\(account\)\) return null/);
+assert.match(dashboardApi, /teamOwnerIds[\s\S]*?activeDescendantIds\(account\.id\)/);
+assert.match(dashboardApi, /followupsQuery\.in\("owner_id", teamOwnerIds\)/);
+assert.match(authorizedAllMigration, /actor\.role <> ''SUPERVISOR'' or public\.supervisor_can_read_user\(c\.owner_id\)/);
+assert.match(authorizedAllMigration, /public\.supervisor_can_read_user\(p_sales_user_id\)/);
+for (const permission of ["dashboard.view", "dashboard.data_all", "reports.view", "reports.data_all"]) {
+  assert.ok(authorizedAllMigration.includes(`''${permission}''`), permission);
+}
+assert.match(authorizedAllMigration, /sales_performance_report owner scope definition changed/);
+assert.match(salesReport, /profile\.supervisor_can_view_subordinates === true && canViewOtherUsers/);
+assert.match(salesReportApi, /hasPermission\(account, "reports\.data_all"\)/);
+assert.match(salesReportExportApi, /hasPermission\(account, "reports\.data_all"\)/);
+for (const path of [
+  "../app/api/customers/protection/route.ts",
+  "../app/api/customers/protection/releases/route.ts",
+  "../app/api/customer-conflicts/route.ts",
+  "../app/api/followups/route.ts",
+  "../app/api/followups/export/route.ts",
+  "../app/api/ai-acquisition/tasks/route.ts",
+  "../app/api/ai-acquisition/customers/route.ts",
+  "../app/api/ai-acquisition/usage/route.ts",
+  "../app/api/ai/tasks/route.ts",
+  "../app/api/ai/results/route.ts",
+  "../app/api/ai/failures/route.ts",
+  "../app/api/ai/usage/route.ts",
+]) {
+  const source = await read(path);
+  assert.match(source, /teamOwnerIds[\s\S]*?activeDescendantIds\(account\.id\)/, path);
+  assert.match(source, /\.in\("(?:owner_id|user_id|task\.user_id|source_owner_id|sales_user_id)", teamOwnerIds\)|teamOwnerIds\.has\(id\)|teamOwnerIds\.includes\(|teamOwnerIds\.join\(/, path);
+}
 console.log("Supervisor data scope contracts passed");

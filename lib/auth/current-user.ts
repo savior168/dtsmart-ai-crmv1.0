@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { CORE_PERMISSION_CODES, USER_ROLES, evaluatePermission, normalizeRole, normalizeStatus, permissionPageCode, type AccountStatus, type UserRole } from "@/lib/auth/permissions";
 import { isTimedLockActive } from "@/lib/auth/lockout";
-import { canViewSubordinateData } from "@/lib/auth/supervisor-data-scope";
+import { canViewSubordinateData, SUPERVISOR_TEAM_ALL_PERMISSIONS } from "@/lib/auth/supervisor-data-scope";
 import { activeDescendantIds } from "@/lib/auth/subordinate-scope";
 
 const permissionCache = new Map<UserRole, { expires: number; values: string[] }>();
@@ -179,6 +179,12 @@ export async function requestedOwnerId(request: Request, account: CurrentAccount
   if (account.role !== "SUPERVISOR") {
     return !requested || requested.toLowerCase() === "all" ? null : requested;
   }
+  // Only endpoints that explicitly implement a bounded team aggregate may
+  // receive null for a supervisor. Other endpoints remain self-scoped until
+  // their service-role queries and SECURITY DEFINER functions are audited.
+  if (requested.toLowerCase() === "all"
+    && SUPERVISOR_TEAM_ALL_PERMISSIONS.has(dataPermission)
+    && canViewSubordinateData(account)) return null;
   // 主管仅能读本人和自己的多级下属；权限判断必须在服务端执行。
   if (!requested || requested === account.id || requested.toLowerCase() === "all") return account.id;
   if (!canViewSubordinateData(account)) return account.id;

@@ -31,6 +31,7 @@ export function UserScopeSelect({
   const [defaultValue, setDefaultValue] = useState("");
   const [canSelectAll, setCanSelectAll] = useState(false);
   const [defaultAll, setDefaultAll] = useState(false);
+  const [teamOnly, setTeamOnly] = useState(false);
   const [users, setUsers] = useState<UserOption[]>([]);
   const onChangeRef = useRef(onChange);
   const valueRef = useRef(value);
@@ -51,6 +52,7 @@ export function UserScopeSelect({
         setDefaultValue(body.profile.id || "");
         setCanSelectAll(Boolean(body.can_select_all));
         setDefaultAll(Boolean(body.default_all));
+        setTeamOnly(body.profile.role === "SUPERVISOR");
         if (elevated && !valueRef.current) {
           // Keep the visible fallback and the API query in the same scope.
           // Explicit initialization still defaults managers to their own data.
@@ -72,7 +74,7 @@ export function UserScopeSelect({
   // 页面初始化时短暂闪现一个不可用的“我的数据”下拉框。
   if (!loaded || !elevated) return null;
   const selected = (value === "all" && !canSelectAll ? defaultValue : value) || (!initializeDefault ? (defaultAll ? "all" : defaultValue) : "");
-  const options = <>{canSelectAll ? <option value="all">{filterLabel}：{allLabel}</option> : null}
+  const options = <>{canSelectAll ? <option value="all">{filterLabel}：{allLabel}{teamOnly ? "（我与下级）" : ""}</option> : null}
     {users.map((user) => <option key={user.id} value={user.id}>{filterLabel}：{user.name?.trim() || user.email}{user.id === defaultValue ? "（我的数据）" : ""}{user.status && user.status !== "ACTIVE" ? "（已停用）" : ""}</option>)}</>;
   return <AppSelect aria-label="按归属人筛选" value={selected} onChange={(event) => onChange(event.target.value)} className={className} forceSearch={custom || users.length > 6}>{options}</AppSelect>;
 }

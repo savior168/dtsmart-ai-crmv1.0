@@ -3,6 +3,7 @@ import { hasPermission, requestedOwnerId, requirePermission } from "@/lib/auth/c
 import { createAdminClient } from "@/lib/supabase/admin";
 import { canReadAiOwner } from "@/lib/ai/owner-scope";
 import { dashboardBusinessDateKey } from "@/lib/dashboard-date-range";
+import { activeDescendantIds } from "@/lib/auth/subordinate-scope";
 
 export async function GET(request: NextRequest) {
   try {
@@ -34,10 +35,13 @@ export async function GET(request: NextRequest) {
       if (requestedTask.data.user_id !== account.id && (!hasPermission(account, "ai.data_all") || !await canReadAiOwner(account, requestedTask.data.user_id))) throw new Error("FORBIDDEN");
       scopeUserId = requestedTask.data.user_id;
     }
+    const teamOwnerIds = account.role === "SUPERVISOR" && scopeUserId === null
+      ? await activeDescendantIds(account.id) : null;
     const ownedTasks: Array<Record<string, unknown>> = [];
     for (let offset = 0; ; offset += 1000) {
       let ownedQuery = admin.from("ai_screening_tasks").select("id,name,task_number,strategy,total_count,success_count,failed_count,total_tokens,total_cost_usd,created_at,updated_at,user_id").order("updated_at", { ascending: false }).order("created_at", { ascending: false });
       if (scopeUserId) ownedQuery = ownedQuery.eq("user_id", scopeUserId);
+      else if (teamOwnerIds) ownedQuery = ownedQuery.in("user_id", teamOwnerIds);
       const owned = await ownedQuery.range(offset, offset + 999);
       if (owned.error) throw owned.error;
       const rows = owned.data || [];
@@ -57,6 +61,7 @@ export async function GET(request: NextRequest) {
       let query = admin.from("ai_screening_results").select("*,customer:customers!inner(id,company_name,contact_name,phone,email,country,website,google_url),task:ai_screening_tasks!inner(id,name,task_number,user_id)", { count: "exact" });
       query = query.in("target_decision", ["VALID", "INVALID"]).not("score", "is", null).not("grade", "is", null).eq("is_latest_valid", true).eq("writeback_status", "COMPLETED");
       if (scopeUserId) query = query.eq("task.user_id", scopeUserId);
+      else if (teamOwnerIds) query = query.in("task.user_id", teamOwnerIds);
       if (taskId) query = query.eq("task_id", taskId);
       if (today) query = query.gte("completed_at", todayStart).lt("completed_at", todayEnd);
       if (grade) query = query.eq("grade", grade);
@@ -88,6 +93,7 @@ export async function GET(request: NextRequest) {
       let summaryQuery = admin.from("ai_screening_results").select("grade,score,target_decision,total_tokens,cost_usd,evidence_sufficiency,early_stop_reason,completed_at,task:ai_screening_tasks!inner(user_id)");
       summaryQuery = summaryQuery.in("target_decision", ["VALID", "INVALID"]).not("score", "is", null).not("grade", "is", null).eq("is_latest_valid", true).eq("writeback_status", "COMPLETED");
       if (scopeUserId) summaryQuery = summaryQuery.eq("task.user_id", scopeUserId);
+      else if (teamOwnerIds) summaryQuery = summaryQuery.in("task.user_id", teamOwnerIds);
       if (taskId) summaryQuery = summaryQuery.eq("task_id", taskId);
       if (today) summaryQuery = summaryQuery.gte("completed_at", todayStart).lt("completed_at", todayEnd);
       const summaryRows = await summaryQuery.range(offset, offset + 999);
@@ -114,6 +120,7 @@ export async function GET(request: NextRequest) {
     }, { total: 0, valid: 0, invalid: 0, review: 0, failed: 0, tokens: 0, cost: 0, sufficient: 0, early_stopped: 0, grades });
     let failedQuery = admin.from("ai_screening_task_items").select("id,task:ai_screening_tasks!inner(user_id)", { count: "exact", head: true }).eq("status", "FAILED");
     if (scopeUserId) failedQuery = failedQuery.eq("task.user_id", scopeUserId);
+    else if (teamOwnerIds) failedQuery = failedQuery.in("task.user_id", teamOwnerIds);
     if (taskId) failedQuery = failedQuery.eq("task_id", taskId);
     if (today) failedQuery = failedQuery.gte("completed_at", todayStart).lt("completed_at", todayEnd);
     const failed = await failedQuery;

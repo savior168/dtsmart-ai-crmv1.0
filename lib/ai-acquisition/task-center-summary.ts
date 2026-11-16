@@ -3,6 +3,7 @@ import { countryFilterRawValues } from "@/lib/countries";
 
 type SummaryFilters = {
   ownerId: string | null;
+  ownerIds?: string[] | null;
   costMode: string;
   countries: string[];
   industries: string[];
@@ -13,11 +14,12 @@ type SummaryFilters = {
 };
 
 export async function loadAcquisitionTaskSummary(admin: ReturnType<typeof createAdminClient>, filters: SummaryFilters) {
-  const { ownerId, costMode, countries, industries, from, to, search, today } = filters;
+  const { ownerId, ownerIds, costMode, countries, industries, from, to, search, today } = filters;
   const summaryRows: Array<{ id:string; status:string }> = [];
   for (let offset = 0; ; offset += 1000) {
     let query = admin.from("ai_acquisition_tasks").select("id,status");
     if (ownerId) query = query.eq("user_id", ownerId);
+    else if (ownerIds) query = query.in("user_id", ownerIds);
     if (["FREE_ONLY", "ADAPTIVE"].includes(costMode)) query = query.eq("cost_mode", costMode);
     if (countries.length) query = query.overlaps("countries", countryFilterRawValues(countries));
     if (industries.length) query = query.overlaps("industries", industries);

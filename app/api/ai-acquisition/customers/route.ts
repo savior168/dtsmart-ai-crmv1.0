@@ -3,6 +3,7 @@ import { countryFilterOptions, countryFilterRawValues } from "@/lib/countries";
 import { authErrorStatus, hasPermission, requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { officialWebsiteUrl, publicChannelForUrl } from "@/lib/public-url";
+import { activeDescendantIds } from "@/lib/auth/subordinate-scope";
 
 const validScopes = new Set(["today", "week", "accepted", "review"]);
 type CountedFilterOption = { value: string; count: number };
@@ -19,6 +20,8 @@ export async function GET(request: NextRequest) {
   try {
     const { account } = await requirePermission("ai.acquisition.view");
     const ownerId = await requestedOwnerId(request, account, "ai.acquisition.data_all");
+    const teamOwnerIds = account.role === "SUPERVISOR" && ownerId === null
+      ? await activeDescendantIds(account.id) : null;
     const params = request.nextUrl.searchParams;
     const mode = params.get("mode") === "summary" ? "summary" : params.get("mode") === "filters" ? "filters" : "core";
     const scope = validScopes.has(params.get("scope") || "") ? String(params.get("scope")) : "accepted";
@@ -60,6 +63,7 @@ export async function GET(request: NextRequest) {
         .from("ai_acquisition_candidates")
         .select(selectColumns, { count: "exact" });
       if (ownerId) query = query.eq("task.user_id", ownerId);
+      else if (teamOwnerIds) query = query.in("task.user_id", teamOwnerIds);
       if (taskId) query = query.eq("task_id", taskId);
       if (taskSearch) query = query.or(`name.ilike.%${taskSearch}%,task_number.ilike.%${taskSearch}%`, { referencedTable:"task" });
       if (["FREE_ONLY", "ADAPTIVE"].includes(taskCostMode)) query = query.eq("task.cost_mode", taskCostMode);
@@ -137,7 +141,7 @@ export async function GET(request: NextRequest) {
     // table page or Supabase's default row cap.
     let filterOptions: FilterOptions = { countries: [], industries: [] };
     if (mode === "filters") {
-      const optionsCacheKey = JSON.stringify([ownerId || "all", taskId || "all", taskSearch, taskCostMode, taskCountries, taskIndustries, taskFrom, taskTo, scope, today]);
+      const optionsCacheKey = JSON.stringify([ownerId || teamOwnerIds || "all", taskId || "all", taskSearch, taskCostMode, taskCountries, taskIndustries, taskFrom, taskTo, scope, today]);
       const cachedFilterOptions = filterOptionsCache.get(optionsCacheKey);
       const cachedValue = cachedFilterOptions?.expiresAt && cachedFilterOptions.expiresAt > Date.now()
         ? cachedFilterOptions.value
@@ -150,6 +154,7 @@ export async function GET(request: NextRequest) {
           .from("ai_acquisition_candidates")
           .select("country,staging_customer_id,imported_customer_id,task:ai_acquisition_tasks!inner(user_id,name,task_number,cost_mode,countries,industries,created_at)");
         if (ownerId) optionQuery = optionQuery.eq("task.user_id", ownerId);
+        else if (teamOwnerIds) optionQuery = optionQuery.in("task.user_id", teamOwnerIds);
         if (taskId) optionQuery = optionQuery.eq("task_id", taskId);
         if (taskSearch) optionQuery = optionQuery.or(`name.ilike.%${taskSearch}%,task_number.ilike.%${taskSearch}%`, { referencedTable:"task" });
         if (["FREE_ONLY", "ADAPTIVE"].includes(taskCostMode)) optionQuery = optionQuery.eq("task.cost_mode", taskCostMode);
@@ -199,6 +204,7 @@ export async function GET(request: NextRequest) {
     if(taskId){
       let filterTaskQuery=admin.from("ai_acquisition_tasks").select("id,task_number,name,user_id,countries,industries,industry,keywords").eq("id",taskId);
       if(ownerId)filterTaskQuery=filterTaskQuery.eq("user_id",ownerId);
+      else if(teamOwnerIds)filterTaskQuery=filterTaskQuery.in("user_id",teamOwnerIds);
       const filterTaskResult=await filterTaskQuery.maybeSingle();
       if(filterTaskResult.error)throw filterTaskResult.error;
       if(filterTaskResult.data)filterTask={

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
+import { hasPermission, requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { defaultMonthRange, loadSalesReport, type ReportCountRow } from "@/lib/reports/sales";
 import { workbookResponse } from "@/lib/xlsx-export";
 import { dataExportFilename } from "@/lib/export-file-name";
@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "无效日期范围" }, { status: 400 });
     }
     const scopeUserId = await requestedOwnerId(request, account, "reports.data_all");
-    const report = await loadSalesReport(supabase, user.id, from, to, scopeUserId);
+    const report = await loadSalesReport(supabase, user.id, from, to, scopeUserId, hasPermission(account, "reports.data_all"));
     const displayTo = new Date(Date.parse(to) - 1).toISOString().slice(0, 10);
     const lines: unknown[][] = [];
     const add = (values: unknown[]) => lines.push(values);
