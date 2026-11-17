@@ -338,7 +338,7 @@ export function AcquisitionCreateView() {
       {hasSavedDraft?<div className="flex items-center justify-between gap-3 rounded-lg border border-blue-100 bg-blue-50/60 px-4 py-2 text-sm text-blue-800"><span>存在已暂存草稿</span><button type="button" onClick={clearDraft} className="shrink-0 font-medium text-blue-700 hover:underline">清空并新建</button></div>:null}
         <section className={`${panel} overflow-visible`}>
           <div className="border-b border-[#e8ecf2] px-4 py-[14px]"><h2 className="text-[17px] font-semibold"><span className="mr-2 inline-grid h-[30px] w-[30px] place-items-center rounded-full bg-[#1763e8] text-sm text-white">1</span>任务与目标市场</h2><p className="ml-[38px] mt-1 text-sm text-[#778397]">依次选择国家、省/州和城市，设置任务名称与执行时间。</p></div>
-          <div className="grid items-start gap-3 px-4 pt-4 lg:grid-cols-2"><label>
+          <div className="grid items-start gap-3 p-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)_minmax(0,1fr)]"><label className="min-w-0">
             <span className="mb-1.5 block text-sm font-medium">任务名称 <b className="text-rose-500">*</b></span>
             <input
               className={`${input} w-full`}
@@ -348,13 +348,9 @@ export function AcquisitionCreateView() {
               placeholder="选择国家、行业和模式后自动生成"
             />
             <span className="mt-1 flex items-center justify-between gap-2 text-xs text-slate-400"><span>系统自动生成，您可以修改。</span>{form.name_mode === "MANUAL" ? <button type="button" onClick={()=>setForm({...form,name_mode:"AUTO",name:automaticName})} className="text-blue-700 hover:underline">恢复自动名称</button>:null}</span>
-          </label><div><span className="mb-1.5 block text-sm font-medium">执行时间</span><ScheduleControl scheduleType={form.schedule_type} scheduledAt={form.scheduled_at} onScheduleTypeChange={(schedule_type)=>setForm((current)=>({...current,schedule_type}))} onScheduledAtChange={(scheduled_at)=>setForm((current)=>({...current,scheduled_at}))}/></div></div>
-          <div className="relative m-4 rounded-xl border border-blue-100 bg-blue-50/40 p-3 sm:p-4">
-            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-              <div><h3 className="text-sm font-semibold text-slate-800">目标市场 <b className="text-rose-500">*</b></h3><p className="mt-0.5 text-xs text-slate-500">在同一棵树中依次选择国家、省/州、城市；不选下级地域即按全国搜索。</p></div>
-              <div className="w-full sm:w-80"><GeographyPicker countries={form.countries} value={form.geography_scopes} onCountriesChange={(countries) => setForm((current) => ({ ...current, countries, geography_scopes: Object.fromEntries(Object.entries(current.geography_scopes).filter(([country]) => countries.includes(country))) }))} onChange={(geography_scopes) => setForm((current) => ({ ...current, geography_scopes }))}/></div>
-            </div>
-          </div>
+          </label>
+          <div className="min-w-0"><span className="mb-1.5 block text-sm font-medium">目标市场 <b className="text-rose-500">*</b></span><GeographyPicker countries={form.countries} value={form.geography_scopes} onCountriesChange={(countries) => setForm((current) => ({ ...current, countries, geography_scopes: Object.fromEntries(Object.entries(current.geography_scopes).filter(([country]) => countries.includes(country))) }))} onChange={(geography_scopes) => setForm((current) => ({ ...current, geography_scopes }))}/><p className="mt-1 text-xs text-slate-400">在同一棵树中选择国家、省/州与城市；不选下级地域即全国搜索。</p></div>
+          <div className="min-w-0"><span className="mb-1.5 block text-sm font-medium">执行时间</span><ScheduleControl scheduleType={form.schedule_type} scheduledAt={form.scheduled_at} onScheduleTypeChange={(schedule_type)=>setForm((current)=>({...current,schedule_type}))} onScheduledAtChange={(scheduled_at)=>setForm((current)=>({...current,scheduled_at}))}/></div></div>
         </section>
         <section className={`${panel} overflow-visible`}>
           <div className="border-b border-[#e8ecf2] px-4 py-[14px]"><h2 className="text-[17px] font-semibold"><span className="mr-2 inline-grid h-[30px] w-[30px] place-items-center rounded-full bg-[#1763e8] text-sm text-white">2</span>目标客户条件</h2><p className="ml-[38px] mt-1 text-sm text-[#778397]">行业可多选或自定义；系统按任一目标行业匹配，并逐家核验真实业务。</p></div>
