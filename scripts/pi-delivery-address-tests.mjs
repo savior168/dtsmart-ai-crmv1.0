@@ -13,6 +13,7 @@ assert.match(source, /保存后保留 PI 快照，并按地址去重同步到客
 assert.match(profileSync, /after insert or update of delivery_address[\s\S]*on public\.sales_orders/, "新建及修改 PI 时须同步收货资料");
 assert.match(profileSync, /for update[\s\S]*matched_address[\s\S]*array_append\(addresses, address_value\)/, "客户资料须锁行并按地址去重，保留原有顺序");
 assert.match(profileSync, /shipping_contact_entries = merged_contacts[\s\S]*forwarder_contact_entries = merged_contacts/, "客户与货代收货资料均须同步联系人和电话");
+assert.match(profileSync, /new\.forwarder_recipient := coalesce\(nullif\(btrim\(coalesce\(new\.forwarder_recipient/, "新输入的货代收件人不得被旧快照触发器清空");
 assert.match(source, /选择客户资料中的客户收货信息/, "有客户档案收货信息时须能选择完整联系人条目");
 assert.match(source, /收货地址<Required \/><textarea[^>]*value=\{address\} onChange=\{\(event\) => \{ markUnsaved\(\); setAddress\(event\.target\.value\)/, "带入后本单地址仍须允许编辑");
 const emptyForm = renderToStaticMarkup(createElement(PiOrderForm, { initialIsClerk: false }));

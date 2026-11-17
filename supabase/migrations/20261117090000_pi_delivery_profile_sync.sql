@@ -1,5 +1,28 @@
 -- A PI keeps its own delivery snapshot. Also remember newly entered delivery
 -- profiles on the customer so the next PI can select them without retyping.
+-- Existing snapshots fill blanks from a selected customer profile, but must not
+-- erase a recipient or phone explicitly entered for a new forwarder address.
+create or replace function public.snapshot_pi_forwarder_contact()
+returns trigger language plpgsql security definer set search_path = '' as $$
+declare selected jsonb;
+begin
+  selected := null;
+  if nullif(btrim(coalesce(new.forwarder_address, '')), '') is not null then
+    select entry.value into selected
+    from public.customers c,
+         jsonb_array_elements(c.forwarder_contact_entries) as entry(value)
+    where c.id = new.customer_id
+      and btrim(entry.value->>'address') = btrim(new.forwarder_address)
+    limit 1;
+  end if;
+  new.forwarder_recipient := coalesce(nullif(btrim(coalesce(new.forwarder_recipient, '')), ''),
+    nullif(btrim(coalesce(selected->>'recipient', '')), ''));
+  new.forwarder_phone := coalesce(nullif(btrim(coalesce(new.forwarder_phone, '')), ''),
+    nullif(btrim(coalesce(selected->>'phone', '')), ''));
+  return new;
+end;
+$$;
+
 create function public.sync_pi_delivery_profiles()
 returns trigger
 language plpgsql security definer set search_path = '' as $$
@@ -17,6 +40,7 @@ declare
   contact_row jsonb;
   seen_contact boolean;
   matched_address boolean;
+  canonical_address text;
   position integer;
 begin
   if new.confirmation_method is distinct from 'DIRECT_PI' then return new; end if;
@@ -53,9 +77,11 @@ begin
     if address_value = '' or recipient_value = '' or phone_value = '' then continue; end if;
     address_key := regexp_replace(lower(address_value), '[[:space:]]+', ' ', 'g');
     matched_address := false;
+    canonical_address := address_value;
     for position in 1..cardinality(addresses) loop
       if regexp_replace(lower(btrim(addresses[position])), '[[:space:]]+', ' ', 'g') = address_key then
         matched_address := true;
+        canonical_address := addresses[position];
         exit;
       end if;
     end loop;
@@ -72,7 +98,7 @@ begin
       if existing_key = address_key then
         if not seen_contact then
           merged_contacts := merged_contacts || jsonb_build_array(jsonb_build_object(
-            'address', case when matched_address then addresses[position] else address_value end,
+            'address', canonical_address,
             'recipient', recipient_value, 'phone', phone_value));
           seen_contact := true;
         end if;
@@ -82,7 +108,7 @@ begin
     end loop;
     if not seen_contact then
       merged_contacts := merged_contacts || jsonb_build_array(jsonb_build_object(
-        'address', case when matched_address then addresses[position] else address_value end,
+        'address', canonical_address,
         'recipient', recipient_value, 'phone', phone_value));
     end if;
     if channel = 1 then
