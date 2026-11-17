@@ -16,9 +16,16 @@ import { AppDialog, DialogActions } from "@/components/ui/app-dialog";
 import { ScheduleControl } from "@/components/ai-screening/schedule-control";
 import { CountryLabel } from "@/components/country-label";
 import { GeographyPicker } from "@/components/ai-acquisition/geography-picker";
-import type { GeographyScopes } from "@/lib/ai-acquisition/geography";
+import { geographyScopeDisplayLabel, type GeographyScopes } from "@/lib/ai-acquisition/geography";
 
 const COUNTRY_NAMES = new Intl.DisplayNames(["zh-CN"], { type: "region" });
+function selectedGeographyLabels(countries: string[], scopes: GeographyScopes) {
+  return countries.map((country) => {
+    const name = COUNTRY_NAMES.of(country) || country;
+    const selected = scopes[country as keyof GeographyScopes] || [];
+    return selected.length ? `${name}：${selected.map((scope) => geographyScopeDisplayLabel(country as keyof GeographyScopes, scope) || scope.city || scope.regionCode).join("、")}` : `${name}：全国`;
+  });
+}
 const splitBulkValues = (text: string) => text.split(/[\r\n,，;；|]+/).map((item)=>item.trim()).filter(Boolean);
 function mergeUniqueValues(current: string[], incoming: string[], max: number, valid: (value:string)=>boolean) {
   const next = [...current];
@@ -635,6 +642,7 @@ export function AcquisitionCreateView() {
         </section>
       <aside className="h-full rounded-[9px] border border-[#dce5f4] bg-[#f8faff] p-[14px]"><h3 className="mb-[10px] font-semibold">创建前确认</h3><dl className="text-sm">{[
         ["目标国家/地区",form.countries.length ? (form.countries.length<=2?form.countries.map((code)=>COUNTRY_NAMES.of(code)||code).join("、"):`已选 ${form.countries.length} 个`) : "尚未选择",form.countries.map((code)=>COUNTRY_NAMES.of(code)||code).join("、")],
+        ["搜索地域",form.countries.length ? selectedGeographyLabels(form.countries, form.geography_scopes).join("；") : "尚未选择",selectedGeographyLabels(form.countries, form.geography_scopes).join("；")],
         ["目标行业",form.industries.length ? (form.industries.length<=2?form.industries.join("、"):`已选 ${form.industries.length} 个`) : "尚未选择",form.industries.join("、")],
         ["搜索关键词",form.keywords.length?`已选择 ${form.keywords.length} 个`:"尚未选择",form.keywords.join("、")],
         ["执行时间",form.schedule_type==="scheduled"&&form.scheduled_at?new Date(form.scheduled_at).toLocaleString("zh-CN",{hour12:false}):"创建后立即执行",""],
@@ -682,12 +690,13 @@ export function AcquisitionCreateView() {
           <dl className="grid grid-cols-2 gap-x-5 rounded-lg border border-slate-200 bg-white px-3.5 py-1">
             {[
               ["国家/地区",form.countries.length<=2?form.countries.map((code)=>COUNTRY_NAMES.of(code)||code).join("、"):`已选 ${form.countries.length} 个`],
+              ["搜索地域",selectedGeographyLabels(form.countries, form.geography_scopes).join("；")],
               ["目标行业",`已选 ${form.industries.length} 个`],
               ["搜索关键词",`已选 ${form.keywords.length} 个`],
               ["执行时间",form.schedule_type==="scheduled"&&form.scheduled_at?new Date(form.scheduled_at).toLocaleString("zh-CN",{hour12:false}):"立即执行"],
               ["获客模式",form.cost_mode === "FREE_ONLY"?"标准获客":"智能获客"],
               ["费用保护",form.cost_mode === "FREE_ONLY"?"禁止正金额调用":form.task_cost_limit_usd?`任务上限 $${Number(form.task_cost_limit_usd).toFixed(2)}`:"遵循全局上限"],
-            ].map(([label,value])=><div key={label} className="flex min-w-0 items-center justify-between gap-3 border-b border-dashed border-slate-200 py-2.5"><dt className="shrink-0 text-slate-500">{label}</dt><dd className="truncate text-right font-medium text-slate-800">{label==="国家/地区"&&form.countries.length<=2?form.countries.length?form.countries.map((code)=><CountryLabel key={code} value={code} className="!text-xs"/>):value:value}</dd></div>)}
+            ].map(([label,value])=><div key={label} className={`flex min-w-0 justify-between gap-3 border-b border-dashed border-slate-200 py-2.5 ${label==="搜索地域"?"col-span-2 items-start":"items-center"}`}><dt className="shrink-0 text-slate-500">{label}</dt><dd className={`${label==="搜索地域"?"break-words":"truncate"} text-right font-medium text-slate-800`}>{label==="国家/地区"&&form.countries.length<=2?form.countries.length?form.countries.map((code)=><CountryLabel key={code} value={code} className="!text-xs"/>):value:value}</dd></div>)}
           </dl>
           <details className="rounded-lg border border-slate-200 bg-slate-50/70 px-3.5 py-2.5"><summary className="cursor-pointer font-medium text-slate-700">查看已选行业和关键词</summary><div className="mt-2 space-y-2 border-t border-slate-200 pt-2 text-xs leading-5 text-slate-600"><p><b className="text-slate-700">目标行业：</b>{form.industries.join("、")}</p><p><b className="text-slate-700">搜索关键词：</b>{form.keywords.join("、")}</p></div></details>
           <p className="rounded-lg bg-blue-50 px-3.5 py-2.5 text-xs leading-5 text-blue-800">任务由云端工作流执行；创建成功后可关闭页面，任务会按计划继续。</p>
