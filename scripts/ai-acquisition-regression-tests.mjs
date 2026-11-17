@@ -186,10 +186,11 @@ const {planAcquisitionSearchTerms,acquisitionSearchLanguage,ACQUISITION_COUNTRIE
 const geographyJson=JSON.parse(fs.readFileSync(new URL("../data/ai-acquisition-geography.json",import.meta.url),"utf8"));
 const defaultAreas=JSON.parse(fs.readFileSync(new URL("../data/ai-acquisition-default-areas.json",import.meta.url),"utf8"));
 const zhNames=JSON.parse(fs.readFileSync(new URL("../data/ai-acquisition-geography-zh.json",import.meta.url),"utf8"));
+const localAliases=JSON.parse(fs.readFileSync(new URL("../data/ai-acquisition-geography-local-aliases.json",import.meta.url),"utf8"));
 const geographyModule={exports:{}};
 const geographySource=fs.readFileSync(new URL("../lib/ai-acquisition/geography.ts",import.meta.url),"utf8");
 const geographyCode=ts.transpileModule(geographySource,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText;
-new Function("require","module","exports",geographyCode)((id)=>id.endsWith("ai-acquisition-geography.json")?geographyJson:id.endsWith("ai-acquisition-geography-zh.json")?zhNames:id.endsWith("ai-acquisition-default-areas.json")?defaultAreas:id==="./config"?{ACQUISITION_COUNTRY_SEARCH_AREAS:{US:["New York NY"]}}:null,geographyModule,geographyModule.exports);
+new Function("require","module","exports",geographyCode)((id)=>id.endsWith("ai-acquisition-geography.json")?geographyJson:id.endsWith("ai-acquisition-geography-zh.json")?zhNames:id.endsWith("ai-acquisition-geography-local-aliases.json")?localAliases:id.endsWith("ai-acquisition-default-areas.json")?defaultAreas:id==="./config"?{ACQUISITION_COUNTRY_SEARCH_AREAS:{US:["New York NY"]}}:null,geographyModule,geographyModule.exports);
 const {normalizeGeographyScopes,geographyScopeLabel,geographyScopeDisplayLabel,planGeographyQueries,placeMatchesGeography}=geographyModule.exports;
 assert.equal(Object.keys(geographyJson).length,249,"离线地域索引须对应全部获客国家代码");
 assert.ok(Object.values(geographyJson).filter((regions)=>regions.length).length>=220,"省州城市索引须覆盖绝大多数国家；无可靠区域的国家只能全国搜索");
@@ -198,6 +199,7 @@ assert.ok(Object.values(defaultAreas).every((areas)=>areas.length<=12&&areas.eve
 assert.deepEqual(normalizeGeographyScopes({US:[{regionCode:"CA",city:"Los Angeles"}]},["US"]),{US:[{regionCode:"CA",city:"Los Angeles"}]});
 assert.equal(geographyScopeLabel("US",{regionCode:"CA",city:"Los Angeles"}),"Los Angeles, California");
 assert.match(geographyScopeDisplayLabel("DE",{regionCode:"16",city:"Berlin"}),/柏林/,"可信中文译名仅用于展示，不改变搜索用原文");
+assert.match(geographyScopeDisplayLabel("DE",{regionCode:"15",city:null}),/图林根/,"CLDR 省州译名须与 GeoNames 原文名称严格匹配后展示");
 assert.deepEqual(planGeographyQueries("US","United States",["phone repair"],[{regionCode:"CA",city:"Los Angeles"}]),["phone repair in Los Angeles, California, United States"],"选定城市时不得追加全国或其他地域查询");
 assert.ok(planGeographyQueries("US","United States",["phone repair"]).some((query)=>query==="phone repair in United States"),"旧任务必须保留全国查询");
 assert.ok(planGeographyQueries("DE","Germany",["phone repair"]).some((query)=>query!=="phone repair in Germany"),"原先没有手工分片的国家应有 GeoNames 自动城市分片");
@@ -207,6 +209,8 @@ assert.equal(placeMatchesGeography("US",[{regionCode:"CA",city:null}],[{types:["
 assert.equal(placeMatchesGeography("US",[{regionCode:"CA",city:"San Diego"}],california),false,"同省其他城市不得误入");
 assert.equal(placeMatchesGeography("DE",[{regionCode:"16",city:"Berlin"}],[{types:["administrative_area_level_1"],longText:"Berlin"},{types:["locality"],longText:"Berlin"}]),true,"地理索引 State of Berlin 必须匹配地点返回的 Berlin 州");
 assert.equal(placeMatchesGeography("DE",[{regionCode:"16",city:"Berlin"}],[{types:["administrative_area_level_1"],longText:"Brandenburg"},{types:["locality"],longText:"Berlin"}]),false,"不能仅凭同名城市绕过省州条件");
+assert.equal(placeMatchesGeography("DE",[{regionCode:"02",city:"Munich"}],[{types:["administrative_area_level_1"],longText:"Bayern"},{types:["locality"],longText:"München"}]),true,"本地语种地址须匹配 GeoNames 同一行政区域的正式别名");
+assert.equal(placeMatchesGeography("DE",[{regionCode:"02",city:"Munich"}],[{types:["administrative_area_level_1"],longText:"Brandenburg"},{types:["locality"],longText:"München"}]),false,"本地语种同名城市不得绕过省州限制");
 assert.equal(placeMatchesGeography("US",[{regionCode:"NY",city:null}],california),false,"其他省州不得误入");
 assert.equal(placeMatchesGeography("US",[{regionCode:"CA",city:"Los Angeles"}],undefined),false,"缺少地址组件时不得假装精确地域命中");
 assert.throws(()=>normalizeGeographyScopes({DE:[{regionCode:"CA",city:null}]},["US"]),/必须属于所选国家/);

@@ -130,7 +130,7 @@ export function GeographyPicker({ countries, value, onChange }: {
   const count = Object.values(value).reduce((sum, scopes) => sum + (scopes?.length || 0), 0);
   if (!countries.length) return null;
   return <div className="mt-3 space-y-2">
-    <p className="text-xs leading-5 text-slate-500">按国家→省/州→城市逐级多选。仅有可靠中文译名的地点显示中文与原文，其余保留原文供核对；选定地域后只搜索该范围。每国最多8处，单任务最多16处。地域索引：<a href="https://www.geonames.org/" target="_blank" rel="noreferrer" className="text-blue-700 underline">GeoNames</a>（CC BY 4.0）。</p>
+    <p className="text-xs leading-5 text-slate-500">按国家→省/州→城市逐级多选。仅有可靠中文译名的地点显示中文与原文，其余保留原文供核对；选定地域后只搜索该范围。每国最多8处，单任务最多16处。地域索引：<a href="https://www.geonames.org/" target="_blank" rel="noreferrer" className="text-blue-700 underline">GeoNames</a>（CC BY 4.0）；补充译名：<a href="https://github.com/unicode-org/cldr" target="_blank" rel="noreferrer" className="text-blue-700 underline">Unicode CLDR</a>。</p>
     <div className="grid gap-2 lg:grid-cols-2">{countries.map((country) => <CountryGeography key={country} country={country as AcquisitionCountry} scopes={value[country as AcquisitionCountry] || []} totalCount={count} onChange={(scopes) => {
       const next = { ...value };
       if (scopes.length) next[country as AcquisitionCountry] = scopes;

@@ -8,12 +8,14 @@ import { remainingAcquisitionTaskLimit } from "../lib/ai-acquisition/cost-budget
 const geography = JSON.parse(fs.readFileSync(new URL("../data/ai-acquisition-geography.json", import.meta.url), "utf8"));
 const defaultAreas = JSON.parse(fs.readFileSync(new URL("../data/ai-acquisition-default-areas.json", import.meta.url), "utf8"));
 const zhNames = JSON.parse(fs.readFileSync(new URL("../data/ai-acquisition-geography-zh.json", import.meta.url), "utf8"));
+const localAliases = JSON.parse(fs.readFileSync(new URL("../data/ai-acquisition-geography-local-aliases.json", import.meta.url), "utf8"));
 const source = fs.readFileSync(new URL("../lib/ai-acquisition/geography.ts", import.meta.url), "utf8");
 const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText;
 const module = { exports: {} };
 new Function("require", "module", "exports", code)((id) => {
   if (id.endsWith("ai-acquisition-geography.json")) return geography;
   if (id.endsWith("ai-acquisition-geography-zh.json")) return zhNames;
+  if (id.endsWith("ai-acquisition-geography-local-aliases.json")) return localAliases;
   if (id.endsWith("ai-acquisition-default-areas.json")) return defaultAreas;
   if (id === "./config") return { ACQUISITION_COUNTRY_SEARCH_AREAS: {} };
   throw new Error(`Unexpected fixture dependency: ${id}`);
@@ -28,6 +30,8 @@ const berlin = [{ types: ["country"], shortText: "DE" }, { types: ["administrati
 const outside = [{ types: ["country"], shortText: "DE" }, { types: ["administrative_area_level_1"], longText: "Brandenburg" }, { types: ["locality"], longText: "Berlin" }];
 assert.equal(placeMatchesGeography("DE", selected.DE, berlin), true, "a real Berlin address must survive the state alias check");
 assert.equal(placeMatchesGeography("DE", selected.DE, outside), false, "a same-name city outside the chosen state must not pass");
+const bavaria = [{ types: ["country"], shortText: "DE" }, { types: ["administrative_area_level_1"], longText: "Bayern" }, { types: ["locality"], longText: "München" }];
+assert.equal(placeMatchesGeography("DE", [{ regionCode: "02", city: "Munich" }], bavaria), true, "a localized German address must match its canonical region and city");
 const multi = normalizeGeographyScopes({ DE: [{ regionCode: "16", city: "Berlin" }, { regionCode: "02", city: "Munich" }], US: [{ regionCode: "CA", city: "Los Angeles" }] }, ["DE", "US"]);
 assert.equal(multi.DE.length, 2, "the API must retain multiple selected nodes in one country");
 assert.equal(multi.US.length, 1, "the API must retain selections in another country");

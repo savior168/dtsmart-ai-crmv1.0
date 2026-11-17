@@ -1,6 +1,7 @@
 import geography from "../../data/ai-acquisition-geography.json";
 import defaultAreas from "../../data/ai-acquisition-default-areas.json";
 import chineseNames from "../../data/ai-acquisition-geography-zh.json";
+import localAliases from "../../data/ai-acquisition-geography-local-aliases.json";
 import { ACQUISITION_COUNTRY_SEARCH_AREAS } from "./config";
 import type { AcquisitionCountry } from "./config";
 
@@ -10,6 +11,7 @@ export type GeographyScopes = Partial<Record<AcquisitionCountry, GeographyScope[
 type Region = { code: string; name: string; cities: string[] };
 const registry = geography as Record<string, Region[]>;
 const displayNames = chineseNames as { regions: Record<string, Record<string, string>>; cities: Record<string, Record<string, Record<string, string>>> };
+const addressAliases = localAliases as { regions: Record<string, Record<string, string>>; cities: Record<string, Record<string, Record<string, string>>> };
 
 function bilingualName(original: string, chinese?: string) {
   return chinese && chinese !== original ? `${chinese}（${original}）` : original;
@@ -97,7 +99,7 @@ export function placeMatchesGeography(country: AcquisitionCountry, scopes: Geogr
   return scopes.some((scope) => {
     const region = acquisitionRegions(country).find((item) => item.code === scope.regionCode);
     if (!region) return false;
-    const regionValues = [region.name, region.name.replace(/^State of /i, "")].map(normalized).filter(Boolean);
+    const regionValues = [region.name, region.name.replace(/^State of /i, ""), addressAliases.regions[country]?.[region.code]].filter((value): value is string => Boolean(value)).map(normalized);
     if (!regionValues.length) return false;
     const regionMatches = parts.some((component) => component.types?.includes("administrative_area_level_1") && (
       [component.longText, component.shortText].some((value) => value && regionValues.includes(normalized(value)))
@@ -105,8 +107,7 @@ export function placeMatchesGeography(country: AcquisitionCountry, scopes: Geogr
     ));
     if (!regionMatches) return false;
     if (!scope.city) return true;
-    const cityValue = normalized(scope.city);
-    if (!cityValue) return false;
-    return parts.some((component) => component.types?.some((type) => ["locality", "postal_town", "administrative_area_level_2"].includes(type)) && [component.longText, component.shortText].some((value) => value && normalized(value) === cityValue));
+    const cityValues = [scope.city, addressAliases.cities[country]?.[region.code]?.[scope.city]].filter((value): value is string => Boolean(value)).map(normalized);
+    return parts.some((component) => component.types?.some((type) => ["locality", "postal_town", "administrative_area_level_2"].includes(type)) && [component.longText, component.shortText].some((value) => value && cityValues.includes(normalized(value))));
   });
 }
