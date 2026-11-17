@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { warehousePiAmendment } from "../lib/orders/pi-amendment-view.ts";
+import { latestAppliedPiAmendmentHighlights } from "../lib/orders/pi-amendment-highlights.ts";
 
 const amendmentUi = readFileSync(new URL("../components/pi-amendment-panels.tsx", import.meta.url), "utf8");
 const orderFormUi = readFileSync(new URL("../components/pi-order-form.tsx", import.meta.url), "utf8");
@@ -40,4 +41,12 @@ assert.equal(change.changes[0].sales_price_changed, true);
 assert.equal(change.changes[0].seller_cost_changed, true);
 assert.equal(JSON.stringify(change).includes("unit_price_cny"), false);
 assert.equal(JSON.stringify(change).includes("estimated_unit_cost_cny"), false);
+const applied = { id: "applied", status: "APPLIED", base_revision: 1, applied_revision: 2,
+  reason: "调整产品", decision_note: null, created_at: "2026-11-03T00:00:00Z", decided_at: "2026-11-03T01:00:00Z",
+  before_items: [{ id: "changed", quantity: 2, unit_price_cny: 100 }, { id: "removed", quantity: 1 }],
+  proposed_items: [{ id: "changed", quantity: 3, unit_price_cny: 100 }, { id: "added", quantity: 1 }] };
+assert.deepEqual([...latestAppliedPiAmendmentHighlights([applied, { ...applied, id: "pending", status: "PENDING", applied_revision: null,
+  proposed_items: [{ id: "unapproved", quantity: 1 }] }])],
+  [["changed", "CHANGED"], ["removed", "REMOVED"], ["added", "ADDED"]],
+  "仅最近一次已生效变更可影响PI及仓库产品行颜色");
 console.log("Warehouse PI amendment display redaction passed.");

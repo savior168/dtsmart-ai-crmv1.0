@@ -13,6 +13,7 @@ import { PI_EXECUTING_STATUSES, piOrderStatusLabel } from "@/lib/stock-progress"
 import { PiAmendmentSalesPanel } from "@/components/pi-amendment-panels";
 import { ArchivedPiRequirementAttachments, PiRequirementAttachments, type PiRequirementAttachment } from "@/components/pi-requirement-attachments";
 import type { PiAmendmentRecord } from "@/lib/orders/pi-amendment-view";
+import { latestAppliedPiAmendmentHighlights } from "@/lib/orders/pi-amendment-highlights";
 
 function PiInternalTextCell({ text, fallback, label, lineNumber, attachments = [] }: {
   text: string | null; fallback: string; label: string; lineNumber: number; attachments?: PiRequirementAttachment[];
@@ -96,10 +97,15 @@ type Payload = {
   receiving_progress: { total_items: number; received_items: number; ordered_units: number; received_units: number } | null;
   item_progress: Array<{ line_number: number; received_quantity: number; shipped_quantity: number }>;
   amendments: PiAmendmentRecord[];
+  price_corrections?: Array<{ id: string; user_id: string; created_at: string; content: {
+    line_number?: number; previous_sale_cny?: number; revised_sale_cny?: number;
+    previous_cost_cny?: number; revised_cost_cny?: number; reason?: string;
+  } }>;
   requirement_attachments: PiRequirementAttachment[];
   stocking_requirements: string;
   applied_amendment_count: number;
   can_request_amendment: boolean;
+  can_correct_price: boolean;
   can_edit_draft: boolean;
   can_delete_draft: boolean;
   can_submit: boolean;
@@ -205,6 +211,8 @@ export function OrderDetailView({ id }: { id: string }) {
   const [recallReason, setRecallReason] = useState("");
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [costReview, setCostReview] = useState<{ itemId: string; lineNumber: number; expected: number; revised: string; reason: string } | null>(null);
+  const [priceCorrection, setPriceCorrection] = useState<{ itemId: string; lineNumber: number;
+    expectedSale: number; expectedCost: number; revisedSale: string; revisedCost: string; reason: string } | null>(null);
   const load = useCallback(async () => {
     setLoading(true);
     const r = await fetch(`/api/orders/${id}`, { cache: "no-store" });
@@ -270,6 +278,27 @@ export function OrderDetailView({ id }: { id: string }) {
     setCostReview(null);
     await load();
   }
+  async function submitPriceCorrection() {
+    if (!priceCorrection || !data) return;
+    const revisedSale = Number(priceCorrection.revisedSale);
+    const revisedCost = Number(priceCorrection.revisedCost);
+    if (!priceCorrection.reason.trim() || !Number.isFinite(revisedSale) || !Number.isFinite(revisedCost)
+      || revisedSale < 0 || revisedCost < 0) { setError("请填写有效的新价格和更正原因"); return; }
+    setBusy(true); setError("");
+    try {
+      const response = await fetch(`/api/orders/${id}/price-correction`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ item_id: priceCorrection.itemId, expected_revision: data.order.pi_revision,
+          expected_sale_cny: priceCorrection.expectedSale, expected_cost_cny: priceCorrection.expectedCost,
+          revised_sale_cny: revisedSale, revised_cost_cny: revisedCost, reason: priceCorrection.reason.trim() }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "价格更正失败");
+      setPriceCorrection(null);
+      await load();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "价格更正失败"); }
+    finally { setBusy(false); }
+  }
   if (loading && !data)
     return (
       <main className="grid min-h-[70vh] place-items-center">
@@ -280,6 +309,7 @@ export function OrderDetailView({ id }: { id: string }) {
     return <main className="p-6 text-rose-600">{error || "订单不存在"}</main>;
   const o = data.order;
   const directPi = o.confirmation_method === "DIRECT_PI";
+  const amendmentHighlights = latestAppliedPiAmendmentHighlights(data.amendments);
   const totalFx = Number(o.fx_rate_cny_to_payment);
   const totalCny = typeof o.total_cny === "number" && Number.isFinite(o.total_cny)
     ? o.total_cny : totalFx > 0 ? Number(o.total_amount) / totalFx : null;
@@ -353,6 +383,9 @@ export function OrderDetailView({ id }: { id: string }) {
             <span className="font-semibold">成本待复核</span>
             <span>第 {data.seller_cost_review_line_numbers.join("、")} 项的采购均价高于销售成本，请在对应产品行复核。</span>
           </div> : null}
+          {directPi && amendmentHighlights.size ? <p className="px-5 py-2 text-xs text-slate-600" aria-label="最近一次已生效PI变更标记">
+            最近一次已生效变更：<span className="ml-2 text-emerald-700">绿色 · 新增</span><span className="ml-3 text-amber-700">琥珀色 · 调整</span><span className="ml-3 text-rose-700">红色 · 删除（历史行）</span>
+          </p> : null}
           <div role="region" aria-label="PI产品明细，可独立滚动" tabIndex={0} className="max-h-[min(65vh,720px)] overflow-auto overscroll-contain border-y">
             <table className={`w-full text-left text-sm ${directPi ? "min-w-[1550px]" : "min-w-[900px]"}`}>
               <thead className="sticky top-0 z-10 bg-slate-50 text-xs">
@@ -378,19 +411,22 @@ export function OrderDetailView({ id }: { id: string }) {
               </thead>
               <tbody>
                 {data.items.map((i) => {
+                  const change = amendmentHighlights.get(i.id);
+                  const canCorrectLine = directPi && data.can_correct_price && !i.pi_amendment_cancelled_at
+                    && Number(data.item_progress.find((row) => row.line_number === i.line_number)?.shipped_quantity || 0) === 0;
                   const costReviewRequired = directPi && data.can_review_seller_cost
                     && data.seller_cost_review_line_numbers.includes(i.line_number)
                     && !i.pi_amendment_cancelled_at;
                   return (
-                  <tr key={i.id} className={`border-t ${i.pi_amendment_cancelled_at ? "bg-rose-50 text-rose-700 line-through" : costReviewRequired ? "bg-amber-50/80" : ""}`}>
+                  <tr key={i.id} className={`border-t ${i.pi_amendment_cancelled_at ? "bg-rose-50 text-rose-700 line-through" : change === "ADDED" ? "bg-emerald-50/80" : change === "CHANGED" || costReviewRequired ? "bg-amber-50/80" : ""}`}>
                     <td className="px-3 py-3">{i.line_number}</td>
-                    <td className="px-3 py-3 font-medium">{i.item_name}{i.pi_amendment_cancelled_at ? <span className="ml-2 rounded bg-rose-100 px-1 text-xs no-underline">已删除</span> : costReviewRequired ? <span className="ml-2 inline-flex whitespace-nowrap rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">成本待复核</span> : null}</td>
+                    <td className="px-3 py-3 font-medium">{i.item_name}{i.pi_amendment_cancelled_at ? <span className="ml-2 rounded bg-rose-100 px-1 text-xs no-underline">已删除</span> : change === "ADDED" ? <span className="ml-2 rounded bg-emerald-100 px-1 text-xs text-emerald-800">本次新增</span> : change === "CHANGED" ? <span className="ml-2 rounded bg-amber-100 px-1 text-xs text-amber-800">本次调整</span> : null}{costReviewRequired ? <span className="ml-2 inline-flex whitespace-nowrap rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">成本待复核</span> : null}</td>
                     <td className="px-3 py-3">{i.brand || "-"}</td>
                     <td className="px-3 py-3">{i.model || "-"}</td>
                     <td className="px-3 py-3">{i.quality || "-"}</td>
                     <td className="px-3 py-3">{i.description || "-"}</td>
                     <td className="px-3 py-3">{i.quantity}</td>
-                    {directPi ? <><td className="px-3 py-3">¥{Number(i.unit_price_cny).toFixed(2)}</td><td className="px-3 py-3">¥{Number(i.estimated_unit_cost_cny).toFixed(2)}{costReviewRequired && i.estimated_unit_cost_cny !== null ? <button type="button" disabled={busy} onClick={() => { setError(""); setCostReview({ itemId: i.id, lineNumber: i.line_number, expected: Number(i.estimated_unit_cost_cny), revised: Number(i.estimated_unit_cost_cny).toFixed(2), reason: "" }); }} className="ml-2 whitespace-nowrap text-xs text-blue-700 hover:underline disabled:opacity-40">复核成本</button> : null}</td><td className="px-3 py-3">{i.pi_amendment_cancelled_at ? "不计入" : Number(i.unit_price_cny) > 0 ? `${((Number(i.unit_price_cny) - Number(i.estimated_unit_cost_cny)) / Number(i.unit_price_cny) * 100).toFixed(2)}%` : "—"}</td></> : null}
+                    {directPi ? <><td className="px-3 py-3">¥{Number(i.unit_price_cny).toFixed(2)}{canCorrectLine ? <button type="button" onClick={() => { setError(""); setPriceCorrection({ itemId: i.id, lineNumber: i.line_number, expectedSale: Number(i.unit_price_cny), expectedCost: Number(i.estimated_unit_cost_cny), revisedSale: Number(i.unit_price_cny).toFixed(2), revisedCost: Number(i.estimated_unit_cost_cny).toFixed(2), reason: "" }); }} className="ml-2 whitespace-nowrap text-xs text-blue-700 hover:underline">更正售价/成本</button> : null}</td><td className="px-3 py-3">¥{Number(i.estimated_unit_cost_cny).toFixed(2)}{costReviewRequired && i.estimated_unit_cost_cny !== null ? <button type="button" disabled={busy} onClick={() => { setError(""); setCostReview({ itemId: i.id, lineNumber: i.line_number, expected: Number(i.estimated_unit_cost_cny), revised: Number(i.estimated_unit_cost_cny).toFixed(2), reason: "" }); }} className="ml-2 whitespace-nowrap text-xs text-blue-700 hover:underline disabled:opacity-40">复核成本</button> : null}</td><td className="px-3 py-3">{i.pi_amendment_cancelled_at ? "不计入" : Number(i.unit_price_cny) > 0 ? `${((Number(i.unit_price_cny) - Number(i.estimated_unit_cost_cny)) / Number(i.unit_price_cny) * 100).toFixed(2)}%` : "—"}</td></> : null}
                     <td className="px-3 py-3">
                       {o.currency} {Number(i.unit_price).toFixed(2)}
                     </td>
@@ -415,6 +451,7 @@ export function OrderDetailView({ id }: { id: string }) {
             </table>
           </div>
           {directPi ? <div className="border-b p-5 text-sm"><b>订单变更说明</b><p className="mt-2 whitespace-pre-wrap text-slate-700">{o.confirmation_note ? numberedPiChangeNote(o.confirmation_note) : "暂无变更"}</p></div> : null}
+          {directPi && data.price_corrections?.length ? <details className="border-b px-5 py-3 text-sm"><summary className="cursor-pointer font-medium text-blue-700">价格更正记录 · 最近 {data.price_corrections.length} 条</summary><div className="mt-2 space-y-2">{data.price_corrections.map((entry) => <div key={entry.id} className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-slate-800">第 {entry.content.line_number ?? "—"} 项 · {new Date(entry.created_at).toLocaleString("zh-CN")} · 售价 ¥{Number(entry.content.previous_sale_cny).toFixed(2)} → ¥{Number(entry.content.revised_sale_cny).toFixed(2)} · 成本 ¥{Number(entry.content.previous_cost_cny).toFixed(2)} → ¥{Number(entry.content.revised_cost_cny).toFixed(2)}<span className="ml-2">原因：{entry.content.reason || "—"}</span></div>)}</div></details> : null}
           {directPi && o.status !== "DRAFT" ? <PiAmendmentSalesPanel orderId={id} revision={o.pi_revision}
             currency={o.currency} fxRate={Number(o.fx_rate_cny_to_payment || 0)}
             items={data.items.filter((item) => !item.pi_amendment_cancelled_at).map((item) => ({ id: item.id, line_number: item.line_number,
@@ -484,6 +521,16 @@ export function OrderDetailView({ id }: { id: string }) {
             </footer>
           )}
         </section>
+        <AppDialog open={priceCorrection !== null} title="更正产品售价与销售成本" description="仅未交货代产品可更正；提交后立即同步PI金额、报价快照与备货成本，不需仓库确认，也不占产品变更次数。原值及原因永久留痕。" onClose={() => { if (!busy) setPriceCorrection(null); }} width="max-w-md">
+          {priceCorrection ? <form onSubmit={(event) => { event.preventDefault(); void submitPriceCorrection(); }} className="space-y-3 text-sm">
+            <p>第 {priceCorrection.lineNumber} 项 · 当前售价 ¥{priceCorrection.expectedSale.toFixed(2)} / 销售成本 ¥{priceCorrection.expectedCost.toFixed(2)}</p>
+            <label className="block">新销售单价 ¥/件<input required type="number" min="0" max="999999999999.99" step="0.01" value={priceCorrection.revisedSale} onChange={(event) => setPriceCorrection((current) => current && { ...current, revisedSale: event.target.value })} className="mt-1 h-10 w-full rounded-lg border px-3" /></label>
+            <label className="block">新销售成本 ¥/件<input required type="number" min="0" max="999999999999.99" step="0.01" value={priceCorrection.revisedCost} onChange={(event) => setPriceCorrection((current) => current && { ...current, revisedCost: event.target.value })} className="mt-1 h-10 w-full rounded-lg border px-3" /></label>
+            <label className="block">更正原因（必填）<textarea required maxLength={500} value={priceCorrection.reason} onChange={(event) => setPriceCorrection((current) => current && { ...current, reason: event.target.value })} className="mt-1 min-h-20 w-full rounded-lg border px-3 py-2" /></label>
+            {error ? <p role="alert" className="rounded-lg bg-rose-50 p-3 text-rose-700">{error}</p> : null}
+            <DialogActions busy={busy} onCancel={() => setPriceCorrection(null)} confirmLabel="确认更正并留痕" />
+          </form> : null}
+        </AppDialog>
         <AppDialog open={costReview !== null} title="复核销售预估成本" description="整单交货代后可更正您录入的成本估计；不修改已发货 PI 产品、供应商采购价或送货单，也不计入订单变更次数。主管另按实际采购记录核算实际毛利。" onClose={() => { if (!busy) setCostReview(null); }} width="max-w-md">
           {costReview ? <form onSubmit={(event) => { event.preventDefault(); void submitCostReview(); }} className="space-y-3 text-sm">
             <p>第 {costReview.lineNumber} 项 · 原成本 ¥{costReview.expected.toFixed(2)}/件</p>

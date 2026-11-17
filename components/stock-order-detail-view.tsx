@@ -138,6 +138,7 @@ type Payload = {
   delivery_notes?: SupplierDeliveryNoteView[];
   events: Event[];
   amendments: WarehousePiChange[];
+  amendment_highlights?: Array<{ line_number: number; kind: "ADDED" | "CHANGED" }>;
   requirement_attachments: PiRequirementAttachment[];
   event_count: number;
   expenses?: { packaging_cost_cny: number; procurement_expenses_cny: number; shipping_expenses_cny: number; updated_at: string } | null;
@@ -742,6 +743,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
       <Link href="/stock-orders" className="mt-4 inline-flex rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white">返回备货单列表</Link>
     </div></main>;
   const o = data.order;
+  const amendmentHighlightByLine = new Map((data.amendment_highlights || []).map((item) => [item.line_number, item.kind]));
   const stockProgress = summarizeStockProgress(o.status, items);
   const showStockProgress = o.status !== "DRAFT" && !data.recalled_pi;
   const canExecute = data.can_update && ITEM_STAGES.includes(o.status) && o.status !== "SHIPPED" && !data.recalled_pi;
@@ -852,6 +854,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
           </section> : null}
           <div className="p-5 pt-0">
             <h2 className="mb-1 font-semibold">仓库产品明细</h2>
+            {data.amendment_highlights?.length ? <p className="mb-2 text-xs text-slate-600" aria-label="最近一次已生效PI变更标记">最近一次已生效变更：<span className="ml-2 text-emerald-700">绿色 · 新增</span><span className="ml-3 text-amber-700">琥珀色 · 调整</span><span className="ml-3 text-rose-700">红色 · 已删除项见上方历史记录</span></p> : null}
             <p className="mb-3 text-xs text-slate-500">
               仅展示仓库所需规格、数量、理货要求及 PI 预估成本；销售价、客户付款价和利润率不会在备货单展示。
             </p>
@@ -911,9 +914,9 @@ export function StockOrderDetailView({ id }: { id: string }) {
                 </thead>
                 <tbody>
                   {paginatedItems.map(({ item, index }) => (
-                    <tr key={item.id} className="border-t">
+                    <tr key={item.id} className={`border-t ${amendmentHighlightByLine.get(item.line_number) === "ADDED" ? "bg-emerald-50/80" : amendmentHighlightByLine.get(item.line_number) === "CHANGED" ? "bg-amber-50/80" : ""}`}>
                       <td className="px-3 py-3">{canExecute ? <input type="checkbox" aria-label={`选择第 ${item.line_number} 项进行批量备货操作`} checked={selectedItemIds.includes(item.id)} onChange={(event) => setSelectedItemIds((current) => event.target.checked ? [...current, item.id] : current.filter((value) => value !== item.id))} /> : null}</td>
-                      <td className="px-3 py-3">{item.line_number}</td>
+                      <td className="px-3 py-3">{item.line_number}{amendmentHighlightByLine.has(item.line_number) ? <span className={`mt-1 block whitespace-nowrap text-[11px] font-medium ${amendmentHighlightByLine.get(item.line_number) === "ADDED" ? "text-emerald-700" : "text-amber-700"}`}>{amendmentHighlightByLine.get(item.line_number) === "ADDED" ? "本次新增" : "本次调整"}</span> : null}</td>
                       <td className="px-2 py-2 font-medium">
                         <div className="line-clamp-2 break-words leading-5" title={[item.product_type_snapshot || item.item_name || "—", item.product_type_snapshot && item.item_name !== item.product_type_snapshot ? item.item_name : ""].filter(Boolean).join(" · ")}>
                           {item.product_type_snapshot || item.item_name || "—"}{item.product_type_snapshot && item.item_name !== item.product_type_snapshot ? <small className="font-normal text-slate-500"> · {item.item_name}</small> : null}

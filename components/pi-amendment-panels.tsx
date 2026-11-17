@@ -9,7 +9,7 @@ import { warehousePiAmendment, type PiAmendmentRecord, type WarehousePiChange } 
 type Editable = PiAmendmentLine & { line_number: number | null; unit_price_payment?: number };
 const moneyValid = (value: number) => Number.isFinite(value) && value >= 0
   && value <= 999999999999.99 && Math.abs(value * 100 - Math.round(value * 100)) < 0.000001;
-const lineLabel = (line: Record<string, unknown> | null) => line
+const lineLabel = (line: { item_name?: unknown; brand?: unknown; model?: unknown; quality?: unknown } | null) => line
   ? [line.item_name, line.brand, line.model, line.quality].filter(Boolean).join(" · ") : "—";
 
 export function PiAmendmentSalesPanel({ orderId, revision, items, progress, amendments,
@@ -26,6 +26,15 @@ export function PiAmendmentSalesPanel({ orderId, revision, items, progress, amen
   const [busy, setBusy] = useState(false);
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteText, setPasteText] = useState("");
+  const originalById = new Map(items.map((item) => [item.id, item]));
+  const removedItems = draft ? items.filter((item) => !draft.some((row) => row.id === item.id)) : [];
+  const changedItems = draft?.filter((row) => {
+    const original = originalById.get(row.id);
+    return original && (Number(row.quantity) !== Number(original.quantity)
+      || Number(row.unit_price_cny) !== Number(original.unit_price_cny)
+      || Number(row.estimated_unit_cost_cny) !== Number(original.estimated_unit_cost_cny));
+  }) || [];
+  const addedCount = draft?.filter((row) => !originalById.has(row.id)).length || 0;
   const progressByLine = new Map(progress.map((row) => [row.line_number, row]));
   const locked = new Set(items.filter((item) => item.line_number !== null
     && Number(progressByLine.get(item.line_number)?.shipped_quantity || 0) > 0).map((item) => item.id));
@@ -125,25 +134,42 @@ export function PiAmendmentSalesPanel({ orderId, revision, items, progress, amen
     {error && !draft ? <p role="alert" className="mt-2 rounded bg-rose-50 p-2 text-sm text-rose-700">{error}</p> : null}
     <AppDialog open={draft !== null} title="申请PI订单变更" description="产品字段名称、顺序和表格样式与创建 PI 产品明细保持一致；金额按本 PI 汇率展示。整份申请须由仓库确认后才同时更新 PI 与备货单；已交货代行不能修改。" onClose={() => { if (!busy) setDraft(null); }} width="max-w-[96vw]">
       {draft ? <form onSubmit={(event) => { event.preventDefault(); void submit(); }} className="space-y-3 text-sm">
+        <div className="flex flex-wrap items-center gap-2 text-xs" aria-live="polite">
+          <span className="rounded bg-emerald-50 px-2 py-1 text-emerald-800">新增 {addedCount}</span>
+          <span className="rounded bg-amber-50 px-2 py-1 text-amber-800">已修改 {changedItems.length}</span>
+          <span className="rounded bg-rose-50 px-2 py-1 text-rose-800">拟删除 {removedItems.length}</span>
+          <span className="text-slate-500">彩色标记仅为本次申请草稿；仓库确认前不会改动正式订单。</span>
+        </div>
+        {removedItems.length ? <div className="flex flex-wrap items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 p-2 text-xs text-rose-900" aria-label="拟删除产品">
+          <strong>拟删除：</strong>{removedItems.map((item) => <span key={item.id} className="rounded border border-rose-200 bg-white px-2 py-1">
+            原第 {item.line_number} 项 · {lineLabel(item)} · {item.quantity} 件
+            <button type="button" onClick={() => setDraft((current) => current ? [...current, item].sort((a, b) => (a.line_number ?? Infinity) - (b.line_number ?? Infinity)) : current)} className="ml-2 font-medium text-blue-700">撤销删除</button>
+          </span>)}</div> : null}
         <div className="max-h-[50vh] overflow-auto rounded-lg border border-slate-200">
           <table className="w-full min-w-[2050px] text-left text-xs">
             <thead className="bg-slate-50/70"><tr>{["序号", "产品类型 *", "产品品牌 *", "产品型号 *", "产品质量 *", "产品描述", "产品质量/描述中文（展示给后端）", "成本单价（CNY） *", "销售单价（¥） *", ...(currency !== "CNY" ? [`销售单价（${currency || "付款币种"}）`] : []), "数量 *", "销售金额（¥）", ...(currency !== "CNY" ? [`销售金额（${currency || "付款币种"}）`] : []), "总利润（¥）", "利润率", "理货要求", "销售备注", "操作"].map((head) => <th key={head} className="whitespace-nowrap px-2 py-3 font-medium">{head}</th>)}</tr></thead>
             <tbody>{draft.map((row, index) => {
               const isLocked = locked.has(row.id);
               const isExisting = row.line_number !== null;
+              const original = originalById.get(row.id);
+              const isAdded = !original;
+              const quantityChanged = original && Number(row.quantity) !== Number(original.quantity);
+              const costChanged = original && Number(row.estimated_unit_cost_cny) !== Number(original.estimated_unit_cost_cny);
+              const saleChanged = original && Number(row.unit_price_cny) !== Number(original.unit_price_cny);
+              const isChanged = quantityChanged || costChanged || saleChanged;
               const qty = Number(row.quantity) || 0;
               const sale = Number(row.unit_price_cny) || 0;
               const cost = Number(row.estimated_unit_cost_cny) || 0;
               const paymentPrice = currency === "CNY" ? sale : Number(row.unit_price_payment ?? (fxRate > 0 ? Math.round(sale / fxRate * 100) / 100 : 0));
               const inputClass = "h-9 rounded-lg border border-slate-300 bg-white px-2 text-xs text-slate-900 disabled:bg-slate-100";
               const textCell = (key: "item_name" | "brand" | "model" | "quality" | "description" | "description_zh", label: string, optional = false) => <td key={key} className="px-1.5 py-1.5"><input aria-label={`第${index + 1}行${label}`} disabled={isLocked || isExisting} required={!optional} value={String(row[key] || "")} onChange={(event) => edit(index, key, event.target.value)} className={`${inputClass} w-36`} /></td>;
-              return <tr key={row.id} className={`border-t border-slate-100 align-middle ${isLocked ? "bg-slate-50" : ""}`}>
-                <td className="whitespace-nowrap px-2 py-1.5">{row.line_number || index + 1}{isLocked ? <span className="mt-1 block text-[11px] text-slate-500">已交货代·锁定</span> : null}</td>
+              return <tr key={row.id} className={`border-t align-middle ${isLocked ? "border-slate-100 bg-slate-50" : isAdded ? "border-emerald-200 bg-emerald-50/70" : isChanged ? "border-amber-200 bg-amber-50/70" : "border-slate-100"}`}>
+                <td className="whitespace-nowrap px-2 py-1.5">{row.line_number || index + 1}{isLocked ? <span className="mt-1 block text-[11px] text-slate-500">已交货代·锁定</span> : isAdded ? <span className="mt-1 block font-medium text-emerald-700">新增</span> : isChanged ? <span className="mt-1 block font-medium text-amber-700">已修改</span> : null}</td>
                 {textCell("item_name", "产品类型")}{textCell("brand", "产品品牌")}{textCell("model", "产品型号")}{textCell("quality", "产品质量")}{textCell("description", "产品描述", true)}{textCell("description_zh", "产品质量/描述中文（展示给后端）", true)}
-                <td className="px-1.5 py-1.5"><input disabled={isLocked} aria-label={`第${index + 1}行成本单价（CNY）`} type="number" min="0" step="0.01" value={Number(row.estimated_unit_cost_cny)} onChange={(event) => edit(index, "estimated_unit_cost_cny", Number(event.target.value))} className={`${inputClass} w-28`} /></td>
-                <td className="px-1.5 py-1.5"><input disabled={isLocked} aria-label={`第${index + 1}行销售单价（CNY）`} type="number" min="0" step="0.01" value={Number(row.unit_price_cny)} onChange={(event) => edit(index, "unit_price_cny", Number(event.target.value))} className={`${inputClass} w-28`} /></td>
+                <td className="px-1.5 py-1.5"><input disabled={isLocked} aria-label={`第${index + 1}行成本单价（CNY）`} type="number" min="0" step="0.01" value={Number(row.estimated_unit_cost_cny)} onChange={(event) => edit(index, "estimated_unit_cost_cny", Number(event.target.value))} className={`${inputClass} w-28 ${costChanged ? "border-amber-400 !bg-amber-50" : ""}`} /></td>
+                <td className="px-1.5 py-1.5"><input disabled={isLocked} aria-label={`第${index + 1}行销售单价（CNY）`} type="number" min="0" step="0.01" value={Number(row.unit_price_cny)} onChange={(event) => edit(index, "unit_price_cny", Number(event.target.value))} className={`${inputClass} w-28 ${saleChanged ? "border-amber-400 !bg-amber-50" : ""}`} /></td>
                 {currency !== "CNY" ? <td className="whitespace-nowrap px-2 py-1.5">{currency} {paymentPrice.toFixed(2)}</td> : null}
-                <td className="px-1.5 py-1.5"><input disabled={isLocked} aria-label={`第${index + 1}行数量`} type="number" min="1" step="1" value={qty} onChange={(event) => edit(index, "quantity", Number(event.target.value))} className={`${inputClass} w-20`} /></td>
+                <td className="px-1.5 py-1.5"><input disabled={isLocked} aria-label={`第${index + 1}行数量`} type="number" min="1" step="1" value={qty} onChange={(event) => edit(index, "quantity", Number(event.target.value))} className={`${inputClass} w-20 ${quantityChanged ? "border-amber-400 !bg-amber-50" : ""}`} /></td>
                 <td className="whitespace-nowrap px-2 py-1.5 font-medium">¥{(sale * qty).toFixed(2)}</td>
                 {currency !== "CNY" ? <td className="whitespace-nowrap px-2 py-1.5 font-medium text-blue-700">{currency} {(paymentPrice * qty).toFixed(2)}</td> : null}
                 <td className="whitespace-nowrap px-2 py-1.5">¥{((sale - cost) * qty).toFixed(2)}</td>

@@ -89,6 +89,13 @@ export async function GET(
     const writable = order.data.confirmation_method === "DIRECT_PI"
       ? (order.data.prepared_by || order.data.sales_user_id) === account.id
       : order.data.sales_user_id === account.id || account.role === "ADMIN";
+    const priceCorrections = order.data.confirmation_method === "DIRECT_PI"
+      ? await createAdminClient().from("audit_logs")
+        .select("id,user_id,created_at,content").eq("target_type", "sales_order")
+        .eq("target_id", id).eq("action", "PI_LINE_PRICE_CORRECTED")
+        .order("created_at", { ascending: false }).limit(20)
+      : null;
+    if (priceCorrections?.error) throw priceCorrections.error;
     let sellerCostReviewLineNumbersResult: number[] = [];
     const costReviewAccess = (order.data.prepared_by || order.data.sales_user_id) === account.id
       && ["SALES", "SUPERVISOR", "ORDER_CLERK", "ADMIN"].includes(account.role)
@@ -128,6 +135,7 @@ export async function GET(
       receiving_progress: receivingProgress,
       item_progress: stockItems?.data || [],
       amendments,
+      price_corrections: priceCorrections?.data || [],
       requirement_attachments: resolvePiRequirementAttachments(requirementAttachments?.data || [], items.data || []),
       applied_amendment_count: appliedCountResult?.count || 0,
       can_request_amendment: writable && hasPermission(account, "orders.edit")
@@ -135,6 +143,11 @@ export async function GET(
         && Boolean(stock.data) && ["PREPARING", "RECEIVED", "SORTING", "READY_TO_SHIP", "SHORTAGE"].includes(stock.data!.status)
         && !amendments.some((item) => item.status === "PENDING")
         && (appliedCountResult?.count || 0) < 3,
+      can_correct_price: writable && hasPermission(account, "orders.edit")
+        && order.data.confirmation_method === "DIRECT_PI" && Boolean(stock.data)
+        && !["DRAFT", "CANCELLED", "SHIPPED"].includes(order.data.status)
+        && !["DRAFT", "CANCELLED", "SHIPPED"].includes(stock.data?.status || "")
+        && !amendments.some((item) => item.status === "PENDING"),
       stocking_requirements: quote.data?.stocking_requirements || "",
       can_edit_draft: writable && hasPermission(account, "orders.edit") && order.data.confirmation_method === "DIRECT_PI" && order.data.status === "DRAFT",
       can_delete_draft: writable &&
