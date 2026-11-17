@@ -2,7 +2,7 @@
 import { Check, ChevronDown, Plus, Search, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useRef, useState, useEffect } from "react";
-import { ACQUISITION_COMMON_INDUSTRIES, ACQUISITION_COUNTRY_GROUPS, MAX_ACQUISITION_INDUSTRIES, MAX_ACQUISITION_KEYWORDS, acquisitionIndustrySuggestions, acquisitionKeywordRecommendationGroups, acquisitionKeywordRecommendations, acquisitionSearchLanguage, normalizeAcquisitionCountries, planAcquisitionSearchTerms } from "@/lib/ai-acquisition/config";
+import { ACQUISITION_COMMON_INDUSTRIES, MAX_ACQUISITION_INDUSTRIES, MAX_ACQUISITION_KEYWORDS, acquisitionIndustrySuggestions, acquisitionKeywordRecommendationGroups, acquisitionKeywordRecommendations, acquisitionSearchLanguage, normalizeAcquisitionCountries, planAcquisitionSearchTerms } from "@/lib/ai-acquisition/config";
 import {
   PageHeader,
   ConfirmDialog,
@@ -32,210 +32,6 @@ function mergeUniqueValues(current: string[], incoming: string[], max: number, v
   for (const value of incoming) if (valid(value) && !next.some((item)=>item.toLowerCase()===value.toLowerCase()) && next.length < max) next.push(value);
   return next;
 }
-function CountryPicker({
-  value,
-  onChange,
-}: {
-  value: string[];
-  onChange: (v: string[]) => void;
-}) {
-  const [open, setOpen] = useState(false),
-    [q, setQ] = useState(""),
-    [groupKey, setGroupKey] = useState<(typeof ACQUISITION_COUNTRY_GROUPS)[number]["key"]>("EUROPE");
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const close = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-        setQ("");
-      }
-    };
-    document.addEventListener("mousedown", close);
-    const escape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setOpen(false);
-        setQ("");
-      }
-    };
-    document.addEventListener("keydown", escape);
-    return () => { document.removeEventListener("mousedown", close); document.removeEventListener("keydown", escape); };
-  }, []);
-  const activeGroup =
-    ACQUISITION_COUNTRY_GROUPS.find((group) => group.key === groupKey) ||
-    ACQUISITION_COUNTRY_GROUPS[0];
-  const normalizedQuery = q.trim().toLowerCase();
-  const visibleCountryGroups = (normalizedQuery
-    ? ACQUISITION_COUNTRY_GROUPS
-    : [activeGroup]
-  )
-    .map((group) => ({
-      ...group,
-      countries: group.countries.filter((code) =>
-        `${code} ${COUNTRY_NAMES.of(code)}`
-          .toLowerCase()
-          .includes(normalizedQuery),
-      ),
-    }))
-    .filter((group) => group.countries.length > 0);
-  const resultCount = visibleCountryGroups.reduce(
-    (total, group) => total + group.countries.length,
-    0,
-  );
-  return (
-    <div ref={ref} className="relative">
-      <button
-        type="button"
-        aria-expanded={open}
-        aria-haspopup="listbox"
-        onClick={() => {
-          if (open) setQ("");
-          setOpen(!open);
-        }}
-        className={`${input} flex w-full items-center justify-between text-left`}
-      >
-        <span className="truncate">
-          {value.length
-            ? `已选 ${value.length} 个国家/地区`
-            : "请选择1至8个国家/地区"}
-        </span>
-        <ChevronDown size={15} />
-      </button>
-      {open ? (
-        <div className="absolute z-40 mt-1 w-[min(30rem,calc(100vw-2rem))] max-w-full rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
-          <label className="relative block">
-            <Search
-              size={15}
-              className="absolute left-3 top-2.5 text-slate-400"
-            />
-            <input
-              autoFocus
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              className="h-9 w-full rounded-lg border pl-9 pr-3 text-sm outline-none focus:border-blue-400"
-              placeholder="搜索国家/地区"
-            />
-          </label>
-          {value.length ? (
-            <div className="mt-2 flex min-w-0 items-center gap-2 border-b border-slate-100 pb-2">
-              <span className="shrink-0 text-xs text-slate-500">已选 {value.length}/8</span>
-              <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto">
-                {value.map((code) => (
-                  <button
-                    key={code}
-                    type="button"
-                    aria-label={`移除${COUNTRY_NAMES.of(code) || code}`}
-                    onClick={() => onChange(value.filter((item) => item !== code))}
-                    className="inline-flex shrink-0 items-center gap-1 rounded-md bg-blue-50 px-2 py-1 text-xs text-blue-700"
-                  >
-                    <CountryLabel value={code} className="!text-xs" />
-                    <X size={11} />
-                  </button>
-                ))}
-              </div>
-              <button
-                type="button"
-                onClick={() => onChange([])}
-                className="shrink-0 text-xs text-slate-500 hover:text-blue-700"
-              >
-                清空
-              </button>
-            </div>
-          ) : null}
-          <div className="mt-2 border-b border-slate-100 pb-2">
-            <div className="mb-1.5 flex items-center justify-between px-1 text-xs text-slate-500">
-              <span>按洲选择</span>
-              <span>最多选择8个</span>
-            </div>
-            <div className="grid grid-cols-3 gap-1" aria-label="洲别筛选">
-              {ACQUISITION_COUNTRY_GROUPS.map((group) => (
-                <button
-                  key={group.key}
-                  type="button"
-                  aria-pressed={!normalizedQuery && groupKey === group.key}
-                  onClick={() => {
-                    setGroupKey(group.key);
-                    setQ("");
-                  }}
-                  className={`flex items-center justify-center rounded-md px-2 py-1.5 text-xs transition ${
-                    !normalizedQuery && groupKey === group.key
-                      ? "bg-blue-600 font-medium text-white"
-                      : "bg-slate-50 text-slate-600 hover:bg-slate-100"
-                  }`}
-                >
-                  {group.label}
-                  <span
-                    className={`ml-1 ${
-                      !normalizedQuery && groupKey === group.key
-                        ? "text-blue-100"
-                        : "text-slate-400"
-                    }`}
-                  >
-                    {group.countries.length}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="mt-2 flex items-center justify-between px-1 text-xs text-slate-500">
-            <span>{normalizedQuery ? "跨洲搜索结果" : `${activeGroup.label}国家/地区`}</span>
-            <span>{resultCount} 个</span>
-          </div>
-          <div
-            role="listbox"
-            aria-multiselectable="true"
-            className="mt-1 max-h-52 overflow-auto"
-          >
-            {visibleCountryGroups.map((group) => (
-              <div key={group.key} className="mb-0.5 last:mb-0">
-                {normalizedQuery ? (
-                  <div className="sticky top-0 z-10 bg-white px-3 py-1 text-xs font-medium text-slate-500">
-                    {group.label} · {group.countries.length}
-                  </div>
-                ) : null}
-                <div className="grid grid-cols-3 gap-x-1 gap-y-0.5">
-                  {group.countries.map((code) => {
-                    const checked = value.includes(code);
-                    return (
-                      <button
-                        key={code}
-                        type="button"
-                        role="option"
-                        aria-selected={checked}
-                        disabled={!checked && value.length >= 8}
-                        onClick={() =>
-                          onChange(
-                            checked
-                              ? value.filter((item) => item !== code)
-                              : [...value, code],
-                          )
-                        }
-                        className={`flex min-h-7 min-w-0 items-center justify-between gap-1 rounded-md px-2 py-0.5 text-left text-[13px] leading-5 disabled:opacity-40 ${
-                          checked
-                            ? "bg-blue-50 text-blue-700"
-                            : "hover:bg-slate-50"
-                        }`}
-                      >
-                        <span className="truncate"><CountryLabel value={code} className="!text-xs" /></span>
-                        {checked ? <Check size={14} /> : null}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
-          {!resultCount ? (
-            <p className="px-3 py-6 text-center text-sm text-slate-400">
-              没有匹配的国家/地区
-            </p>
-          ) : null}
-          {value.length ? <button type="button" onClick={() => { setOpen(false); setQ(""); }} className="mt-2 w-full rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700">完成国家选择，继续选省/州、城市</button> : null}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
 function ChipInput({
   label,
   values,
@@ -553,17 +349,11 @@ export function AcquisitionCreateView() {
             />
             <span className="mt-1 flex items-center justify-between gap-2 text-xs text-slate-400"><span>系统自动生成，您可以修改。</span>{form.name_mode === "MANUAL" ? <button type="button" onClick={()=>setForm({...form,name_mode:"AUTO",name:automaticName})} className="text-blue-700 hover:underline">恢复自动名称</button>:null}</span>
           </label><div><span className="mb-1.5 block text-sm font-medium">执行时间</span><ScheduleControl scheduleType={form.schedule_type} scheduledAt={form.scheduled_at} onScheduleTypeChange={(schedule_type)=>setForm((current)=>({...current,schedule_type}))} onScheduledAtChange={(scheduled_at)=>setForm((current)=>({...current,scheduled_at}))}/></div></div>
-          <div className="m-4 rounded-xl border border-blue-100 bg-blue-50/40 p-3 sm:p-4">
-            <div className="grid items-end gap-3 lg:grid-cols-[minmax(240px,.65fr)_minmax(0,1fr)]">
-              <div><h3 className="text-sm font-semibold text-slate-800">目标市场 <b className="text-rose-500">*</b></h3><p className="mt-1 text-xs leading-5 text-slate-500">先选国家，再选择对应省/州与城市；不限定下级地域时按国家搜索。</p></div>
-              <div className="min-w-0"><span className="mb-1.5 block text-xs font-medium text-slate-600">国家/地区</span>
-                <CountryPicker
-                  value={form.countries}
-                  onChange={(countries) => setForm((current) => ({ ...current, countries, geography_scopes: Object.fromEntries(Object.entries(current.geography_scopes).filter(([country]) => countries.includes(country))) }))}
-                />
-              </div>
+          <div className="relative m-4 rounded-xl border border-blue-100 bg-blue-50/40 p-3 sm:p-4">
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+              <div><h3 className="text-sm font-semibold text-slate-800">目标市场 <b className="text-rose-500">*</b></h3><p className="mt-0.5 text-xs text-slate-500">在同一棵树中依次选择国家、省/州、城市；不选下级地域即按全国搜索。</p></div>
+              <div className="w-full sm:w-80"><GeographyPicker countries={form.countries} value={form.geography_scopes} onCountriesChange={(countries) => setForm((current) => ({ ...current, countries, geography_scopes: Object.fromEntries(Object.entries(current.geography_scopes).filter(([country]) => countries.includes(country))) }))} onChange={(geography_scopes) => setForm((current) => ({ ...current, geography_scopes }))}/></div>
             </div>
-            <GeographyPicker countries={form.countries} value={form.geography_scopes} onChange={(geography_scopes) => setForm((current) => ({ ...current, geography_scopes }))}/>
           </div>
         </section>
         <section className={`${panel} overflow-visible`}>
