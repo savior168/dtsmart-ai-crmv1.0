@@ -85,4 +85,70 @@ const invalid = await routeModule.exports.POST({ json: async () => ({ ...taskInp
 assert.equal(invalid.status, 400, "cross-country geography must be rejected by the real route");
 assert.equal(insertedTask, null, "invalid geography must not insert a task");
 assert.equal(dispatched, 1, "invalid geography must not dispatch a workflow");
+
+// Exercise the discovery function itself with a fake Places response and a
+// wholly in-memory Supabase contract. This must never call a live provider.
+const discoverySource = fs.readFileSync(new URL("../lib/ai-acquisition/discovery.ts", import.meta.url), "utf8");
+const discoveryCode = ts.transpileModule(discoverySource, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText;
+const discoveryModule = { exports: {} };
+const writes = [];
+const query = (table) => {
+  const chain = {
+    select: () => chain, eq: () => chain, gte: () => chain, in: () => chain,
+    maybeSingle: async () => ({ data: null, error: null }),
+    single: async () => ({ data: { status: "RUNNING", cancel_requested: false }, error: null }),
+    upsert: async (row) => { writes.push({ table, row }); return { error: null }; },
+    update: () => chain,
+    insert: async (row) => { writes.push({ table, row }); return { error: null }; },
+    then: (resolve, reject) => Promise.resolve({ data: [], count: 0, error: null }).then(resolve, reject),
+  };
+  return chain;
+};
+const discoveryAdmin = {
+  from: query,
+  rpc: async (name) => ({ data: name === "claim_ai_acquisition_search_scope" ? "CLAIMED" : null, error: null }),
+};
+new Function("require", "module", "exports", discoveryCode)((id) => {
+  if (id === "node:crypto") return { randomUUID: () => "isolated-request" };
+  if (id === "@/lib/supabase/admin") return { createAdminClient: () => discoveryAdmin };
+  if (id === "@/lib/api-cost-budget") return { reserveApiCostBudget: async () => ({ allowed: true, reservationId: "isolated-reservation" }), releaseApiCostBudget: async () => {} };
+  if (id === "./config") return { ACQUISITION_FRESH_SEARCH_SCOPES_PER_COUNTRY: 20, acquisitionSearchLanguage: () => "de", localizedSearchTerms: () => ["Handy Reparatur"] };
+  if (id === "./geography") return { placeMatchesGeography, planGeographyQueries };
+  if (id === "./relevance") return { prioritizeDiscoveryCandidates: (items, _industries, _keywords, limit) => items.slice(0, limit) };
+  throw new Error(`Unexpected discovery dependency: ${id}`);
+}, discoveryModule, discoveryModule.exports);
+const beforeFetch = globalThis.fetch;
+const beforeApiKey = process.env.GOOGLE_MAPS_API_KEY;
+let providerCalls = 0;
+try {
+  process.env.GOOGLE_MAPS_API_KEY = "isolated-placeholder-never-sent";
+  globalThis.fetch = async (url, options) => {
+    assert.equal(url, "https://places.googleapis.com/v1/places:searchText");
+    providerCalls += 1;
+    const request = JSON.parse(options.body);
+    assert.equal(request.languageCode, "de", "local search must request the same locale used by address aliases");
+    assert.match(request.textQuery, /Munich, Bavaria, Germany/);
+    assert.doesNotMatch(request.textQuery, /Handy Reparatur in Germany$/);
+    const place = (id, country, region, city) => ({ id, displayName: { text: id }, formattedAddress: `${city}, ${region}`, addressComponents: [
+      { types: ["country"], shortText: country },
+      { types: ["administrative_area_level_1"], longText: region },
+      { types: ["locality"], longText: city },
+    ] });
+    return { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ places: [
+      place("munich-valid", "DE", "Bayern", "München"),
+      place("wrong-region", "DE", "Brandenburg", "München"),
+      place("wrong-city", "DE", "Bayern", "Nürnberg"),
+      place("wrong-country", "FR", "Bayern", "München"),
+    ] }) };
+  };
+  const discovered = await discoveryModule.exports.discoverBusinesses({ acquisitionTaskId: "isolated-task", screeningTaskId: "isolated-screening", userId: "isolated-user", costMode: "FREE_ONLY", country: "DE", geographyScopes: [{ regionCode: "02", city: "Munich" }], industries: ["手机维修店"], keywords: [], excludedKeywords: [], limit: 10 });
+  assert.deepEqual(discovered.businesses.map((item) => item.placeId), ["munich-valid"], "only the selected city inside the selected state and country may survive discovery");
+  assert.equal(providerCalls, 1, "a single scoped term should make one mocked provider call");
+  assert.equal(writes.filter((item) => item.table === "api_cost_ledger").length, 1, "the mocked provider call must have a matching cost-ledger record");
+  assert.equal(writes.find((item) => item.table === "api_cost_ledger").row.amount_usd, 0, "free-only isolated flow must not book a paid request");
+} finally {
+  globalThis.fetch = beforeFetch;
+  if (beforeApiKey === undefined) delete process.env.GOOGLE_MAPS_API_KEY;
+  else process.env.GOOGLE_MAPS_API_KEY = beforeApiKey;
+}
 console.log("AI acquisition isolated flow acceptance passed (no external calls or persistent test data)");
