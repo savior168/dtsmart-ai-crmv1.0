@@ -68,7 +68,7 @@ export async function discoverBusinesses(input: {
   const apiKey = process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_PLACES_API_KEY;
   if (!apiKey) throw new Error("GOOGLE_PLACES_API_KEY_NOT_CONFIGURED");
   const countryName = new Intl.DisplayNames(["en"], { type: "region" }).of(input.country) || input.country;
-  const terms = localizedSearchTerms(input.country, input.industries, input.keywords);
+  const terms = localizedSearchTerms(input.country, input.industries, input.keywords, input.geographyScopes?.length || 0);
   const coveragePlan = await prioritizeUncoveredQueries(input.country, planGeographyQueries(input.country, countryName, terms, input.geographyScopes));
   const queries = coveragePlan.queries;
   const results = new Map<string, DiscoveredBusiness>();
@@ -201,6 +201,6 @@ export async function discoverBusinesses(input: {
 
 export function plannedDiscoveryScopeCount(country: AcquisitionCountry, industries: string[], keywords: string[], scopes: GeographyScope[] = []) {
   const countryName = new Intl.DisplayNames(["en"], { type: "region" }).of(country) || country;
-  const terms = localizedSearchTerms(country, industries, keywords);
+  const terms = localizedSearchTerms(country, industries, keywords, scopes.length);
   return Math.min(ACQUISITION_FRESH_SEARCH_SCOPES_PER_COUNTRY, planGeographyQueries(country, countryName, terms, scopes).length);
 }

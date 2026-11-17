@@ -244,6 +244,10 @@ assert.equal(acquisitionSearchLanguage("FR","computer repair shop in Paris, Fran
 const fullFrenchPlan=planAcquisitionSearchTerms("FR",["电脑维修店"],["computer repair shop","PC hardware repair service","desktop motherboard repair","computer screen repair service","computer repair centre",...Array.from({length:120},(_,index)=>`custom computer term ${index}`)]);
 assert.equal(fullFrenchPlan.terms.length,60,"有城市分片的国家不能把超过本任务额度的表达误报为已执行计划");
 assert.ok(fullFrenchPlan.unplannedKeywords.length>0,"因上限未纳入的输入关键词必须明确告知用户");
+const scopedGermanPlan=planAcquisitionSearchTerms("DE",Array.from({length:20},(_,index)=>`Custom industry ${index}`),["phone repair"],16);
+assert.equal(scopedGermanPlan.terms.length,7,"16处选定地域须按真实搜索次数限制表达数，不能虚报96条已执行");
+assert.equal(scopedGermanPlan.unplannedIndustries.length,13,"未进入真实执行额度的行业必须明确告知用户");
+assert.equal(scopedGermanPlan.terms.length*16<=120,true,"地域多选计划不得超出每国新搜索范围上限");
 assert.match(acquisitionConfig,/ACQUISITION_COUNTRY_SEARCH_AREAS[\s\S]*US: \["New York NY"[\s\S]*GB: \["London"/s,"国家覆盖计划必须包含可审计的城市群或区域分片");
 const searchAreaBlock=acquisitionConfig.match(/ACQUISITION_COUNTRY_SEARCH_AREAS:[\s\S]*?= \{([\s\S]*?)\n\};/)?.[1]||"";
 const searchAreaCountries=[...searchAreaBlock.matchAll(/^\s{2}([A-Z]{2}): \[/gm)].map((match)=>match[1]);
@@ -314,7 +318,7 @@ assert.match(geographyPicker,/groupKey[\s\S]*countryQuery[\s\S]*洲别筛选[\s\
 assert.match(geographyPicker,/role="tree"[\s\S]*role="treeitem"[\s\S]*RegionTree/,"国家、省州、城市必须在同一棵树中逐级展开");
 assert.doesNotMatch(create,/COUNTRY_NAMES\.of\(code\)\} <small>\{code\}<\/small>/,"国家代码只作为内部筛选值，不应在国家选择列表中重复展示");
 assert.match(geographyPicker,/normalizedQuery[\s\S]*ACQUISITION_COUNTRY_GROUPS[\s\S]*groups\.flatMap/,"国家搜索必须覆盖所有洲别");
-assert.match(acquisitionConfig,/for \(let round = 0;[\s\S]*for \(const group of groups\)/,"本地化检索计划必须按行业轮询，确保后续行业不会被前序关键词组合挤掉");
+assert.match(acquisitionConfig,/for \(let round = 0;[\s\S]*for \(let groupIndex = 0; groupIndex < groups\.length; groupIndex \+= 1\)/,"本地化检索计划必须按行业轮询，确保后续行业不会被前序关键词组合挤掉");
 assert.match(create,/ScheduleControl/,"AI获客预约执行必须复用AI筛选统一时间控件");
 assert.match(create,/任务与目标市场[\s\S]*任务名称[\s\S]*执行时间[\s\S]*目标市场[\s\S]*GeographyPicker/,"目标国家与省州城市必须由同一树状组件逐级选择");
 assert.match(create,/lg:grid-cols-\[minmax\(0,1\.1fr\)_minmax\(0,1fr\)_minmax\(0,1fr\)\][\s\S]*任务名称[\s\S]*目标市场[\s\S]*GeographyPicker[\s\S]*执行时间/,"目标市场必须紧跟任务名称，与执行时间同排");

@@ -347,11 +347,11 @@ export function acquisitionSearchLanguage(country: AcquisitionCountry, query: st
   return localTerms.some((term) => query.toLowerCase().startsWith(term.toLowerCase())) ? LOCAL_LANGUAGE_CODES[country] || "en" : "en";
 }
 
-export function planAcquisitionSearchTerms(country: AcquisitionCountry, industries: string[], keywords: string[]) {
+export function planAcquisitionSearchTerms(country: AcquisitionCountry, industries: string[], keywords: string[], selectedAreaCount = 0) {
   // Each term consumes a country-wide scope and, for configured countries,
   // one regional scope before the next term. Never claim more terms are
   // planned than the per-country task allowance can actually execute.
-  const scopeCostPerTerm = ACQUISITION_COUNTRY_SEARCH_AREAS[country]?.length ? 2 : 1;
+  const scopeCostPerTerm = selectedAreaCount > 0 ? selectedAreaCount : ACQUISITION_COUNTRY_SEARCH_AREAS[country]?.length ? 2 : 1;
   const maxTerms = Math.min(MAX_ACQUISITION_SEARCH_TERMS,
     Math.floor(ACQUISITION_FRESH_SEARCH_SCOPES_PER_COUNTRY / scopeCostPerTerm));
   const industryTerms = industries.map((value) => ACQUISITION_INDUSTRY_TERMS[value] || value);
@@ -388,25 +388,27 @@ export function planAcquisitionSearchTerms(country: AcquisitionCountry, industri
   });
   const requested: string[] = [];
   const plannedKeywords = new Set<string>();
+  const plannedIndustries = new Set<string>();
   const seen = new Set<string>();
   for (let round = 0; requested.length < maxTerms; round += 1) {
     let added = false;
-    for (const group of groups) if (group[round]) {
+    for (let groupIndex = 0; groupIndex < groups.length; groupIndex += 1) if (groups[groupIndex][round]) {
       added = true;
-      const entry = group[round];
+      const entry = groups[groupIndex][round];
       const key = entry.text.toLowerCase();
       if (entry.keyword) plannedKeywords.add(entry.keyword);
       if (!seen.has(key)) {
         seen.add(key);
         requested.push(entry.text);
       }
+      plannedIndustries.add(industries[groupIndex]);
       if (requested.length >= maxTerms) break;
     }
     if (!added) break;
   }
-  return { terms:requested, unplannedKeywords:normalizedKeywords.filter((keyword) => !plannedKeywords.has(keyword)) };
+  return { terms:requested, unplannedIndustries:industries.filter((industry) => !plannedIndustries.has(industry)), unplannedKeywords:normalizedKeywords.filter((keyword) => !plannedKeywords.has(keyword)) };
 }
 
-export function localizedSearchTerms(country: AcquisitionCountry, industries: string[], keywords: string[]) {
-  return planAcquisitionSearchTerms(country, industries, keywords).terms;
+export function localizedSearchTerms(country: AcquisitionCountry, industries: string[], keywords: string[], selectedAreaCount = 0) {
+  return planAcquisitionSearchTerms(country, industries, keywords, selectedAreaCount).terms;
 }
