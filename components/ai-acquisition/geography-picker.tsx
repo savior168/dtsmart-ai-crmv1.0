@@ -52,7 +52,7 @@ function CountryGeography({ country, scopes, onChange }: {
     {error ? <p role="alert" className="mt-2 text-xs text-red-600">{error}</p> : null}
     {!loading && !regions.length ? <p className="mt-2 text-xs text-amber-700">该地区暂无可靠省州—城市索引，仅能按全国检索。</p> : null}
     {regions.length ? <div className="mt-2 flex flex-wrap items-center gap-2">
-      <AppSelect aria-label={`${country}省州`} value={regionCode} onChange={(event) => { setRegionCode(event.target.value); setCity(""); }} className="min-w-44 flex-1"><option value="">选择省/州（可选）</option>{regions.map((region) => <option key={region.code} value={region.code}>{region.name}</option>)}</AppSelect>
+      <AppSelect aria-label={`${country}省州`} value={regionCode} onChange={(event) => { setRegionCode(event.target.value); setCity(""); setCities([]); }} className="min-w-44 flex-1"><option value="">选择省/州（可选）</option>{regions.map((region) => <option key={region.code} value={region.code}>{region.name}</option>)}</AppSelect>
       <AppSelect aria-label={`${country}城市`} value={city} onChange={(event) => setCity(event.target.value)} disabled={!regionCode} className="min-w-44 flex-1"><option value="">整个省/州</option>{cities.map((name) => <option key={name} value={name}>{name}</option>)}</AppSelect>
       <button type="button" className={button} onClick={add} disabled={!regionCode || scopes.length >= 8}><Plus size={14}/>加入地域</button>
     </div> : null}
