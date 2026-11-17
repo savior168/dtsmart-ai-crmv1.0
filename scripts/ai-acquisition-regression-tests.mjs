@@ -203,6 +203,8 @@ const california=[{types:["administrative_area_level_1"],longText:"California"},
 assert.equal(placeMatchesGeography("US",[{regionCode:"CA",city:"Los Angeles"}],california),true,"返回地址位于所选城市才可进入候选");
 assert.equal(placeMatchesGeography("US",[{regionCode:"CA",city:null}],[{types:["administrative_area_level_1"],shortText:"CA"}]),true,"官方使用 ISO 省州代码的国家可匹配返回地址缩写");
 assert.equal(placeMatchesGeography("US",[{regionCode:"CA",city:"San Diego"}],california),false,"同省其他城市不得误入");
+assert.equal(placeMatchesGeography("DE",[{regionCode:"16",city:"Berlin"}],[{types:["administrative_area_level_1"],longText:"Berlin"},{types:["locality"],longText:"Berlin"}]),true,"地理索引 State of Berlin 必须匹配地点返回的 Berlin 州");
+assert.equal(placeMatchesGeography("DE",[{regionCode:"16",city:"Berlin"}],[{types:["administrative_area_level_1"],longText:"Brandenburg"},{types:["locality"],longText:"Berlin"}]),false,"不能仅凭同名城市绕过省州条件");
 assert.equal(placeMatchesGeography("US",[{regionCode:"NY",city:null}],california),false,"其他省州不得误入");
 assert.equal(placeMatchesGeography("US",[{regionCode:"CA",city:"Los Angeles"}],undefined),false,"缺少地址组件时不得假装精确地域命中");
 assert.throws(()=>normalizeGeographyScopes({DE:[{regionCode:"CA",city:null}]},["US"]),/必须属于所选国家/);

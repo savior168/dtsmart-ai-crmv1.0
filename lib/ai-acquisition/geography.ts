@@ -76,10 +76,10 @@ export function placeMatchesGeography(country: AcquisitionCountry, scopes: Geogr
   return scopes.some((scope) => {
     const region = acquisitionRegions(country).find((item) => item.code === scope.regionCode);
     if (!region) return false;
-    const regionValue = normalized(region.name);
-    if (!regionValue) return false;
+    const regionValues = [region.name, region.name.replace(/^State of /i, "")].map(normalized).filter(Boolean);
+    if (!regionValues.length) return false;
     const regionMatches = parts.some((component) => component.types?.includes("administrative_area_level_1") && (
-      [component.longText, component.shortText].some((value) => value && normalized(value) === regionValue)
+      [component.longText, component.shortText].some((value) => value && regionValues.includes(normalized(value)))
       || (["US", "CH", "BE", "ME"].includes(country) && component.shortText?.toUpperCase() === scope.regionCode.toUpperCase())
     ));
     if (!regionMatches) return false;
