@@ -424,22 +424,91 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       const child = await admin.from("ai_screening_tasks").select("id").eq("request_key", `acquisition:${id}`).maybeSingle();
       if (child.error) throw child.error;
       if (child.data) {
-        const failedItems = await admin.from("ai_screening_task_items").select("id,customer_id,status,analysis_status,writeback_status,result_id").eq("task_id", child.data.id).in("status", ["FAILED","RUNNING"]);
+        const failedItems = await admin.from("ai_screening_task_items").select("id,customer_id,status,analysis_status,writeback_status,result_id", { count: "exact" }).eq("task_id", child.data.id).in("status", ["FAILED","RUNNING"]);
         if (failedItems.error) throw failedItems.error;
+        if (Number(failedItems.count || 0) > (failedItems.data || []).length) return NextResponse.json({ error: "未核验项超过单页上限，无法安全重试；请联系管理员" }, { status: 409 });
         if (task.status === "COMPLETED" && !(failedItems.data || []).length) {
           return NextResponse.json({ error: "该已完成任务没有可恢复的未核验项" }, { status: 409 });
         }
-        const failedCustomerIds = [...new Set((failedItems.data || []).map((row) => String(row.customer_id || "")).filter(Boolean))];
+        const pendingItems = (failedItems.data || []).filter((row) => !(row.analysis_status === "COMPLETED" && row.writeback_status === "COMPLETED" && row.result_id));
+        const pendingItemIds = pendingItems.map((row) => String(row.id));
+        const candidateRows = pendingItemIds.length ? await admin.from("ai_acquisition_candidates")
+          .select("id,screening_task_item_id,staging_customer_id,place_id,company_name,country,address,google_url,matched_keywords", { count: "exact" })
+          .eq("task_id", id).in("screening_task_item_id", pendingItemIds)
+          : { data: [], error: null, count: 0 };
+        if (candidateRows.error) throw candidateRows.error;
+        if (Number(candidateRows.count || 0) > (candidateRows.data || []).length) return NextResponse.json({ error: "候选记录超过单页上限，无法安全重试；请联系管理员" }, { status: 409 });
+        const candidateByItem = new Map((candidateRows.data || []).map((row) => [String(row.screening_task_item_id), row]));
+        if (pendingItems.some((row) => !candidateByItem.has(String(row.id)))) return NextResponse.json({ error: "未核验项缺少来源候选，不能安全重试" }, { status: 409 });
+        const failedCustomerIds = [...new Set(pendingItems.map((row) => String(row.customer_id || "")).filter(Boolean))];
+        const customerById = new Map<string, { id: string; source: string | null; source_reference: string | null; pool_status: string | null; deleted_at: string | null }>();
+        const sharedIds = new Set<string>();
         for (let offset = 0; offset < failedCustomerIds.length; offset += 100) {
-          // A previous rejected conclusion may have soft-deleted the staging
-          // customer before a later reassessment/retry invalidated that result.
-          // Restore only the exact customer rows attached to this task's failed
-          // items. Historical reassessment rows may already carry the promoted
-          // AI_ACQUISITION source even after being returned to staging.
-          const restored = await admin.from("customers").update({
-            deleted_at: null, pool_status: "AI_STAGING", acquisition_scope: "PRIVATE", updated_at: new Date().toISOString(),
-          }).in("id", failedCustomerIds.slice(offset, offset + 100)).in("source", ["AI_ACQUISITION_STAGING", "AI_ACQUISITION"]);
-          if (restored.error) throw restored.error;
+          const customerIds = failedCustomerIds.slice(offset, offset + 100);
+          const [customers, references] = await Promise.all([
+            admin.from("customers").select("id,source,source_reference,pool_status,deleted_at").in("id", customerIds),
+            admin.from("ai_acquisition_candidates").select("staging_customer_id,task_id", { count: "exact" }).in("staging_customer_id", customerIds).neq("task_id", id),
+          ]);
+          if (customers.error || references.error) throw customers.error || references.error;
+          if (Number(references.count || 0) > (references.data || []).length) return NextResponse.json({ error: "共享客户引用过多，无法安全核对全部记录；请由管理员处理后重试" }, { status: 409 });
+          for (const customer of customers.data || []) customerById.set(String(customer.id), customer);
+          for (const reference of references.data || []) sharedIds.add(String(reference.staging_customer_id));
+        }
+        const mustIsolate = (customerId: string) => {
+          const customer = customerById.get(customerId);
+          return !customer || sharedIds.has(customerId) || customer.source_reference !== id
+            || !["AI_ACQUISITION_STAGING", "AI_ACQUISITION"].includes(String(customer.source || ""))
+            || !["AI_STAGING", "INVALID"].includes(String(customer.pool_status || ""));
+        };
+        if (pendingItems.some((item) => {
+          const candidate = candidateByItem.get(String(item.id))!;
+          return mustIsolate(String(item.customer_id || "")) && (!candidate.place_id || !candidate.company_name || !candidate.country);
+        })) return NextResponse.json({ error: "共享暂存客户缺少可核对的来源信息，不能安全重试" }, { status: 409 });
+        for (const item of pendingItems) {
+          const candidate = candidateByItem.get(String(item.id))!;
+          const oldCustomerId = String(item.customer_id || "");
+          const oldCustomer = customerById.get(oldCustomerId);
+          const owned = !mustIsolate(oldCustomerId);
+          let customerId = oldCustomerId;
+          if (owned && (oldCustomer?.deleted_at || oldCustomer?.pool_status !== "AI_STAGING")) {
+            const restored = await admin.from("customers").update({
+              deleted_at: null, pool_status: "AI_STAGING", acquisition_scope: "PRIVATE", updated_at: new Date().toISOString(),
+            }).eq("id", oldCustomerId).eq("source_reference", id).in("source", ["AI_ACQUISITION_STAGING", "AI_ACQUISITION"]).select("id").maybeSingle();
+            if (restored.error || !restored.data) throw restored.error || new Error("任务暂存客户恢复失败");
+          } else if (!owned) {
+            const existingReplacement = await admin.from("customers").select("id")
+              .eq("source_reference", id).eq("google_maps_place_id", candidate.place_id)
+              .eq("pool_status", "AI_STAGING").is("deleted_at", null).limit(1);
+            if (existingReplacement.error) throw existingReplacement.error;
+            customerId = String(existingReplacement.data?.[0]?.id || "");
+            if (!customerId) {
+              const replacement = await admin.from("customers").insert({
+                company_name: candidate.company_name, country: candidate.country, address: candidate.address,
+                google_url: candidate.google_url, google_maps_place_id: candidate.place_id,
+                source: "AI_ACQUISITION_STAGING", source_channel: "GOOGLE_MAPS", source_batch: task.task_number,
+                source_reference: id, origin_source: "AI_ACQUISITION", status: "UNCLAIMED", followup_status: "WAITING_CONTACT",
+                created_by: task.user_id, owner_id: null, owner_user_id: null, acquisition_scope: "PRIVATE", pool_status: "AI_STAGING",
+                assigned_via: null, acquisition_match_keywords: candidate.matched_keywords || [],
+              }).select("id").single();
+              if (replacement.error || !replacement.data) throw replacement.error || new Error("任务专属暂存客户创建失败");
+              customerId = String(replacement.data.id);
+            }
+            const existingSource = await admin.from("customer_sources").select("id")
+              .eq("customer_id", customerId).eq("source_type", "AI_ACQUISITION").eq("source_reference", id).limit(1);
+            if (existingSource.error) throw existingSource.error;
+            if (!existingSource.data?.length) {
+              const source = await admin.from("customer_sources").insert({ customer_id: customerId, source_type: "AI_ACQUISITION", source_reference: id,
+                metadata: { acquisition_task_id: id, acquisition_task_number: task.task_number, source_channel: "GOOGLE_MAPS",
+                  exact_source_url: candidate.google_url, country: candidate.country, recovery_reason: "ISOLATE_SHARED_STAGING_CUSTOMER" } });
+              if (source.error) throw source.error;
+            }
+            const reassigned = await admin.from("ai_screening_task_items").update({ customer_id: customerId }).eq("id", item.id).eq("task_id", child.data.id);
+            if (reassigned.error) throw reassigned.error;
+          }
+          if (String(candidate.staging_customer_id || "") !== customerId) {
+            const linked = await admin.from("ai_acquisition_candidates").update({ staging_customer_id: customerId }).eq("id", candidate.id).eq("task_id", id);
+            if (linked.error) throw linked.error;
+          }
         }
         const durableItemIds = (failedItems.data || [])
           .filter((row) => row.analysis_status === "COMPLETED" && row.writeback_status === "COMPLETED" && row.result_id)
