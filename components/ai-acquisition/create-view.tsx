@@ -222,6 +222,7 @@ function CountryPicker({
               没有匹配的国家/地区
             </p>
           ) : null}
+          {value.length ? <button type="button" onClick={() => { setOpen(false); setQ(""); }} className="mt-2 w-full rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700">完成国家选择，继续选省/州、城市</button> : null}
         </div>
       ) : null}
     </div>
@@ -533,8 +534,8 @@ export function AcquisitionCreateView() {
       />
       {hasSavedDraft?<div className="flex items-center justify-between gap-3 rounded-lg border border-blue-100 bg-blue-50/60 px-4 py-2 text-sm text-blue-800"><span>存在已暂存草稿</span><button type="button" onClick={clearDraft} className="shrink-0 font-medium text-blue-700 hover:underline">清空并新建</button></div>:null}
         <section className={`${panel} overflow-visible`}>
-          <div className="border-b border-[#e8ecf2] px-4 py-[14px]"><h2 className="text-[17px] font-semibold"><span className="mr-2 inline-grid h-[30px] w-[30px] place-items-center rounded-full bg-[#1763e8] text-sm text-white">1</span>任务与目标市场</h2><p className="ml-[38px] mt-1 text-sm text-[#778397]">设置任务名称、目标国家和执行时间。</p></div>
-          <div className="grid items-start gap-3 p-4 lg:grid-cols-2 xl:grid-cols-[minmax(250px,.85fr)_minmax(230px,.75fr)_minmax(520px,1.4fr)]"><label>
+          <div className="border-b border-[#e8ecf2] px-4 py-[14px]"><h2 className="text-[17px] font-semibold"><span className="mr-2 inline-grid h-[30px] w-[30px] place-items-center rounded-full bg-[#1763e8] text-sm text-white">1</span>任务与目标市场</h2><p className="ml-[38px] mt-1 text-sm text-[#778397]">依次选择国家、省/州和城市，设置任务名称与执行时间。</p></div>
+          <div className="grid items-start gap-3 px-4 pt-4 lg:grid-cols-2"><label>
             <span className="mb-1.5 block text-sm font-medium">任务名称 <b className="text-rose-500">*</b></span>
             <input
               className={`${input} w-full`}
@@ -544,13 +545,17 @@ export function AcquisitionCreateView() {
               placeholder="选择国家、行业和模式后自动生成"
             />
             <span className="mt-1 flex items-center justify-between gap-2 text-xs text-slate-400"><span>系统自动生成，您可以修改。</span>{form.name_mode === "MANUAL" ? <button type="button" onClick={()=>setForm({...form,name_mode:"AUTO",name:automaticName})} className="text-blue-700 hover:underline">恢复自动名称</button>:null}</span>
-          </label><div><span className="mb-1.5 block text-sm font-medium">目标国家/地区 <b className="text-rose-500">*</b></span>
+          </label><div><span className="mb-1.5 block text-sm font-medium">执行时间</span><ScheduleControl scheduleType={form.schedule_type} scheduledAt={form.scheduled_at} onScheduleTypeChange={(schedule_type)=>setForm((current)=>({...current,schedule_type}))} onScheduledAtChange={(scheduled_at)=>setForm((current)=>({...current,scheduled_at}))}/></div></div>
+          <div className="m-4 rounded-xl border border-blue-100 bg-blue-50/40 p-3 sm:p-4">
+            <div className="mb-3"><h3 className="text-sm font-semibold text-slate-800">目标市场 <b className="text-rose-500">*</b></h3><p className="mt-1 text-xs text-slate-500">先选国家，再在下方选择对应省/州与城市；不限定下级地域时按国家搜索。</p></div>
+            <div className="max-w-xl"><span className="mb-1.5 block text-xs font-medium text-slate-600">国家/地区</span>
             <CountryPicker
               value={form.countries}
               onChange={(countries) => setForm((current) => ({ ...current, countries, geography_scopes: Object.fromEntries(Object.entries(current.geography_scopes).filter(([country]) => countries.includes(country))) }))}
             />
-          </div><div><span className="mb-1.5 block text-sm font-medium">执行时间</span><ScheduleControl scheduleType={form.schedule_type} scheduledAt={form.scheduled_at} onScheduleTypeChange={(schedule_type)=>setForm((current)=>({...current,schedule_type}))} onScheduledAtChange={(scheduled_at)=>setForm((current)=>({...current,scheduled_at}))}/></div></div>
-          <div className="mt-4"><GeographyPicker countries={form.countries} value={form.geography_scopes} onChange={(geography_scopes) => setForm((current) => ({ ...current, geography_scopes }))}/></div>
+            </div>
+            <GeographyPicker countries={form.countries} value={form.geography_scopes} onChange={(geography_scopes) => setForm((current) => ({ ...current, geography_scopes }))}/>
+          </div>
         </section>
         <section className={`${panel} overflow-visible`}>
           <div className="border-b border-[#e8ecf2] px-4 py-[14px]"><h2 className="text-[17px] font-semibold"><span className="mr-2 inline-grid h-[30px] w-[30px] place-items-center rounded-full bg-[#1763e8] text-sm text-white">2</span>目标客户条件</h2><p className="ml-[38px] mt-1 text-sm text-[#778397]">行业可多选或自定义；系统按任一目标行业匹配，并逐家核验真实业务。</p></div>

@@ -299,7 +299,8 @@ assert.doesNotMatch(create,/COUNTRY_NAMES\.of\(code\)\} <small>\{code\}<\/small>
 assert.match(create,/normalizedQuery[\s\S]*ACQUISITION_COUNTRY_GROUPS[\s\S]*sticky top-0[\s\S]*group\.countries\.map/,"跨洲搜索结果必须继续按洲分段展示，不得退化为国家长列表");
 assert.match(acquisitionConfig,/for \(let round = 0;[\s\S]*for \(const group of groups\)/,"本地化检索计划必须按行业轮询，确保后续行业不会被前序关键词组合挤掉");
 assert.match(create,/ScheduleControl/,"AI获客预约执行必须复用AI筛选统一时间控件");
-assert.match(create,/xl:grid-cols-\[minmax\(250px,\.85fr\)_minmax\(230px,\.75fr\)_minmax\(520px,1\.4fr\)\][\s\S]*目标国家\/地区[\s\S]*执行时间/,"宽屏下任务名称、目标国家和完整预约控件必须在同一行合理排列");
+assert.match(create,/任务与目标市场[\s\S]*任务名称[\s\S]*执行时间[\s\S]*目标市场[\s\S]*国家\/地区[\s\S]*CountryPicker[\s\S]*GeographyPicker/,"目标国家与省州城市必须在统一目标市场区域内逐级选择");
+assert.match(create,/完成国家选择，继续选省\/州、城市/,"国家多选完成后必须引导继续选择下级地域");
 assert.match(create,/目标客户条件[\s\S]*xl:grid-cols-2[\s\S]*IndustryPicker[\s\S]*label="搜索关键词"/,"目标行业与搜索关键词必须使用紧凑双栏布局");
 assert.match(create,/flex h-5 items-center justify-between gap-3 text-sm font-medium text-slate-700/,"目标行业标签必须使用统一固定行高并显示已选数量");
 assert.match(create,/flex h-5 items-center[\s\S]*h-11 overflow-x-auto overflow-y-hidden/,"搜索关键词标签和默认输入框必须使用统一固定行高");

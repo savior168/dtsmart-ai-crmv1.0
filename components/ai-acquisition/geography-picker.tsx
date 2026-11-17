@@ -68,7 +68,7 @@ export function GeographyPicker({ countries, value, onChange }: {
   const count = Object.values(value).reduce((sum, scopes) => sum + (scopes?.length || 0), 0);
   if (!countries.length) return null;
   return <div className="space-y-2">
-    <div><h3 className="text-sm font-medium text-slate-800">精确到省/州、城市 <span className="font-normal text-slate-500">（可选）</span></h3><p className="mt-1 text-xs leading-5 text-slate-500">不选择时按国家自动分片；选择后仅搜索所选地域，并用返回地址复核。每国最多8处，单任务最多16处。地域索引：<a href="https://www.geonames.org/" target="_blank" rel="noreferrer" className="text-blue-700 underline">GeoNames</a>（CC BY 4.0）。</p></div>
+    <p className="text-xs leading-5 text-slate-500">下方逐国选择省/州、城市（可选）。加入地域后仅搜索所选地域，并用返回地址复核；每国最多8处，单任务最多16处。地域索引：<a href="https://www.geonames.org/" target="_blank" rel="noreferrer" className="text-blue-700 underline">GeoNames</a>（CC BY 4.0）。</p>
     <div className="grid gap-2 lg:grid-cols-2">{countries.map((country) => <CountryGeography key={country} country={country as AcquisitionCountry} scopes={value[country as AcquisitionCountry] || []} onChange={(scopes) => {
       const next = { ...value };
       if (scopes.length) next[country as AcquisitionCountry] = scopes;
