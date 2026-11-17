@@ -12,7 +12,7 @@ import { acquisitionIndustryMatchesVerifiedResult } from "@/lib/ai-acquisition/i
 import { acquisitionIndustryMismatchReason } from "@/lib/ai-acquisition/decision-reason";
 import { countAcquisitionCandidateDecisions } from "@/lib/ai-acquisition/decision-counts";
 import { countryFilterRawValues } from "@/lib/countries";
-import { geographyScopeLabel, type GeographyScopes } from "@/lib/ai-acquisition/geography";
+import { geographyScopeDisplayLabel, type GeographyScopes } from "@/lib/ai-acquisition/geography";
 import type { AcquisitionCountry } from "@/lib/ai-acquisition/config";
 
 async function authorizedTask(id: string, account: Awaited<ReturnType<typeof requirePermission>>["account"]) {
@@ -29,7 +29,7 @@ function presentTask<T extends Record<string, unknown>>(task: T) {
     : null;
   const scopes = (task.geography_scopes || {}) as GeographyScopes;
   const geography_labels = Object.entries(scopes).flatMap(([country, values]) => (values || [])
-    .map((value) => geographyScopeLabel(country as AcquisitionCountry, value))
+    .map((value) => geographyScopeDisplayLabel(country as AcquisitionCountry, value))
     .filter((value): value is string => Boolean(value))
     .map((value) => `${value} · ${country}`));
   return { ...task, geography_labels, scheduled_at: scheduled };

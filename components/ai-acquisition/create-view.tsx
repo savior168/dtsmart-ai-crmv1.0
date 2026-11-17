@@ -547,12 +547,14 @@ export function AcquisitionCreateView() {
             <span className="mt-1 flex items-center justify-between gap-2 text-xs text-slate-400"><span>系统自动生成，您可以修改。</span>{form.name_mode === "MANUAL" ? <button type="button" onClick={()=>setForm({...form,name_mode:"AUTO",name:automaticName})} className="text-blue-700 hover:underline">恢复自动名称</button>:null}</span>
           </label><div><span className="mb-1.5 block text-sm font-medium">执行时间</span><ScheduleControl scheduleType={form.schedule_type} scheduledAt={form.scheduled_at} onScheduleTypeChange={(schedule_type)=>setForm((current)=>({...current,schedule_type}))} onScheduledAtChange={(scheduled_at)=>setForm((current)=>({...current,scheduled_at}))}/></div></div>
           <div className="m-4 rounded-xl border border-blue-100 bg-blue-50/40 p-3 sm:p-4">
-            <div className="mb-3"><h3 className="text-sm font-semibold text-slate-800">目标市场 <b className="text-rose-500">*</b></h3><p className="mt-1 text-xs text-slate-500">先选国家，再在下方选择对应省/州与城市；不限定下级地域时按国家搜索。</p></div>
-            <div className="max-w-xl"><span className="mb-1.5 block text-xs font-medium text-slate-600">国家/地区</span>
-            <CountryPicker
-              value={form.countries}
-              onChange={(countries) => setForm((current) => ({ ...current, countries, geography_scopes: Object.fromEntries(Object.entries(current.geography_scopes).filter(([country]) => countries.includes(country))) }))}
-            />
+            <div className="grid items-end gap-3 lg:grid-cols-[minmax(240px,.65fr)_minmax(0,1fr)]">
+              <div><h3 className="text-sm font-semibold text-slate-800">目标市场 <b className="text-rose-500">*</b></h3><p className="mt-1 text-xs leading-5 text-slate-500">先选国家，再选择对应省/州与城市；不限定下级地域时按国家搜索。</p></div>
+              <div className="min-w-0"><span className="mb-1.5 block text-xs font-medium text-slate-600">国家/地区</span>
+                <CountryPicker
+                  value={form.countries}
+                  onChange={(countries) => setForm((current) => ({ ...current, countries, geography_scopes: Object.fromEntries(Object.entries(current.geography_scopes).filter(([country]) => countries.includes(country))) }))}
+                />
+              </div>
             </div>
             <GeographyPicker countries={form.countries} value={form.geography_scopes} onChange={(geography_scopes) => setForm((current) => ({ ...current, geography_scopes }))}/>
           </div>

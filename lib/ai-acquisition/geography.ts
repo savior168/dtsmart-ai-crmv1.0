@@ -1,5 +1,6 @@
 import geography from "../../data/ai-acquisition-geography.json";
 import defaultAreas from "../../data/ai-acquisition-default-areas.json";
+import chineseNames from "../../data/ai-acquisition-geography-zh.json";
 import { ACQUISITION_COUNTRY_SEARCH_AREAS } from "./config";
 import type { AcquisitionCountry } from "./config";
 
@@ -8,6 +9,19 @@ export type GeographyScopes = Partial<Record<AcquisitionCountry, GeographyScope[
 
 type Region = { code: string; name: string; cities: string[] };
 const registry = geography as Record<string, Region[]>;
+const displayNames = chineseNames as { regions: Record<string, Record<string, string>>; cities: Record<string, Record<string, Record<string, string>>> };
+
+function bilingualName(original: string, chinese?: string) {
+  return chinese && chinese !== original ? `${chinese}（${original}）` : original;
+}
+
+export function geographyRegionDisplayName(country: string, regionCode: string, original: string) {
+  return bilingualName(original, displayNames.regions[country]?.[regionCode]);
+}
+
+export function geographyCityDisplayName(country: string, regionCode: string, original: string) {
+  return bilingualName(original, displayNames.cities[country]?.[regionCode]?.[original]);
+}
 
 export function acquisitionRegions(country: string) {
   return registry[country] || [];
@@ -48,6 +62,13 @@ export function geographyScopeLabel(country: AcquisitionCountry, scope: Geograph
   const region = acquisitionRegions(country).find((entry) => entry.code === scope.regionCode);
   if (!region) return null;
   return scope.city ? `${scope.city}, ${region.name}` : region.name;
+}
+
+export function geographyScopeDisplayLabel(country: AcquisitionCountry, scope: GeographyScope) {
+  const region = acquisitionRegions(country).find((entry) => entry.code === scope.regionCode);
+  if (!region) return null;
+  const regionName = geographyRegionDisplayName(country, region.code, region.name);
+  return scope.city ? `${geographyCityDisplayName(country, region.code, scope.city)} · ${regionName}` : regionName;
 }
 
 export function planGeographyQueries(country: AcquisitionCountry, countryName: string, terms: string[], scopes: GeographyScope[] = []) {

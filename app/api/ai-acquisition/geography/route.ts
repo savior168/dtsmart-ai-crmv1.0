@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission } from "@/lib/auth/current-user";
 import { normalizeAcquisitionCountries } from "@/lib/ai-acquisition/config";
-import { acquisitionRegions } from "@/lib/ai-acquisition/geography";
+import { acquisitionRegions, geographyCityDisplayName, geographyRegionDisplayName } from "@/lib/ai-acquisition/geography";
 
 export async function GET(request: NextRequest) {
   try {
@@ -13,9 +13,9 @@ export async function GET(request: NextRequest) {
     if (regionCode) {
       const region = regions.find((item) => item.code === regionCode);
       if (!region) return NextResponse.json({ error: "省州不属于该国家" }, { status: 400 });
-      return NextResponse.json({ region: { code: region.code, name: region.name }, cities: region.cities });
+      return NextResponse.json({ region: { code: region.code, name: region.name, displayName: geographyRegionDisplayName(country, region.code, region.name) }, cities: region.cities.map((name) => ({ name, displayName: geographyCityDisplayName(country, region.code, name) })) });
     }
-    return NextResponse.json({ regions: regions.map(({ code, name }) => ({ code, name })), source: "GeoNames CC BY 4.0" });
+    return NextResponse.json({ regions: regions.map(({ code, name }) => ({ code, name, displayName: geographyRegionDisplayName(country, code, name) })), source: "GeoNames CC BY 4.0" });
   } catch (error) {
     const message = error instanceof Error ? error.message : "地域选项加载失败";
     return NextResponse.json({ error: message === "UNAUTHORIZED" ? "登录已失效" : message === "FORBIDDEN" ? "没有创建获客任务权限" : "地域选项加载失败" }, { status: message === "UNAUTHORIZED" ? 401 : message === "FORBIDDEN" ? 403 : 500 });
