@@ -8,7 +8,7 @@ import { createJiti } from "jiti";
 const jiti = createJiti(import.meta.url, { alias: { "@": resolve(".") }, jsx: { runtime: "automatic" } });
 const { PiOrderForm } = await jiti.import(resolve("components/pi-order-form.tsx"));
 const source = await readFile(new URL("../components/pi-order-form.tsx", import.meta.url), "utf8");
-const profileSync = await readFile(new URL("../supabase/migrations/20261117090000_pi_delivery_profile_sync.sql", import.meta.url), "utf8");
+const profileSync = await readFile(new URL("../supabase/migrations/20261117080145_pi_delivery_profile_sync.sql", import.meta.url), "utf8");
 assert.match(source, /保存后保留 PI 快照，并按地址去重同步到客户资料/, "PI 表单应说明快照与客户资料同步的区别");
 assert.match(profileSync, /after insert or update of delivery_address[\s\S]*on public\.sales_orders/, "新建及修改 PI 时须同步收货资料");
 assert.match(profileSync, /for update[\s\S]*matched_address[\s\S]*array_append\(addresses, address_value\)/, "客户资料须锁行并按地址去重，保留原有顺序");
