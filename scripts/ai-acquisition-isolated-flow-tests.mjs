@@ -70,10 +70,10 @@ new Function("require", "module", "exports", routeCode)((id) => {
   if (["@/lib/ai-acquisition/task-center-summary", "@/lib/countries", "@/lib/auth/subordinate-scope"].includes(id)) return {};
   throw new Error(`Unexpected route dependency: ${id}`);
 }, routeModule, routeModule.exports);
-const taskInput = { name: "隔离验证", industries: ["手机维修店"], keywords: ["phone repair"], countries: ["DE"], geography_scopes: selected, cost_mode: "FREE_ONLY", request_key: "11111111-1111-4111-8111-111111111111" };
+const taskInput = { name: "隔离验证", industries: ["手机维修店"], keywords: ["phone repair"], countries: ["DE"], geography_scopes: { DE: multi.DE }, cost_mode: "FREE_ONLY", request_key: "11111111-1111-4111-8111-111111111111" };
 const created = await routeModule.exports.POST({ json: async () => taskInput });
 assert.equal(created.status, 201, "valid scoped task should pass the real create-route validation");
-assert.deepEqual(insertedTask.geography_scopes, selected, "the route must persist the selected region and city");
+assert.deepEqual(insertedTask.geography_scopes, { DE: multi.DE }, "the route must persist every selected region and city");
 assert.equal(insertedTask.task_cost_limit_usd, 0, "free-only mode must persist a zero paid-call limit");
 assert.equal(dispatched, 1, "a valid task must dispatch exactly once to the mocked workflow");
 insertedTask = null;
