@@ -26,6 +26,8 @@ assert.match(taskRoute, /existingReplacement[\s\S]*ISOLATE_SHARED_STAGING_CUSTOM
 assert.match(workflow, /requeueRecoverableScreeningItems\(screeningTaskId, task\)[\s\S]*sleep\("20s"\)[\s\S]*dispatchScreening\(screeningTaskId\)/);
 assert.match(workflow, /item\.error_message === "CUSTOMER_NOT_FOUND"[\s\S]*source_reference === task\.id[\s\S]*ISOLATE_SHARED_STAGING_CUSTOMER/, "客户已软删除时必须在自动重试前恢复或隔离关联");
 assert.match(workflow, /screeningRestarts < 2[\s\S]*restartFailedScreeningWithPending[\s\S]*dispatchScreening/, "核验执行器中断后只能有限次数续跑未完成项");
+assert.match(workflow, /task\.current_stage === "VERIFYING" && task\.discovered_count > 0[\s\S]*resumeExistingCandidates\(taskId\) : await stageCandidates\(task,screeningTaskId\)/,
+  "失败任务从已有候选检查点续跑时不得重新执行 Google 发现阶段");
 assert.match(workflow, /\.lt\("attempt_count", 3\)/);
 assert.match(workflow, /\.eq\("status", "FAILED"\)/);
 console.log("AI acquisition bounded checkpoint retry tests passed");

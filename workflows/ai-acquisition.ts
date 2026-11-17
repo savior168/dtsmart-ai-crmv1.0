@@ -17,7 +17,7 @@ import { remainingAcquisitionTaskLimit } from "../lib/ai-acquisition/cost-budget
 type AcquisitionTask = {
   id: string; user_id: string; task_number: string; name: string; cost_mode: "FREE_ONLY" | "ADAPTIVE";
   countries: AcquisitionCountry[]; geography_scopes?: GeographyScopes; industry: string; industries?: string[]; keywords: string[]; excluded_keywords: string[];
-  target_count: number; discovered_count: number; task_cost_limit_usd: number | null; status: string; cancel_requested: boolean;
+  target_count: number; discovered_count: number; task_cost_limit_usd: number | null; status: string; current_stage: string | null; cancel_requested: boolean;
 };
 
 function isRecoverableInfrastructureError(error: unknown) {
@@ -222,6 +222,12 @@ async function stageCandidates(task: AcquisitionTask, screeningTaskId: string) {
   if (updatedScreening.error) throw updatedScreening.error;
   const totals = await updateAcquisitionTaskTotals(admin, task.id);
   return { analyzing: totals.analyzing, control: discoveryControl };
+}
+
+async function resumeExistingCandidates(taskId: string) {
+  "use step";
+  const totals = await updateAcquisitionTaskTotals(createAdminClient(), taskId);
+  return { analyzing: totals.analyzing, control: null };
 }
 
 async function completeEmptyScreeningTask(screeningTaskId:string) {
@@ -617,7 +623,10 @@ export async function aiAcquisitionWorkflow(taskId: string, scheduledAt: string 
     if (task.cancel_requested) { await finishTask(taskId, "CANCELLED", undefined, executionToken); return; }
     if (!await beginTask(taskId, executionToken)) return;
     const screeningTaskId = await createScreeningTask(task);
-    let staging=await stageCandidates(task,screeningTaskId);
+    // A manual retry has already restored the failed screening items. Its
+    // checkpoint must not start a fresh Google discovery pass.
+    let staging = task.current_stage === "VERIFYING" && task.discovered_count > 0
+      ? await resumeExistingCandidates(taskId) : await stageCandidates(task,screeningTaskId);
     if(staging.analyzing>0) {
       const initialState=await screeningState(screeningTaskId);
       if(initialState.status==="QUEUED")await dispatchScreening(screeningTaskId);
