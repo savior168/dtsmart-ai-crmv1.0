@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronRight, Search } from "lucide-react";
 import { CountryLabel } from "@/components/country-label";
 import type { GeographyScope, GeographyScopes } from "@/lib/ai-acquisition/geography";
@@ -128,6 +128,12 @@ export function GeographyPicker({ countries, value, onChange }: {
   onChange: (value: GeographyScopes) => void;
 }) {
   const [activeCountry, setActiveCountry] = useState("");
+  const previousCountries = useRef(countries);
+  useEffect(() => {
+    const added = countries.find((code) => !previousCountries.current.includes(code));
+    if (added) setActiveCountry(added);
+    previousCountries.current = countries;
+  }, [countries]);
   const currentCountry = countries.includes(activeCountry) ? activeCountry : countries[0];
   const count = Object.values(value).reduce((sum, scopes) => sum + (scopes?.length || 0), 0);
   if (!currentCountry) return null;
