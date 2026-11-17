@@ -252,15 +252,60 @@ async function screeningState(screeningTaskId: string) {
   return result.data as { status: string; pending_count: number; error_message: string | null };
 }
 
-async function requeueRecoverableScreeningItems(screeningTaskId: string) {
+async function requeueRecoverableScreeningItems(screeningTaskId: string, task: AcquisitionTask) {
   "use step";
   const admin = createAdminClient();
   const failed = await admin.from("ai_screening_task_items")
-    .select("id,status,analysis_status,result_id,attempt_count,error_code,error_context")
+    .select("id,customer_id,status,analysis_status,result_id,attempt_count,error_code,error_message,error_context")
     .eq("task_id", screeningTaskId).eq("status", "FAILED")
     .lt("attempt_count", 3).order("id").limit(500);
   if (failed.error) throw failed.error;
-  const ids = (failed.data || []).filter(canAutoRetryAcquisitionItem).map((item) => item.id);
+  const ids: string[] = [];
+  for (const item of failed.data || []) {
+    if (item.error_message === "CUSTOMER_NOT_FOUND" && item.attempt_count < 3 && !item.result_id) {
+      const candidate = await admin.from("ai_acquisition_candidates")
+        .select("id,staging_customer_id,place_id,company_name,country,address,google_url,matched_keywords")
+        .eq("task_id", task.id).eq("screening_task_item_id", item.id).maybeSingle();
+      if (candidate.error) throw candidate.error;
+      if (!candidate.data?.place_id || !candidate.data.company_name || !candidate.data.country) continue;
+      const customer = await admin.from("customers").select("id,source,source_reference,pool_status,deleted_at")
+        .eq("id", item.customer_id).maybeSingle();
+      if (customer.error) throw customer.error;
+      const references = await admin.from("ai_acquisition_candidates").select("id", { count: "exact", head: true })
+        .eq("staging_customer_id", item.customer_id).neq("task_id", task.id);
+      if (references.error) throw references.error;
+      const owned = customer.data?.source === "AI_ACQUISITION_STAGING"
+        && customer.data.source_reference === task.id
+        && ["AI_STAGING", "INVALID"].includes(String(customer.data.pool_status || ""))
+        && Number(references.count || 0) === 0;
+      if (owned) {
+        const restored = await admin.from("customers").update({ deleted_at: null, pool_status: "AI_STAGING", acquisition_scope: "PRIVATE", updated_at: new Date().toISOString() })
+          .eq("id", item.customer_id).eq("source_reference", task.id).eq("source", "AI_ACQUISITION_STAGING")
+          .select("id").maybeSingle();
+        if (restored.error || !restored.data) throw restored.error || new Error("ACQUISITION_STAGING_RESTORE_FAILED");
+      } else {
+        const replacement = await admin.from("customers").insert({
+          company_name: candidate.data.company_name, country: candidate.data.country, address: candidate.data.address,
+          google_url: candidate.data.google_url, google_maps_place_id: candidate.data.place_id,
+          source: "AI_ACQUISITION_STAGING", source_channel: "GOOGLE_MAPS", source_batch: task.task_number,
+          source_reference: task.id, origin_source: "AI_ACQUISITION", status: "UNCLAIMED", followup_status: "WAITING_CONTACT",
+          created_by: task.user_id, owner_id: null, owner_user_id: null, acquisition_scope: "PRIVATE", pool_status: "AI_STAGING",
+          assigned_via: null, acquisition_match_keywords: candidate.data.matched_keywords || [],
+        }).select("id").single();
+        if (replacement.error || !replacement.data) throw replacement.error || new Error("ACQUISITION_STAGING_ISOLATION_FAILED");
+        const customerId = String(replacement.data.id);
+        const source = await admin.from("customer_sources").insert({ customer_id: customerId, source_type: "AI_ACQUISITION", source_reference: task.id,
+          metadata: { acquisition_task_id: task.id, acquisition_task_number: task.task_number, source_channel: "GOOGLE_MAPS",
+            exact_source_url: candidate.data.google_url, country: candidate.data.country, recovery_reason: "ISOLATE_SHARED_STAGING_CUSTOMER" } });
+        if (source.error) throw source.error;
+        const linkedItem = await admin.from("ai_screening_task_items").update({ customer_id: customerId }).eq("id", item.id).eq("task_id", screeningTaskId).eq("status", "FAILED");
+        if (linkedItem.error) throw linkedItem.error;
+        const linkedCandidate = await admin.from("ai_acquisition_candidates").update({ staging_customer_id: customerId }).eq("id", candidate.data.id).eq("task_id", task.id);
+        if (linkedCandidate.error) throw linkedCandidate.error;
+      }
+      ids.push(item.id);
+    } else if (canAutoRetryAcquisitionItem(item)) ids.push(item.id);
+  }
   if (!ids.length) return 0;
   const now = new Date().toISOString();
   const reset = await admin.from("ai_screening_task_items").update({
@@ -277,9 +322,24 @@ async function requeueRecoverableScreeningItems(screeningTaskId: string) {
     status: "QUEUED", completed_at: null, finished_at: null, error_message: null,
     active_executor: null, workflow_run_id: null, last_dispatch_at: null, executor_heartbeat_at: null,
     updated_at: now,
-  }).eq("id", screeningTaskId).eq("status", "COMPLETED").select("id").maybeSingle();
+  }).eq("id", screeningTaskId).in("status", ["COMPLETED", "FAILED"]).select("id").maybeSingle();
   if (queued.error) throw queued.error;
   return queued.data ? ids.length : 0;
+}
+
+async function restartFailedScreeningWithPending(screeningTaskId: string) {
+  "use step";
+  const admin = createAdminClient();
+  const pending = await admin.from("ai_screening_task_items").select("id", { count: "exact", head: true })
+    .eq("task_id", screeningTaskId).in("status", ["PENDING", "RUNNING"]);
+  if (pending.error) throw pending.error;
+  if (!pending.count) return false;
+  const reset = await admin.from("ai_screening_tasks").update({ status: "QUEUED", error_message: null,
+    active_executor: null, workflow_run_id: null, last_dispatch_at: null, executor_heartbeat_at: null,
+    finished_at: null, updated_at: new Date().toISOString() })
+    .eq("id", screeningTaskId).eq("status", "FAILED").select("id").maybeSingle();
+  if (reset.error) throw reset.error;
+  return Boolean(reset.data);
 }
 
 async function verificationState(taskId: string, screeningTaskId: string) {
@@ -590,6 +650,7 @@ export async function aiAcquisitionWorkflow(taskId: string, scheduledAt: string 
       const initialState = await screeningState(screeningTaskId);
       if (initialState.status === "QUEUED") await dispatchScreening(screeningTaskId);
       let pollSeconds = 15;
+      let screeningRestarts = 0;
       while (true) {
         while(await finalizeCandidateBatch(task,screeningTaskId)){
           await setTaskStage(taskId,"VERIFYING","正在持续核验；符合证据和联系方式门槛的客户已实时入池");
@@ -598,15 +659,27 @@ export async function aiAcquisitionWorkflow(taskId: string, scheduledAt: string 
         if (state.control === "CANCELLED") { await finishTask(taskId, "CANCELLED", undefined, executionToken); return; }
         if (state.control === "PAUSED") { await sleep("30s"); continue; }
         if (["COMPLETED","FAILED","CANCELLED"].includes(state.screening.status)) {
-          if (state.screening.status !== "COMPLETED") throw new Error(state.screening.error_message || `ACQUISITION_SCREENING_${state.screening.status}`);
-          if (Number(state.screening.failed_count || 0) > 0) {
-            const retryCount = await requeueRecoverableScreeningItems(screeningTaskId);
+          if (state.screening.status === "CANCELLED") throw new Error("ACQUISITION_SCREENING_CANCELLED");
+          if (Number(state.screening.failed_count || 0) > 0 && screeningRestarts < 2) {
+            const retryCount = await requeueRecoverableScreeningItems(screeningTaskId, task);
             if (retryCount > 0) {
+              screeningRestarts += 1;
               await setTaskStage(taskId, "VERIFYING", `正在从检查点自动重试 ${retryCount} 条技术失败候选`);
               await sleep("20s");
               await dispatchScreening(screeningTaskId);
               continue;
             }
+          }
+          if (state.screening.status === "FAILED" && screeningRestarts < 2
+            && await restartFailedScreeningWithPending(screeningTaskId)) {
+            screeningRestarts += 1;
+            await setTaskStage(taskId, "VERIFYING", "核验执行器中断，正在从未完成项自动续跑");
+            await sleep("20s");
+            await dispatchScreening(screeningTaskId);
+            continue;
+          }
+          if (state.screening.status !== "COMPLETED") throw new Error(state.screening.error_message || `ACQUISITION_SCREENING_${state.screening.status}`);
+          if (Number(state.screening.failed_count || 0) > 0) {
             throw new Error(`ACQUISITION_SCREENING_ITEMS_FAILED: ${state.screening.failed_count} 条候选因技术错误未完成核验；已保留检查点，请重试失败项`);
           }
           break;

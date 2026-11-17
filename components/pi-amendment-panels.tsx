@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { AppDialog, DialogActions } from "@/components/ui/app-dialog";
+import { parsePiClipboardTsv, parsePiProductRows } from "@/lib/pi-product-import";
 import { diffPiAmendment, type PiAmendmentLine } from "@/lib/orders/pi-amendment-diff";
 import { warehousePiAmendment, type PiAmendmentRecord, type WarehousePiChange } from "@/lib/orders/pi-amendment-view";
 
@@ -23,13 +24,45 @@ export function PiAmendmentSalesPanel({ orderId, revision, items, progress, amen
   const [reason, setReason] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [pasteText, setPasteText] = useState("");
   const progressByLine = new Map(progress.map((row) => [row.line_number, row]));
   const locked = new Set(items.filter((item) => item.line_number !== null
     && Number(progressByLine.get(item.line_number)?.shipped_quantity || 0) > 0).map((item) => item.id));
   function edit(index: number, key: keyof Editable, value: string | number) {
     setDraft((current) => current?.map((row, rowIndex) => rowIndex === index
-      ? { ...row, [key]: value, ...(key === "unit_price_cny" ? { unit_price_payment: currency === "CNY" ? Number(value) : fxRate > 0 ? Math.round(Number(value) / fxRate * 100) / 100 : 0 } : {}) }
+      ? { ...row, [key]: value, ...(key === "unit_price_cny" ? { unit_price_payment: currency === "CNY" ? Number(value) : fxRate > 0 ? Math.round(Number(value) * fxRate * 100) / 100 : 0 } : {}) }
       : row) || null);
+  }
+  function importPastedRows(text: string) {
+    try {
+      if (!draft || !text.trim()) throw new Error("请先复制产品明细表格并粘贴");
+      const parsed = parsePiProductRows(parsePiClipboardTsv(text), fxRate, currency);
+      if (draft.length + parsed.length > 500) throw new Error("每张PI最多500条产品明细，请分批处理");
+      const additions: Editable[] = parsed.map((row) => ({
+        id: crypto.randomUUID(), line_number: null,
+        item_name: row.item_name, brand: row.brand, model: row.model, quality: row.quality,
+        description: row.description, description_zh: row.description_zh,
+        preparation_requirement: row.preparation_requirement, internal_note: row.internal_note,
+        quantity: Number(row.quantity || 0), unit_price_cny: Number(row.unit_price_cny || 0),
+        unit_price_payment: Number(row.unit_price_payment || 0),
+        estimated_unit_cost_cny: Number(row.estimated_unit_cost_cny || 0),
+      }));
+      setDraft((current) => current ? [...current, ...additions] : current);
+      const incomplete = parsed.filter((row) => !row.item_name || !row.brand || !row.model || !row.quality
+        || !row.quantity || row.unit_price_cny === "" || row.estimated_unit_cost_cny === "").length;
+      setPasteOpen(false); setPasteText("");
+      setError(incomplete ? `已追加 ${additions.length} 行，其中 ${incomplete} 行必填资料不完整，请补齐后提交变更。` : "");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "表格识别失败"); }
+  }
+  async function pasteRows() {
+    setError("");
+    try {
+      if (!navigator.clipboard?.readText) throw new Error("clipboard-unavailable");
+      const text = await navigator.clipboard.readText();
+      if (!text.trim()) throw new Error("clipboard-empty");
+      importPastedRows(text);
+    } catch { setPasteOpen(true); }
   }
   async function withdraw(requestId: string) {
     if (busy) return;
@@ -107,8 +140,8 @@ export function PiAmendmentSalesPanel({ orderId, revision, items, progress, amen
               return <tr key={row.id} className={`border-t border-slate-100 align-middle ${isLocked ? "bg-slate-50" : ""}`}>
                 <td className="whitespace-nowrap px-2 py-1.5">{row.line_number || index + 1}{isLocked ? <span className="mt-1 block text-[11px] text-slate-500">已交货代·锁定</span> : null}</td>
                 {textCell("item_name", "产品类型")}{textCell("brand", "产品品牌")}{textCell("model", "产品型号")}{textCell("quality", "产品质量")}{textCell("description", "产品描述", true)}{textCell("description_zh", "产品质量/描述中文（展示给后端）", true)}
-                <td className="px-1.5 py-1.5"><input disabled={isLocked || isExisting} aria-label={`第${index + 1}行成本单价（CNY）`} type="number" min="0" step="0.01" value={Number(row.estimated_unit_cost_cny)} onChange={(event) => edit(index, "estimated_unit_cost_cny", Number(event.target.value))} className={`${inputClass} w-28`} /></td>
-                <td className="px-1.5 py-1.5"><input disabled={isLocked || isExisting} aria-label={`第${index + 1}行销售单价（CNY）`} type="number" min="0" step="0.01" value={Number(row.unit_price_cny)} onChange={(event) => edit(index, "unit_price_cny", Number(event.target.value))} className={`${inputClass} w-28`} /></td>
+                <td className="px-1.5 py-1.5"><input disabled={isLocked} aria-label={`第${index + 1}行成本单价（CNY）`} type="number" min="0" step="0.01" value={Number(row.estimated_unit_cost_cny)} onChange={(event) => edit(index, "estimated_unit_cost_cny", Number(event.target.value))} className={`${inputClass} w-28`} /></td>
+                <td className="px-1.5 py-1.5"><input disabled={isLocked} aria-label={`第${index + 1}行销售单价（CNY）`} type="number" min="0" step="0.01" value={Number(row.unit_price_cny)} onChange={(event) => edit(index, "unit_price_cny", Number(event.target.value))} className={`${inputClass} w-28`} /></td>
                 {currency !== "CNY" ? <td className="whitespace-nowrap px-2 py-1.5">{currency} {paymentPrice.toFixed(2)}</td> : null}
                 <td className="px-1.5 py-1.5"><input disabled={isLocked} aria-label={`第${index + 1}行数量`} type="number" min="1" step="1" value={qty} onChange={(event) => edit(index, "quantity", Number(event.target.value))} className={`${inputClass} w-20`} /></td>
                 <td className="whitespace-nowrap px-2 py-1.5 font-medium">¥{(sale * qty).toFixed(2)}</td>
@@ -123,8 +156,9 @@ export function PiAmendmentSalesPanel({ orderId, revision, items, progress, amen
           </table>
         </div>
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <button type="button" disabled={(draft?.length ?? 0) >= 500} onClick={() => setDraft((current) => [...current || [], { id: crypto.randomUUID(), line_number: null,
+          <div className="flex flex-wrap gap-2"><button type="button" onClick={() => void pasteRows()} className="rounded-lg border border-blue-300 px-3 py-2 text-blue-700">粘贴表格</button><button type="button" disabled={(draft?.length ?? 0) >= 500} onClick={() => setDraft((current) => [...current || [], { id: crypto.randomUUID(), line_number: null,
             item_name: "", brand: "", model: "", quality: "", description: "", description_zh: "", preparation_requirement: "", internal_note: "", quantity: 1, unit_price_cny: 0, unit_price_payment: 0, estimated_unit_cost_cny: 0 }])} className="rounded-lg border border-blue-300 px-3 py-2 text-blue-700 disabled:opacity-50">＋ 添加产品</button>
+          </div>
           <div className="flex flex-wrap justify-end gap-x-6 gap-y-1 text-sm" aria-live="polite">
             <span>产品总金额（RMB）：<strong>¥{draft.reduce((sum, row) => sum + Number(row.quantity || 0) * Number(row.unit_price_cny || 0), 0).toFixed(2)}</strong></span>
             <span>产品总利润（RMB）：<strong>¥{draft.reduce((sum, row) => sum + Number(row.quantity || 0) * (Number(row.unit_price_cny || 0) - Number(row.estimated_unit_cost_cny || 0)), 0).toFixed(2)}</strong></span>
@@ -146,6 +180,11 @@ export function PiAmendmentSalesPanel({ orderId, revision, items, progress, amen
         {error ? <p role="alert" className="rounded bg-rose-50 p-2 text-rose-700">{error}</p> : null}
         <DialogActions busy={busy} onCancel={() => setDraft(null)} confirmLabel="提交仓库确认" />
       </form> : null}
+    </AppDialog>
+    <AppDialog open={pasteOpen} title="粘贴产品明细" description="与创建 PI 使用相同的表格识别规则；导入项会追加为新产品，不覆盖原有行。" onClose={() => setPasteOpen(false)} width="max-w-3xl">
+      {error ? <p role="alert" className="mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
+      <textarea autoFocus aria-label="粘贴PI变更产品明细表格" value={pasteText} onChange={(event) => setPasteText(event.target.value)} rows={10} placeholder="在此按 Ctrl+V 粘贴 Excel 产品明细" className="w-full rounded-lg border border-slate-300 p-3 font-mono text-xs" />
+      <div className="mt-3 flex justify-end gap-2"><button type="button" onClick={() => setPasteOpen(false)} className="rounded-lg border px-4 py-2">取消</button><button type="button" onClick={() => importPastedRows(pasteText)} className="rounded-lg bg-blue-600 px-4 py-2 text-white">识别并追加</button></div>
     </AppDialog>
   </section>;
 }

@@ -23,7 +23,9 @@ assert.match(taskRoute, /mustIsolate = \(customerId: string\)[\s\S]*sharedIds\.h
   "仅任务独占暂存客户可原位恢复");
 assert.match(taskRoute, /existingReplacement[\s\S]*ISOLATE_SHARED_STAGING_CUSTOMER[\s\S]*ai_screening_task_items"\)\.update\(\{ customer_id: customerId \}\)/,
   "共享暂存客户重试时必须新建任务专属客户并重新关联");
-assert.match(workflow, /requeueRecoverableScreeningItems\(screeningTaskId\)[\s\S]*sleep\("20s"\)[\s\S]*dispatchScreening\(screeningTaskId\)/);
+assert.match(workflow, /requeueRecoverableScreeningItems\(screeningTaskId, task\)[\s\S]*sleep\("20s"\)[\s\S]*dispatchScreening\(screeningTaskId\)/);
+assert.match(workflow, /item\.error_message === "CUSTOMER_NOT_FOUND"[\s\S]*source_reference === task\.id[\s\S]*ISOLATE_SHARED_STAGING_CUSTOMER/, "客户已软删除时必须在自动重试前恢复或隔离关联");
+assert.match(workflow, /screeningRestarts < 2[\s\S]*restartFailedScreeningWithPending[\s\S]*dispatchScreening/, "核验执行器中断后只能有限次数续跑未完成项");
 assert.match(workflow, /\.lt\("attempt_count", 3\)/);
 assert.match(workflow, /\.eq\("status", "FAILED"\)/);
 console.log("AI acquisition bounded checkpoint retry tests passed");
