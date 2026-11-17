@@ -78,15 +78,20 @@ export function planGeographyQueries(country: AcquisitionCountry, countryName: s
     ? scopes.map((scope) => geographyScopeLabel(country, scope)).filter((area): area is string => Boolean(area))
     : ACQUISITION_COUNTRY_SEARCH_AREAS[country] || (defaultAreas as Record<string, string[]>)[country] || [];
   const queries: string[] = [];
-  // For a restricted task, never add a nationwide query: that would spend
-  // budget on out-of-scope results. Unrestricted tasks retain the baseline.
-  for (let termIndex = 0; termIndex < terms.length; termIndex += 1) {
-    if (!scopes.length) queries.push(`${terms[termIndex]} in ${countryName}`);
-    if (areas.length) queries.push(`${terms[termIndex]} in ${areas[termIndex % areas.length]}, ${countryName}`);
-  }
-  for (let round = 1; round < areas.length; round += 1) {
+  // Restricted tasks must search every selected area before spending the
+  // per-country allowance on a second term for any one area. Never add a
+  // nationwide query for them: it would spend budget out of scope.
+  if (scopes.length) {
+    for (const term of terms) for (const area of areas) queries.push(`${term} in ${area}, ${countryName}`);
+  } else {
     for (let termIndex = 0; termIndex < terms.length; termIndex += 1) {
-      queries.push(`${terms[termIndex]} in ${areas[(termIndex + round) % areas.length]}, ${countryName}`);
+      queries.push(`${terms[termIndex]} in ${countryName}`);
+      if (areas.length) queries.push(`${terms[termIndex]} in ${areas[termIndex % areas.length]}, ${countryName}`);
+    }
+    for (let round = 1; round < areas.length; round += 1) {
+      for (let termIndex = 0; termIndex < terms.length; termIndex += 1) {
+        queries.push(`${terms[termIndex]} in ${areas[(termIndex + round) % areas.length]}, ${countryName}`);
+      }
     }
   }
   return [...new Set(queries)];

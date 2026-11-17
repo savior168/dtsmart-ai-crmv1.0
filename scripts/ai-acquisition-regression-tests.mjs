@@ -202,6 +202,8 @@ assert.equal(geographyScopeLabel("US",{regionCode:"CA",city:"Los Angeles"}),"Los
 assert.match(geographyScopeDisplayLabel("DE",{regionCode:"16",city:"Berlin"}),/柏林/,"可信中文译名仅用于展示，不改变搜索用原文");
 assert.match(geographyScopeDisplayLabel("DE",{regionCode:"15",city:null}),/图林根/,"CLDR 省州译名须与 GeoNames 原文名称严格匹配后展示");
 assert.deepEqual(planGeographyQueries("US","United States",["phone repair"],[{regionCode:"CA",city:"Los Angeles"}]),["phone repair in Los Angeles, California, United States"],"选定城市时不得追加全国或其他地域查询");
+const selectedAreas=[{regionCode:"CA",city:"Los Angeles"},{regionCode:"NY",city:"New York"}];
+assert.deepEqual(planGeographyQueries("US","United States",["phone repair","computer repair"],selectedAreas).slice(0,2),["phone repair in Los Angeles, California, United States","phone repair in New York, New York, United States"],"地域受限任务必须先覆盖全部所选地区，再执行第二轮关键词");
 assert.ok(planGeographyQueries("US","United States",["phone repair"]).some((query)=>query==="phone repair in United States"),"旧任务必须保留全国查询");
 assert.ok(planGeographyQueries("DE","Germany",["phone repair"]).some((query)=>query!=="phone repair in Germany"),"原先没有手工分片的国家应有 GeoNames 自动城市分片");
 const california=[{types:["administrative_area_level_1"],longText:"California"},{types:["locality"],longText:"Los Angeles"}];

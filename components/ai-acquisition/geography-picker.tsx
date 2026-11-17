@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronDown, ChevronRight, Search, X } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Search } from "lucide-react";
 import { CountryLabel } from "@/components/country-label";
 import { ACQUISITION_COUNTRY_GROUPS, type AcquisitionCountry } from "@/lib/ai-acquisition/config";
 import { geographyScopeDisplayLabel, type GeographyScope, type GeographyScopes } from "@/lib/ai-acquisition/geography";
