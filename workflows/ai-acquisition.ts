@@ -11,6 +11,7 @@ import { createScreeningTaskNumber } from "../lib/ai/task-number";
 import { normalizedErrorMessage } from "../lib/ai/error-normalization";
 import { canAutoRetryAcquisitionItem } from "../lib/ai-acquisition/retry-policy";
 import { canInvalidateStagingCustomer, stagingCustomerBelongsToTask } from "../lib/ai-acquisition/staging-ownership";
+import { remainingAcquisitionTaskLimit } from "../lib/ai-acquisition/cost-budget";
 
 type AcquisitionTask = {
   id: string; user_id: string; task_number: string; name: string; cost_mode: "FREE_ONLY" | "ADAPTIVE";
@@ -46,14 +47,33 @@ async function beginTask(taskId: string, executionToken: string | null) {
 async function createScreeningTask(task: AcquisitionTask) {
   "use step";
   const admin = createAdminClient();
+  // Older discovery calls were reserved against the child task but recorded
+  // against the parent. Deduct those immutable historical charges from the
+  // child's remaining cap before any new search or screening request runs.
+  let legacySearchSpend = 0;
+  if (task.task_cost_limit_usd !== null) {
+    for (let offset = 0; ; offset += 1000) {
+      const page = await admin.from("api_cost_ledger").select("amount_usd")
+        .eq("task_id", task.id).order("id").range(offset, offset + 999);
+      if (page.error) throw page.error;
+      for (const row of page.data || []) legacySearchSpend += Number(row.amount_usd || 0);
+      if ((page.data || []).length < 1000) break;
+    }
+  }
+  const remainingTaskLimit = remainingAcquisitionTaskLimit(task.task_cost_limit_usd, legacySearchSpend);
   const existing = await admin.from("ai_screening_tasks").select("id").eq("request_key", `acquisition:${task.id}`).maybeSingle();
   if (existing.error) throw existing.error;
-  if (existing.data) return String(existing.data.id);
+  if (existing.data) {
+    const adjusted = await admin.from("ai_screening_tasks").update({ task_cost_limit_usd: remainingTaskLimit })
+      .eq("id", existing.data.id).eq("request_key", `acquisition:${task.id}`);
+    if (adjusted.error) throw adjusted.error;
+    return String(existing.data.id);
+  }
   const inserted = await admin.from("ai_screening_tasks").insert({
     user_id: task.user_id, task_number: createScreeningTaskNumber("ACQUISITION"), name: `${task.name} · 获客核验`, strategy: "SMART", strategy_version: "1.0",
     status: "QUEUED", total_count: 0, pending_count: 0, selection_mode: "FILTERED",
     filters: { service: "AI_ACQUISITION", acquisition_task_id: task.id, force_fresh_analysis: true }, request_key: `acquisition:${task.id}`,
-    cost_mode: task.cost_mode, task_cost_limit_usd: task.task_cost_limit_usd, execution_mode: "VERCEL_ONLY", dispatch_policy: "VERCEL_ONLY",
+    cost_mode: task.cost_mode, task_cost_limit_usd: remainingTaskLimit, execution_mode: "VERCEL_ONLY", dispatch_policy: "VERCEL_ONLY",
     archived_at: new Date().toISOString(),
   }).select("id").single();
   if (inserted.error || !inserted.data) throw inserted.error || new Error("ACQUISITION_SCREENING_TASK_CREATE_FAILED");

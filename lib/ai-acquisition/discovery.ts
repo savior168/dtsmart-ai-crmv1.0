@@ -169,13 +169,16 @@ export async function discoverBusinesses(input: {
         const requestId = response.headers.get("x-request-id") || response.headers.get("x-goog-request-id") || randomUUID();
         const ok = response.ok;
         const payload = await response.json() as { places?: Array<{ id?: string; displayName?: { text?: string }; formattedAddress?: string; addressComponents?: Array<{shortText?:string;types?:string[]}>; businessStatus?: string; types?: string[]; googleMapsUri?: string }>; nextPageToken?: string; error?: { message?: string } };
-        await createAdminClient().from("api_cost_ledger").insert({
-          user_id: input.userId, task_id: input.acquisitionTaskId, provider: "GOOGLE_PLACES", service: "AI获客", operation: "目标商家搜索",
+        const ledger = await createAdminClient().from("api_cost_ledger").insert({
+          // The reservation is charged against the screening child task. Use
+          // the same ID in the immutable ledger so its task cap includes search.
+          user_id: input.userId, task_id: input.screeningTaskId, provider: "GOOGLE_PLACES", service: "AI获客", operation: "目标商家搜索",
           model_or_sku: "PLACES_TEXT_SEARCH_PRO", request_id: requestId, quantity: 1, unit: "REQUEST",
           amount_usd: ok ? effectivePrice : 0, amount_type: insideFreeCap && ok ? "FREE" : "ESTIMATED",
           pricing_snapshot: { unit_price_usd: GOOGLE_TEXT_SEARCH_PRO_UNIT_PRICE, free_usage_cap: GOOGLE_TEXT_SEARCH_PRO_FREE_CAP, free_cap_source: "GOOGLE_2026_09", inside_recorded_free_cap: insideFreeCap },
-          metadata: { http_status: response.status, query, region_code: input.country, page }, occurred_at: new Date().toISOString(),
+          metadata: { acquisition_task_id: input.acquisitionTaskId, http_status: response.status, query, region_code: input.country, page }, occurred_at: new Date().toISOString(),
         });
+        if (ledger.error) throw ledger.error;
         if (!ok) throw new Error(payload.error?.message || `GOOGLE_PLACES_${response.status}`);
         const excluded = input.excludedKeywords.map((value) => value.toLowerCase()).filter(Boolean);
         for (const place of payload.places || []) {
