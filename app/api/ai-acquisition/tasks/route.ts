@@ -3,6 +3,7 @@ import { start } from "workflow/api";
 import { hasPermission, requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { DEFAULT_ACQUISITION_DISCOVERY_CEILING, MAX_ACQUISITION_INDUSTRIES, MAX_ACQUISITION_KEYWORDS, normalizeAcquisitionCountries } from "@/lib/ai-acquisition/config";
+import { normalizeGeographyScopes } from "@/lib/ai-acquisition/geography";
 import { normalizeError } from "@/lib/ai/error-normalization";
 import { aiAcquisitionWorkflow } from "@/workflows/ai-acquisition";
 import { acquisitionTaskNumberPrefix, createAcquisitionTaskNumber } from "@/lib/ai/task-number";
@@ -162,6 +163,12 @@ export async function POST(request: NextRequest) {
     const industry = industries.join("、");
     if (Array.isArray(body.countries) && body.countries.some((value) => !normalizeAcquisitionCountries([value]).length)) return NextResponse.json({ error: "目标国家包含不受支持的选项，请重新选择；系统不会静默忽略国家" }, { status: 400 });
     const countries = normalizeAcquisitionCountries(body.countries);
+    let geographyScopes;
+    try {
+      geographyScopes = normalizeGeographyScopes(body.geography_scopes, countries);
+    } catch (error) {
+      return NextResponse.json({ error: error instanceof Error ? error.message : "地域条件无效" }, { status: 400 });
+    }
     const keywordInputs = Array.isArray(body.keywords) ? body.keywords.map(String).map((value) => value.trim()).filter(Boolean) : [];
     if (keywordInputs.some((value) => value.length > 80)) return NextResponse.json({ error: "每个搜索关键词最多80个字符；请缩短后重试，系统不会静默丢弃关键词" }, { status: 400 });
     const submittedKeywords = [...new Set(keywordInputs)];
@@ -194,7 +201,7 @@ export async function POST(request: NextRequest) {
     const existing = await admin.from("ai_acquisition_tasks").select("*").eq("user_id", user.id).like("task_number", `${numberPrefix}-%`).maybeSingle();
     if (existing.error) throw existing.error;
     if (existing.data) return NextResponse.json({ task: presentTask(existing.data), reused: true });
-    const task = await admin.from("ai_acquisition_tasks").insert({ user_id: user.id, task_number: number, name, cost_mode: costMode, countries, industry, industries, keywords, excluded_keywords: [], target_count: targetCount, task_cost_limit_usd: taskCostLimit }).select("*").single();
+    const task = await admin.from("ai_acquisition_tasks").insert({ user_id: user.id, task_number: number, name, cost_mode: costMode, countries, geography_scopes: geographyScopes, industry, industries, keywords, excluded_keywords: [], target_count: targetCount, task_cost_limit_usd: taskCostLimit }).select("*").single();
     if (task.error?.code === "23505") {
       const repeated = await admin.from("ai_acquisition_tasks").select("*").eq("user_id", user.id).like("task_number", `${numberPrefix}-%`).maybeSingle();
       if (!repeated.error && repeated.data) return NextResponse.json({ task: presentTask(repeated.data), reused: true });

@@ -15,6 +15,8 @@ import {
 import { AppDialog, DialogActions } from "@/components/ui/app-dialog";
 import { ScheduleControl } from "@/components/ai-screening/schedule-control";
 import { CountryLabel } from "@/components/country-label";
+import { GeographyPicker } from "@/components/ai-acquisition/geography-picker";
+import type { GeographyScopes } from "@/lib/ai-acquisition/geography";
 
 const COUNTRY_NAMES = new Intl.DisplayNames(["zh-CN"], { type: "region" });
 const splitBulkValues = (text: string) => text.split(/[\r\n,，;；|]+/).map((item)=>item.trim()).filter(Boolean);
@@ -413,6 +415,7 @@ const emptyAcquisitionForm = () => ({
   name_mode: "AUTO" as "AUTO" | "MANUAL",
   industries: [] as string[],
   countries: [] as string[],
+  geography_scopes: {} as GeographyScopes,
   keywords: [] as string[],
   cost_mode: "ADAPTIVE",
   task_cost_limit_usd: "",
@@ -447,6 +450,7 @@ export function AcquisitionCreateView() {
         name_mode: saved.name_mode === "MANUAL" ? "MANUAL" : "AUTO",
         industries: Array.isArray(saved.industries) ? saved.industries : [],
         countries: Array.isArray(saved.countries) ? saved.countries : [],
+        geography_scopes: saved.geography_scopes && typeof saved.geography_scopes === "object" && !Array.isArray(saved.geography_scopes) ? saved.geography_scopes : {},
         keywords: Array.isArray(saved.keywords) ? saved.keywords : [],
         cost_mode: saved.cost_mode === "FREE_ONLY" ? "FREE_ONLY" : "ADAPTIVE",
         task_cost_limit_usd: typeof saved.task_cost_limit_usd === "string" ? saved.task_cost_limit_usd : current.task_cost_limit_usd,
@@ -543,9 +547,10 @@ export function AcquisitionCreateView() {
           </label><div><span className="mb-1.5 block text-sm font-medium">目标国家/地区 <b className="text-rose-500">*</b></span>
             <CountryPicker
               value={form.countries}
-              onChange={(countries) => setForm({ ...form, countries })}
+              onChange={(countries) => setForm((current) => ({ ...current, countries, geography_scopes: Object.fromEntries(Object.entries(current.geography_scopes).filter(([country]) => countries.includes(country))) }))}
             />
           </div><div><span className="mb-1.5 block text-sm font-medium">执行时间</span><ScheduleControl scheduleType={form.schedule_type} scheduledAt={form.scheduled_at} onScheduleTypeChange={(schedule_type)=>setForm((current)=>({...current,schedule_type}))} onScheduledAtChange={(scheduled_at)=>setForm((current)=>({...current,scheduled_at}))}/></div></div>
+          <div className="mt-4"><GeographyPicker countries={form.countries} value={form.geography_scopes} onChange={(geography_scopes) => setForm((current) => ({ ...current, geography_scopes }))}/></div>
         </section>
         <section className={`${panel} overflow-visible`}>
           <div className="border-b border-[#e8ecf2] px-4 py-[14px]"><h2 className="text-[17px] font-semibold"><span className="mr-2 inline-grid h-[30px] w-[30px] place-items-center rounded-full bg-[#1763e8] text-sm text-white">2</span>目标客户条件</h2><p className="ml-[38px] mt-1 text-sm text-[#778397]">行业可多选或自定义；系统按任一目标行业匹配，并逐家核验真实业务。</p></div>

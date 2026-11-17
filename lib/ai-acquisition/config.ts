@@ -1,18 +1,31 @@
-import { countryInfo } from "@/lib/countries";
+import { COUNTRY_OPTIONS, countryInfo } from "@/lib/countries";
 
-export const ACQUISITION_COUNTRIES = [
-  "US","CA","GB","IE","DE","FR","ES","PT","IT","NL","BE","PL","CZ","RO","GR","NO","SE","DK","FI","AT","CH",
-  "AU","NZ","AE","SA","TR","ZA","NG","KE","GH","TZ","UG","MA","EG","MX","BR","AR","CL","CO","PE","IN","ID","MY","SG","PH","TH","VN","JP","KR",
-] as const;
+// GeoNames countryInfo.txt (CC BY 4.0, https://www.geonames.org/) provides
+// current ISO 3166-1 country/territory codes and continents. Exclude its
+// explicitly obsolete AN/CS and temporary XK records. Intl.DisplayNames alone
+// also accepts historical and macro regions, which are not valid search targets.
+const COUNTRY_BY_CONTINENT = {
+  AFRICA: "AO,BF,BI,BJ,BW,CD,CF,CG,CI,CM,CV,DJ,DZ,EG,EH,ER,ET,GA,GH,GM,GN,GQ,GW,KE,KM,LR,LS,LY,MA,MG,ML,MR,MU,MW,MZ,NA,NE,NG,RE,RW,SC,SD,SS,SH,SL,SN,SO,ST,SZ,TD,TG,TN,TZ,UG,YT,ZA,ZM,ZW",
+  ANTARCTICA: "AQ,BV,GS,HM,TF",
+  ASIA: "AE,AF,AM,AZ,BD,BH,BN,BT,CC,CN,GE,HK,ID,IL,IN,IO,IQ,IR,JO,JP,KG,KH,KP,KR,KW,KZ,LA,LB,LK,MM,MN,MO,MV,MY,NP,OM,PH,PK,PS,QA,SA,SG,SY,TH,TJ,TL,TM,TR,TW,UZ,VN,YE",
+  EUROPE: "AD,AL,AT,AX,BA,BE,BG,BY,CH,CY,CZ,DE,DK,EE,ES,FI,FO,FR,GB,GG,GI,GR,HR,HU,IE,IM,IS,IT,JE,LI,LT,LU,LV,MC,MD,ME,MK,MT,NL,NO,PL,PT,RO,RS,RU,SE,SI,SJ,SK,SM,UA,VA",
+  NORTH_AMERICA: "AG,AI,AW,BB,BL,BM,BQ,BS,BZ,CA,CR,CU,CW,DM,DO,GD,GL,GP,GT,HN,HT,JM,KN,KY,LC,MF,MQ,MS,MX,NI,PA,PM,PR,SV,SX,TC,TT,US,VC,VG,VI",
+  OCEANIA: "AS,AU,CK,CX,FJ,FM,GU,KI,MH,MP,NC,NF,NR,NU,NZ,PF,PG,PN,PW,SB,TK,TO,TV,UM,VU,WF,WS",
+  SOUTH_AMERICA: "AR,BO,BR,CL,CO,EC,FK,GF,GY,PE,PY,SR,UY,VE",
+} as const;
+const COUNTRY_CODES = new Set(Object.values(COUNTRY_BY_CONTINENT).flatMap((codes) => codes.split(",")));
+export const ACQUISITION_COUNTRIES = COUNTRY_OPTIONS.map(({ code }) => code)
+  .filter((code) => COUNTRY_CODES.has(code));
 
 export type AcquisitionCountry = (typeof ACQUISITION_COUNTRIES)[number];
 export const ACQUISITION_COUNTRY_GROUPS = [
-  { key: "EUROPE", label: "欧洲", countries: ["GB","IE","DE","FR","ES","PT","IT","NL","BE","PL","CZ","RO","GR","NO","SE","DK","FI","AT","CH"] },
-  { key: "ASIA", label: "亚洲", countries: ["AE","SA","TR","IN","ID","MY","SG","PH","TH","VN","JP","KR"] },
-  { key: "AFRICA", label: "非洲", countries: ["ZA","NG","KE","GH","TZ","UG","MA","EG"] },
-  { key: "NORTH_AMERICA", label: "北美洲", countries: ["US","CA","MX"] },
-  { key: "SOUTH_AMERICA", label: "南美洲", countries: ["BR","AR","CL","CO","PE"] },
-  { key: "OCEANIA", label: "大洋洲", countries: ["AU","NZ"] },
+  { key: "ASIA", label: "亚洲", countries: ACQUISITION_COUNTRIES.filter((code) => COUNTRY_BY_CONTINENT.ASIA.split(",").includes(code)) },
+  { key: "EUROPE", label: "欧洲", countries: ACQUISITION_COUNTRIES.filter((code) => COUNTRY_BY_CONTINENT.EUROPE.split(",").includes(code)) },
+  { key: "AFRICA", label: "非洲", countries: ACQUISITION_COUNTRIES.filter((code) => COUNTRY_BY_CONTINENT.AFRICA.split(",").includes(code)) },
+  { key: "NORTH_AMERICA", label: "北美洲", countries: ACQUISITION_COUNTRIES.filter((code) => COUNTRY_BY_CONTINENT.NORTH_AMERICA.split(",").includes(code)) },
+  { key: "SOUTH_AMERICA", label: "南美洲", countries: ACQUISITION_COUNTRIES.filter((code) => COUNTRY_BY_CONTINENT.SOUTH_AMERICA.split(",").includes(code)) },
+  { key: "OCEANIA", label: "大洋洲", countries: ACQUISITION_COUNTRIES.filter((code) => COUNTRY_BY_CONTINENT.OCEANIA.split(",").includes(code)) },
+  { key: "ANTARCTICA", label: "南极及属地", countries: ACQUISITION_COUNTRIES.filter((code) => COUNTRY_BY_CONTINENT.ANTARCTICA.split(",").includes(code)) },
 ] as const satisfies ReadonlyArray<{key:string;label:string;countries:ReadonlyArray<AcquisitionCountry>}>;
 export const MAX_ACQUISITION_INDUSTRIES = 40;
 export const MAX_ACQUISITION_KEYWORDS = 60;

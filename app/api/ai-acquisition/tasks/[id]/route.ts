@@ -12,6 +12,8 @@ import { acquisitionIndustryMatchesVerifiedResult } from "@/lib/ai-acquisition/i
 import { acquisitionIndustryMismatchReason } from "@/lib/ai-acquisition/decision-reason";
 import { countAcquisitionCandidateDecisions } from "@/lib/ai-acquisition/decision-counts";
 import { countryFilterRawValues } from "@/lib/countries";
+import { geographyScopeLabel, type GeographyScopes } from "@/lib/ai-acquisition/geography";
+import type { AcquisitionCountry } from "@/lib/ai-acquisition/config";
 
 async function authorizedTask(id: string, account: Awaited<ReturnType<typeof requirePermission>>["account"]) {
   const result = await createAdminClient().from("ai_acquisition_tasks").select("*,owner:users!ai_acquisition_tasks_user_id_fkey(id,name,email)").eq("id", id).maybeSingle();
@@ -25,7 +27,12 @@ function presentTask<T extends Record<string, unknown>>(task: T) {
   const scheduled = task.status === "QUEUED" && !task.started_at && task.last_dispatch_at && new Date(String(task.last_dispatch_at)).getTime() > Date.now()
     ? String(task.last_dispatch_at)
     : null;
-  return { ...task, scheduled_at: scheduled };
+  const scopes = (task.geography_scopes || {}) as GeographyScopes;
+  const geography_labels = Object.entries(scopes).flatMap(([country, values]) => (values || [])
+    .map((value) => geographyScopeLabel(country as AcquisitionCountry, value))
+    .filter((value): value is string => Boolean(value))
+    .map((value) => `${value} · ${country}`));
+  return { ...task, geography_labels, scheduled_at: scheduled };
 }
 
 async function loadCustomerStates(customerIds: string[]) {
@@ -166,7 +173,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     const checkpointBlocks=Array.isArray(checkpointProgress?.blocked_periods)?checkpointProgress.blocked_periods.map(String):[];
     const blockedPeriods=[...new Set([...(budgetEvents.data||[]).map((row)=>String(row.blocked_period||"")),...checkpointBlocks].filter(Boolean))];
     const taskIndustries=Array.isArray(task.industries)&&task.industries.length?task.industries:[task.industry];
-    const plannedSearches=Math.max(1,(task.countries||[]).reduce((sum:number,country:string)=>sum+plannedDiscoveryScopeCount(country as Parameters<typeof plannedDiscoveryScopeCount>[0],taskIndustries,task.keywords||[]),0));
+    const plannedSearches=Math.max(1,(task.countries||[]).reduce((sum:number,country:string)=>sum+plannedDiscoveryScopeCount(country as Parameters<typeof plannedDiscoveryScopeCount>[0],taskIndustries,task.keywords||[],task.geography_scopes?.[country]||[]),0));
     const totalCheckpoints=Number(checkpointProgress?.total_count||0);
     const completedSearches=Number(checkpointProgress?.terminal_count||0);
     const completedFreshSearches=Number(checkpointProgress?.fresh_completed_count||0);

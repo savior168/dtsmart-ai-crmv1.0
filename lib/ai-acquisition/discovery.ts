@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { releaseApiCostBudget, reserveApiCostBudget } from "@/lib/api-cost-budget";
-import { ACQUISITION_COUNTRY_SEARCH_AREAS, ACQUISITION_FRESH_SEARCH_SCOPES_PER_COUNTRY, acquisitionSearchLanguage, localizedSearchTerms, type AcquisitionCountry } from "./config";
+import { ACQUISITION_FRESH_SEARCH_SCOPES_PER_COUNTRY, acquisitionSearchLanguage, localizedSearchTerms, type AcquisitionCountry } from "./config";
+import { placeMatchesGeography, planGeographyQueries, type GeographyScope } from "./geography";
 import { prioritizeDiscoveryCandidates } from "./relevance";
 export { discoveryCandidateLooksRelevant } from "./relevance";
 
@@ -23,25 +24,6 @@ const DISCOVERY_STEP_FRESH_SCOPE_BATCH = 20;
 
 function searchScopeKey(country: AcquisitionCountry, query: string) {
   return `${DISCOVERY_STRATEGY_VERSION}\n${country}\n${query.trim().toLowerCase()}`;
-}
-
-function discoveryQueries(country: AcquisitionCountry, countryName: string, terms: string[]) {
-  const areas = ACQUISITION_COUNTRY_SEARCH_AREAS[country] || [];
-  const queries: string[] = [];
-  // Interleave the country baseline with one geographic shard per term, then
-  // rotate every term through the remaining areas. Early stopping therefore
-  // still covers different industries and different parts of the country.
-  for (let termIndex = 0; termIndex < terms.length; termIndex += 1) {
-    queries.push(`${terms[termIndex]} in ${countryName}`);
-    if (areas.length) queries.push(`${terms[termIndex]} in ${areas[termIndex % areas.length]}, ${countryName}`);
-  }
-  for (let round = 1; round < areas.length; round += 1) {
-    for (let termIndex = 0; termIndex < terms.length; termIndex += 1) {
-      const area = areas[(termIndex + round) % areas.length];
-      queries.push(`${terms[termIndex]} in ${area}, ${countryName}`);
-    }
-  }
-  return [...new Set(queries)];
 }
 
 async function prioritizeUncoveredQueries(country: AcquisitionCountry, queries: string[]) {
@@ -81,13 +63,13 @@ async function currentMonthSkuCalls(sku: string) {
 
 export async function discoverBusinesses(input: {
   acquisitionTaskId: string; screeningTaskId: string; userId: string; costMode: "FREE_ONLY" | "ADAPTIVE";
-  country: AcquisitionCountry; industries: string[]; keywords: string[]; excludedKeywords: string[]; limit: number;
+  country: AcquisitionCountry; geographyScopes?: GeographyScope[]; industries: string[]; keywords: string[]; excludedKeywords: string[]; limit: number;
 }) {
   const apiKey = process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_PLACES_API_KEY;
   if (!apiKey) throw new Error("GOOGLE_PLACES_API_KEY_NOT_CONFIGURED");
   const countryName = new Intl.DisplayNames(["en"], { type: "region" }).of(input.country) || input.country;
   const terms = localizedSearchTerms(input.country, input.industries, input.keywords);
-  const coveragePlan = await prioritizeUncoveredQueries(input.country, discoveryQueries(input.country, countryName, terms));
+  const coveragePlan = await prioritizeUncoveredQueries(input.country, planGeographyQueries(input.country, countryName, terms, input.geographyScopes));
   const queries = coveragePlan.queries;
   const results = new Map<string, DiscoveredBusiness>();
   const rankedBusinesses = () => prioritizeDiscoveryCandidates([...results.values()], input.industries, input.keywords, input.limit);
@@ -168,7 +150,7 @@ export async function discoverBusinesses(input: {
         });
         const requestId = response.headers.get("x-request-id") || response.headers.get("x-goog-request-id") || randomUUID();
         const ok = response.ok;
-        const payload = await response.json() as { places?: Array<{ id?: string; displayName?: { text?: string }; formattedAddress?: string; addressComponents?: Array<{shortText?:string;types?:string[]}>; businessStatus?: string; types?: string[]; googleMapsUri?: string }>; nextPageToken?: string; error?: { message?: string } };
+        const payload = await response.json() as { places?: Array<{ id?: string; displayName?: { text?: string }; formattedAddress?: string; addressComponents?: Array<{shortText?:string;longText?:string;types?:string[]}>; businessStatus?: string; types?: string[]; googleMapsUri?: string }>; nextPageToken?: string; error?: { message?: string } };
         const ledger = await createAdminClient().from("api_cost_ledger").insert({
           // The reservation is charged against the screening child task. Use
           // the same ID in the immutable ledger so its task cap includes search.
@@ -188,6 +170,7 @@ export async function discoverBusinesses(input: {
           const returnedCountry=place.addressComponents?.find((component)=>component.types?.includes("country"))?.shortText?.toUpperCase();
           const searchable = `${companyName} ${address} ${(place.types || []).join(" ")}`.toLowerCase();
           if (!placeId || !companyName || returnedCountry!==input.country || excluded.some((word) => searchable.includes(word))) continue;
+          if (!placeMatchesGeography(input.country, input.geographyScopes || [], place.addressComponents)) continue;
           const previous=results.get(placeId);
           if (previous) {
             const business={...previous,matchedTerms:[...new Set([...(previous.matchedTerms||[]),term])]};
@@ -216,8 +199,8 @@ export async function discoverBusinesses(input: {
   return { businesses:rankedBusinesses(), control:shouldContinue?"CONTINUE" as const:null };
 }
 
-export function plannedDiscoveryScopeCount(country: AcquisitionCountry, industries: string[], keywords: string[]) {
+export function plannedDiscoveryScopeCount(country: AcquisitionCountry, industries: string[], keywords: string[], scopes: GeographyScope[] = []) {
   const countryName = new Intl.DisplayNames(["en"], { type: "region" }).of(country) || country;
   const terms = localizedSearchTerms(country, industries, keywords);
-  return Math.min(ACQUISITION_FRESH_SEARCH_SCOPES_PER_COUNTRY, discoveryQueries(country, countryName, terms).length);
+  return Math.min(ACQUISITION_FRESH_SEARCH_SCOPES_PER_COUNTRY, planGeographyQueries(country, countryName, terms, scopes).length);
 }

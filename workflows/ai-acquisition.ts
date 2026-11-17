@@ -4,6 +4,7 @@ import { createAdminClient } from "../lib/supabase/admin";
 import { aiScreeningWorkflow } from "./ai-screening";
 import { discoverBusinesses, discoveryCandidateLooksRelevant, type DiscoveredBusiness } from "../lib/ai-acquisition/discovery";
 import type { AcquisitionCountry } from "../lib/ai-acquisition/config";
+import type { GeographyScopes } from "../lib/ai-acquisition/geography";
 import { acquisitionIndustryMatchesVerifiedResult } from "../lib/ai-acquisition/industry-match";
 import { acquisitionIndustryMismatchReason } from "../lib/ai-acquisition/decision-reason";
 import { evaluateAcquisitionGate } from "../lib/ai-acquisition/quality-gate";
@@ -15,7 +16,7 @@ import { remainingAcquisitionTaskLimit } from "../lib/ai-acquisition/cost-budget
 
 type AcquisitionTask = {
   id: string; user_id: string; task_number: string; name: string; cost_mode: "FREE_ONLY" | "ADAPTIVE";
-  countries: AcquisitionCountry[]; industry: string; industries?: string[]; keywords: string[]; excluded_keywords: string[];
+  countries: AcquisitionCountry[]; geography_scopes?: GeographyScopes; industry: string; industries?: string[]; keywords: string[]; excluded_keywords: string[];
   target_count: number; discovered_count: number; task_cost_limit_usd: number | null; status: string; cancel_requested: boolean;
 };
 
@@ -125,7 +126,7 @@ async function stageCandidates(task: AcquisitionTask, screeningTaskId: string) {
     const remainingCountries=Math.max(1,task.countries.length-countryIndex);
     const remainingCapacity=Math.max(1,taskRemainingCapacity-unique.size);
     const countryLimit=Math.max(20,Math.ceil(remainingCapacity/remainingCountries));
-    const discovery = await discoverBusinesses({ acquisitionTaskId: task.id, screeningTaskId, userId: task.user_id, costMode: task.cost_mode, country, industries, keywords: task.keywords, excludedKeywords: task.excluded_keywords, limit: countryLimit });
+    const discovery = await discoverBusinesses({ acquisitionTaskId: task.id, screeningTaskId, userId: task.user_id, costMode: task.cost_mode, country, geographyScopes: task.geography_scopes?.[country] || [], industries, keywords: task.keywords, excludedKeywords: task.excluded_keywords, limit: countryLimit });
     discovery.businesses.forEach((business) => {
       if (unique.size < taskRemainingCapacity) unique.set(business.placeId, business);
     });
