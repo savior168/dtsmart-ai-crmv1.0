@@ -95,19 +95,25 @@ export function planGeographyQueries(country: AcquisitionCountry, countryName: s
 export function placeMatchesGeography(country: AcquisitionCountry, scopes: GeographyScope[], components: Array<{longText?: string; shortText?: string; types?: string[]}> | undefined) {
   if (!scopes.length) return true;
   const normalized = (value: string) => value.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+  const comparable = (value: string) => {
+    const name = normalized(value);
+    // Chinese address components may include the administrative suffix while
+    // the attested GeoNames label omits it (安徽 / 安徽省, 合肥 / 合肥市).
+    return /\p{Script=Han}/u.test(name) ? name.replace(/[省市]$/u, "") : name;
+  };
   const parts = components || [];
   return scopes.some((scope) => {
     const region = acquisitionRegions(country).find((item) => item.code === scope.regionCode);
     if (!region) return false;
-    const regionValues = [region.name, region.name.replace(/^State of /i, ""), addressAliases.regions[country]?.[region.code]].filter((value): value is string => Boolean(value)).map(normalized);
+    const regionValues = [region.name, region.name.replace(/^State of /i, ""), addressAliases.regions[country]?.[region.code], displayNames.regions[country]?.[region.code]].filter((value): value is string => Boolean(value)).map(comparable);
     if (!regionValues.length) return false;
     const regionMatches = parts.some((component) => component.types?.includes("administrative_area_level_1") && (
-      [component.longText, component.shortText].some((value) => value && regionValues.includes(normalized(value)))
+      [component.longText, component.shortText].some((value) => value && regionValues.includes(comparable(value)))
       || (["US", "CH", "BE", "ME"].includes(country) && component.shortText?.toUpperCase() === scope.regionCode.toUpperCase())
     ));
     if (!regionMatches) return false;
     if (!scope.city) return true;
-    const cityValues = [scope.city, addressAliases.cities[country]?.[region.code]?.[scope.city]].filter((value): value is string => Boolean(value)).map(normalized);
-    return parts.some((component) => component.types?.some((type) => ["locality", "postal_town", "administrative_area_level_2"].includes(type)) && [component.longText, component.shortText].some((value) => value && cityValues.includes(normalized(value))));
+    const cityValues = [scope.city, addressAliases.cities[country]?.[region.code]?.[scope.city], displayNames.cities[country]?.[region.code]?.[scope.city]].filter((value): value is string => Boolean(value)).map(comparable);
+    return parts.some((component) => component.types?.some((type) => ["locality", "postal_town", "administrative_area_level_2"].includes(type)) && [component.longText, component.shortText].some((value) => value && cityValues.includes(comparable(value))));
   });
 }

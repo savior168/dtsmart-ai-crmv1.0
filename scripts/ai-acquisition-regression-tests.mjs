@@ -211,6 +211,9 @@ assert.equal(placeMatchesGeography("DE",[{regionCode:"16",city:"Berlin"}],[{type
 assert.equal(placeMatchesGeography("DE",[{regionCode:"16",city:"Berlin"}],[{types:["administrative_area_level_1"],longText:"Brandenburg"},{types:["locality"],longText:"Berlin"}]),false,"不能仅凭同名城市绕过省州条件");
 assert.equal(placeMatchesGeography("DE",[{regionCode:"02",city:"Munich"}],[{types:["administrative_area_level_1"],longText:"Bayern"},{types:["locality"],longText:"München"}]),true,"本地语种地址须匹配 GeoNames 同一行政区域的正式别名");
 assert.equal(placeMatchesGeography("DE",[{regionCode:"02",city:"Munich"}],[{types:["administrative_area_level_1"],longText:"Brandenburg"},{types:["locality"],longText:"München"}]),false,"本地语种同名城市不得绕过省州限制");
+assert.equal(placeMatchesGeography("CN",[{regionCode:"01",city:"Hefei"}],[{types:["administrative_area_level_1"],longText:"安徽省"},{types:["locality"],longText:"合肥市"}]),true,"可靠中文地名及常见省市后缀应匹配同一地区的地址");
+assert.equal(placeMatchesGeography("CN",[{regionCode:"01",city:"Hefei"}],[{types:["administrative_area_level_1"],longText:"广东省"},{types:["locality"],longText:"合肥市"}]),false,"中文同名城市也不得绕过所选省份");
+assert.equal(placeMatchesGeography("CN",[{regionCode:"01",city:"Hefei"}],[{types:["administrative_area_level_1"],longText:"安徽省"},{types:["locality"],longText:"芜湖市"}]),false,"中文同省异城不得误入");
 assert.equal(placeMatchesGeography("US",[{regionCode:"NY",city:null}],california),false,"其他省州不得误入");
 assert.equal(placeMatchesGeography("US",[{regionCode:"CA",city:"Los Angeles"}],undefined),false,"缺少地址组件时不得假装精确地域命中");
 assert.throws(()=>normalizeGeographyScopes({DE:[{regionCode:"CA",city:null}]},["US"]),/必须属于所选国家/);
