@@ -32,8 +32,9 @@ assert.match(stock, /纸质送货单号（选填，可后补）/);
 assert.match(stock, /recentNotes = \(data\.receipts \|\| \[\]\)\.filter\(\(receipt\) => \{[\s\S]*receipt\.remaining_quantity <= 0/, "已全额冲正的送货单不得再作为回货复用候选");
 assert.match(cutover, /legacy_quantity < 0[\s\S]*supplier_receipt_legacy_baselines[\s\S]*stock_receipt_requires_supplier_document/, "历史实收应先对齐来源基线再启用数量校验");
 assert.match(missingDocumentsView, /fetchAll<DocumentRow>[\s\S]*fetchAll<LegacyRow>[\s\S]*new Map<string, QueueRow>[\s\S]*<LegacySupplierSourcesView orderId=/, "仓库待补信息须按 PI 合并并在本页补录");
-assert.match(missingDocumentsView, /送货单号待补[\s\S]*送货单照片待补[\s\S]*供应商及历史回货来源待核[\s\S]*SupplierDeliveryNoteFiles/, "清单须统一送货单号与照片名称并内嵌补录");
+assert.match(missingDocumentsView, /送货单号待补[\s\S]*历史回货来源待归属[\s\S]*缺照片[\s\S]*SupplierDeliveryNoteFiles/, "清单须区分待归属来源、待补单号与具体送货单缺照片");
 assert.match(read("app/api/stock-orders/missing-documents/route.ts"), /photographed = new Set[\s\S]*missingNotesByOrder[\s\S]*missing_photo_note_numbers/, "待补清单须按实际送货单号去重提示缺失照片");
+assert.match(read("app/api/stock-orders/missing-documents/route.ts"), /pendingNumbersByOrder[\s\S]*unlinkedByOrder[\s\S]*pending_note_number_count[\s\S]*unlinked_shipped_item_count/, "缺单号须与尚未关联送货单来源区分");
 assert.match(missingDocumentsView, /row\.missing_photo_note_numbers\.join\("、"\)[\s\S]*缺照片/, "缺照片应指出具体送货单号");
 assert.match(missingDocumentsView, /row\.order\.warehouse_reference_number \|\| row\.order\.order_number/, "历史 PI 应优先显示制单人填写的 D 单号");
 assert.match(missingDocumentsView, /row\.legacy_count > 0 \? <p[^>]*>请在下方按产品核对供应商/, "有历史实收来源时须提示页内补录路径");
@@ -42,6 +43,7 @@ assert.match(legacySourcesView, /import \{ AppSelect \} from "@\/components\/ui\
 assert.doesNotMatch(legacySourcesView, /<select aria-label="历史来源供应商"/, "历史补录不得退回原生供应商下拉");
 assert.match(legacySourcesView, /new Map<string, Row\[\]>\(\)[\s\S]*待补 \{orderRows\.length\} 项[\s\S]*aria-expanded=\{expandedOrder === groupOrderId\}[\s\S]*orderRows\.sort/, "相同 PI 应合并为可展开的产品清单");
 assert.match(legacySourcesView, /同送货单批量补录[\s\S]*批量确认关联/, "同 PI 多项产品须支持一次关联同一张送货单");
+assert.doesNotMatch(legacySourcesView, /统一采购单价|应用到已选产品|commonPrice/, "历史来源批量补录不得将统一采购价套用到不同产品");
 assert.match(legacySourcesView, /showLinkedNote[\s\S]*body\.delivery_notes[\s\S]*setNewNote\(linked \|\| null\)/, "关联后须读取送货单真实照片状态并在本页展示上传入口");
 assert.match(legacySourcesApi, /"lines" in body[\s\S]*link_legacy_supplier_receipt_sources_batch/, "批量补录必须走单次事务 RPC");
 assert.match(batchLegacyMigration, /security invoker[\s\S]*jsonb_array_length\(p_lines\) not between 1 and 50[\s\S]*order_id <> current_order_id[\s\S]*link_legacy_supplier_receipt_source/, "批量补录须限制同 PI、50 项且复用单项权限与审计校验");

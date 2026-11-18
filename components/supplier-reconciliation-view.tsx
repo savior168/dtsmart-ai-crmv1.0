@@ -6,7 +6,6 @@ import { AppDialog } from "@/components/ui/app-dialog";
 import { SupplierDeliveryNoteFiles, type SupplierDeliveryNoteView } from "@/components/supplier-delivery-note-files";
 import { SupplierMonthlyMatrix } from "@/components/supplier-monthly-matrix";
 import { CompactDateRange } from "@/components/ui/compact-date-range";
-import { MonthRangeShortcut } from "@/components/ui/month-range-shortcut";
 import { AppSelect } from "@/components/ui/app-select";
 import { AppPagination } from "@/components/ui/app-pagination";
 import { BUSINESS_DATE_PRESETS, businessDatePreset, type BusinessDatePreset } from "@/lib/reports/date-presets";
@@ -227,8 +226,7 @@ export function SupplierReconciliationView({ canRecordPayment }: { canRecordPaym
   return <main className="p-4 lg:p-6"><div className="mx-auto max-w-[1600px] space-y-4">
     <div><h1 className="text-xl font-semibold">供应商对账</h1><p className="mt-1 text-sm text-slate-600">按送货日期汇总实收分配；一张纸质送货单可关联多张 PI。现金结也纳入应付，只有财务已登记付款才冲减未付。</p></div>
     <section className="rounded-xl border bg-white p-4 shadow-sm"><div className="flex flex-wrap items-center gap-2 text-sm">
-      <CompactDateRange label="送货日期" fromLabel="送货开始日期" toLabel="送货结束日期" from={from} to={to} onFromChange={(value) => { setFrom(value); setSelectedPreset(""); }} onToChange={(value) => { setTo(value); setSelectedPreset(""); }} presets={BUSINESS_DATE_PRESETS} selectedPreset={selectedPreset} onPresetChange={selectPreset}/>
-      <MonthRangeShortcut from={from} to={to} onApply={(range) => { setFrom(range.from); setTo(range.to); setSelectedPreset(""); setMatrixOrigin(null); setPage(1); setExpanded(null); setExpandedSupplier(null); setFilters({ ...range, supplierId, search: searchText.trim() }); }}/>
+      <CompactDateRange label="送货日期" fromLabel="送货开始日期" toLabel="送货结束日期" from={from} to={to} onFromChange={(value) => { setFrom(value); setSelectedPreset(""); }} onToChange={(value) => { setTo(value); setSelectedPreset(""); }} presets={BUSINESS_DATE_PRESETS} selectedPreset={selectedPreset} onPresetChange={selectPreset} onMonthRangeApply={(range) => { setFrom(range.from); setTo(range.to); setSelectedPreset(""); setMatrixOrigin(null); setPage(1); setExpanded(null); setExpandedSupplier(null); setFilters({ ...range, supplierId, search: searchText.trim() }); }}/>
       <input aria-label="搜索送货单号、供应商代码或PI订单号" maxLength={80} value={searchText} onChange={(event) => setSearchText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") search(); }} placeholder="搜索送货单号 / 供应商代码 / PI订单号" className="h-10 min-w-64 flex-1 rounded-lg border border-slate-200 px-3 text-slate-700 placeholder:text-slate-400"/>
       {supplierId ? <button type="button" onClick={clearSupplierFilter} className="h-10 whitespace-nowrap rounded-lg border border-blue-200 bg-blue-50 px-3 text-blue-700" aria-label="清除供应商筛选">供应商 {supplierSummary.find((item) => item.supplier_id === supplierId)?.system_code || "已选"} ×</button> : null}
       <button onClick={search} className="h-10 rounded-lg bg-blue-600 px-4 text-white">查询</button>

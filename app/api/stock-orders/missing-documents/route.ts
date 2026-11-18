@@ -35,16 +35,36 @@ export async function GET(request: NextRequest) {
     const orderByItem = new Map((items.data || []).map((item) => [item.id, item.stock_order_id]));
     const photographed = new Set((photos.data || []).map((photo) => photo.supplier_delivery_note_id));
     const missingNotesByOrder = new Map<string, Set<string>>();
+    const pendingNumbersByOrder = new Map<string, Set<string>>();
+    const pendingPhotosByOrder = new Map<string, Set<string>>();
     const notesById = new Map((notes.data || []).map((note) => [note.id, note]));
     for (const allocation of allocations.data || []) {
       const orderId = orderByItem.get(allocation.stock_order_item_id);
       const note = notesById.get(allocation.delivery_note_id);
-      if (!orderId || !note || note.number_pending || photographed.has(note.id)) continue;
+      if (!orderId || !note) continue;
+      if (note.number_pending) {
+        if (!pendingNumbersByOrder.has(orderId)) pendingNumbersByOrder.set(orderId, new Set());
+        pendingNumbersByOrder.get(orderId)!.add(note.id);
+        if (!photographed.has(note.id)) {
+          if (!pendingPhotosByOrder.has(orderId)) pendingPhotosByOrder.set(orderId, new Set());
+          pendingPhotosByOrder.get(orderId)!.add(note.id);
+        }
+        continue;
+      }
+      if (photographed.has(note.id)) continue;
       if (!missingNotesByOrder.has(orderId)) missingNotesByOrder.set(orderId, new Set());
       missingNotesByOrder.get(orderId)!.add(note.note_number);
     }
+    const allocatedItemIds = new Set((allocations.data || []).map((allocation) => allocation.stock_order_item_id));
+    const unlinkedByOrder = new Map<string, number>();
+    for (const item of items.data || []) {
+      if (!allocatedItemIds.has(item.id)) unlinkedByOrder.set(item.stock_order_id, (unlinkedByOrder.get(item.stock_order_id) || 0) + 1);
+    }
     return NextResponse.json({ data: rows.map((row) => ({ ...row,
       missing_photo_note_numbers: [...(missingNotesByOrder.get(row.stock_order_id) || [])].sort(),
+      pending_note_number_count: pendingNumbersByOrder.get(row.stock_order_id)?.size || 0,
+      pending_note_photo_count: pendingPhotosByOrder.get(row.stock_order_id)?.size || 0,
+      unlinked_shipped_item_count: unlinkedByOrder.get(row.stock_order_id) || 0,
     })), count: Number(rows[0]?.total_count || 0), page }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
     const message = sqlErrorMessage(error, "待补送货单清单加载失败");

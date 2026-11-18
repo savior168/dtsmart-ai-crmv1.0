@@ -8,14 +8,15 @@ import { AppSelect } from "@/components/ui/app-select";
 type Row = {
   stock_order_item_id: string; quantity: number;
   item: { id: string; line_number: number; item_name: string | null; brand: string | null;
-    model: string | null; quality: string | null; received_quantity: number; shipped_quantity: number };
+    model: string | null; quality: string | null; received_quantity: number; shipped_quantity: number;
+    warehouse_supplier_code: string | null; procurement_cost: number; procurement_cost_confirmed: boolean };
   order: { id: string; order_number: string; warehouse_reference_number: string | null;
     status: string; updated_at: string };
 };
 type Supplier = { id: string; system_code: string };
-type Draft = { row: Row; supplierId: string; noteNumber: string; date: string; quantity: string; unitPrice: string };
+type Draft = { row: Row; supplierId: string; noteNumber: string; date: string; quantity: string; unitPrice: string; adjustDetails: boolean };
 type BatchDraft = { orderRows: Row[]; selectedIds: string[]; supplierId: string; noteNumber: string;
-  date: string; quantities: Record<string, string>; prices: Record<string, string>; commonPrice: string; confirmed: boolean };
+  date: string; quantities: Record<string, string>; prices: Record<string, string>; confirmed: boolean; adjustDetails: boolean };
 
 export function LegacySupplierSourcesView({ orderId, onUpdated }: { orderId?: string; onUpdated?: () => void } = {}) {
   const [rows, setRows] = useState<Row[]>([]);
@@ -98,10 +99,14 @@ export function LegacySupplierSourcesView({ orderId, onUpdated }: { orderId?: st
 
   function openBatch(orderRows: Row[]) {
     setDraft(null); setNewNote(null); setError(""); setMessage("");
+    const codes = [...new Set(orderRows.map((row) => row.item.warehouse_supplier_code).filter(Boolean))];
+    const supplierId = codes.length === 1 ? suppliers.find((supplier) => supplier.system_code === codes[0])?.id || "" : "";
     setBatchDraft({ orderRows, selectedIds: orderRows.map((row) => row.stock_order_item_id),
-      supplierId: "", noteNumber: "", date: "",
+      supplierId, noteNumber: "", date: "",
       quantities: Object.fromEntries(orderRows.map((row) => [row.stock_order_item_id, String(row.quantity)])),
-      prices: {}, commonPrice: "", confirmed: false });
+      prices: Object.fromEntries(orderRows.filter((row) => row.item.procurement_cost_confirmed)
+        .map((row) => [row.stock_order_item_id, Number(row.item.procurement_cost).toFixed(2)])),
+      confirmed: false, adjustDetails: orderRows.some((row) => !row.item.procurement_cost_confirmed) });
   }
 
   async function submitBatch() {
@@ -148,29 +153,30 @@ export function LegacySupplierSourcesView({ orderId, onUpdated }: { orderId?: st
       {(expandedOrder === groupOrderId || Boolean(orderId)) ? <div id={`legacy-items-${groupOrderId}`} className="space-y-2 border-t bg-slate-50/60 p-3">
       {batchDraft?.orderRows[0]?.order.id === groupOrderId ? <div className="rounded-lg border border-blue-200 bg-white p-3 text-xs">
         <p className="font-semibold text-blue-900">同一张送货单批量补录 · 任一行失败则全部不保存</p>
-        <p className="mt-1 text-slate-600">只勾选确实属于同一供应商、同一张送货单的产品；数量和采购单价逐行核对。</p>
+        <p className="mt-1 text-slate-600">只勾选属于同一供应商、同一送货单的产品；原回货数量与仓库已确认采购价自动带入，不采用 PI 预估成本。</p>
         <div className="mt-3 grid gap-2 sm:grid-cols-3">
-          <label>供应商代码<AppSelect aria-label="批量历史来源供应商" required forceSearch value={batchDraft.supplierId} onChange={(event) => setBatchDraft({ ...batchDraft, supplierId: event.target.value, confirmed: false })} className="mt-1 h-9 w-full" placeholderValue=""><option value="">选择已核对供应商</option>{suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.system_code}</option>)}</AppSelect></label>
+          <label>供应商代码（核对原记录）<AppSelect aria-label="批量历史来源供应商" required forceSearch value={batchDraft.supplierId} onChange={(event) => setBatchDraft({ ...batchDraft, supplierId: event.target.value, confirmed: false })} className="mt-1 h-9 w-full" placeholderValue=""><option value="">选择已核对供应商</option>{suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.system_code}</option>)}</AppSelect></label>
           <label>真实送货单号<input aria-label="批量历史来源送货单号" maxLength={100} value={batchDraft.noteNumber} onChange={(event) => setBatchDraft({ ...batchDraft, noteNumber: event.target.value, confirmed: false })} className="mt-1 h-9 w-full rounded border px-2"/></label>
           <label>送货单日期<input aria-label="批量历史来源送货单日期" type="date" max={new Date().toISOString().slice(0, 10)} value={batchDraft.date} onChange={(event) => setBatchDraft({ ...batchDraft, date: event.target.value, confirmed: false })} className="mt-1 h-9 w-full rounded border px-2"/></label>
         </div>
-        <div className="mt-3 flex flex-wrap items-end gap-2"><label>统一采购单价（可选）<input aria-label="统一采购单价" type="number" min={0} step="0.01" value={batchDraft.commonPrice} onChange={(event) => setBatchDraft({ ...batchDraft, commonPrice: event.target.value })} className="mt-1 h-9 w-36 rounded border px-2"/></label><button type="button" onClick={() => setBatchDraft({ ...batchDraft, prices: Object.fromEntries(batchDraft.selectedIds.map((id) => [id, batchDraft.commonPrice])), confirmed: false })} disabled={!/^(?:0|[1-9]\d{0,11})(?:\.\d{1,2})?$/.test(batchDraft.commonPrice)} className="h-9 rounded border border-blue-200 px-3 text-blue-700 disabled:opacity-40">应用到已选产品</button></div>
-        <div className="mt-3 space-y-1.5">{batchDraft.orderRows.map((row) => <div key={row.stock_order_item_id} className="grid items-center gap-2 rounded border p-2 sm:grid-cols-[minmax(0,1fr)_110px_130px]">
-          <label className="flex min-w-0 items-center gap-2"><input type="checkbox" checked={batchDraft.selectedIds.includes(row.stock_order_item_id)} onChange={(event) => setBatchDraft({ ...batchDraft, selectedIds: event.target.checked ? [...batchDraft.selectedIds, row.stock_order_item_id] : batchDraft.selectedIds.filter((id) => id !== row.stock_order_item_id), confirmed: false })}/><span className="min-w-0 truncate">第 {row.item.line_number} 行 · {[row.item.item_name, row.item.brand, row.item.model].filter(Boolean).join(" / ")} · 待归属 {row.quantity} 件</span></label>
-          <label>归属数量<input aria-label={`第 ${row.item.line_number} 行归属数量`} type="number" min={1} max={row.quantity} step={1} disabled={!batchDraft.selectedIds.includes(row.stock_order_item_id)} value={batchDraft.quantities[row.stock_order_item_id] || ""} onChange={(event) => setBatchDraft({ ...batchDraft, quantities: { ...batchDraft.quantities, [row.stock_order_item_id]: event.target.value }, confirmed: false })} className="mt-1 h-8 w-full rounded border px-2"/></label>
-          <label>采购单价 ¥<input aria-label={`第 ${row.item.line_number} 行采购单价`} type="number" min={0} step="0.01" disabled={!batchDraft.selectedIds.includes(row.stock_order_item_id)} value={batchDraft.prices[row.stock_order_item_id] || ""} onChange={(event) => setBatchDraft({ ...batchDraft, prices: { ...batchDraft.prices, [row.stock_order_item_id]: event.target.value }, confirmed: false })} className="mt-1 h-8 w-full rounded border px-2"/></label>
+        <div className="mt-3 space-y-1.5">{batchDraft.orderRows.map((row) => <div key={row.stock_order_item_id} className={`grid items-center gap-2 rounded border p-2 ${batchDraft.adjustDetails ? "sm:grid-cols-[minmax(0,1fr)_110px_130px]" : "sm:grid-cols-1"}`}>
+          <label className="flex min-w-0 items-center gap-2"><input type="checkbox" checked={batchDraft.selectedIds.includes(row.stock_order_item_id)} onChange={(event) => setBatchDraft({ ...batchDraft, selectedIds: event.target.checked ? [...batchDraft.selectedIds, row.stock_order_item_id] : batchDraft.selectedIds.filter((id) => id !== row.stock_order_item_id), confirmed: false })}/><span className="min-w-0 truncate">第 {row.item.line_number} 行 · {[row.item.item_name, row.item.brand, row.item.model].filter(Boolean).join(" / ")} · 已实收待归属 {row.quantity} 件 · {row.item.procurement_cost_confirmed ? `已确认采购价 ¥${Number(row.item.procurement_cost).toFixed(2)}` : "采购价待核"}</span></label>
+          {batchDraft.adjustDetails ? <label>本次归属数量<input aria-label={`第 ${row.item.line_number} 行归属数量`} type="number" min={1} max={row.quantity} step={1} disabled={!batchDraft.selectedIds.includes(row.stock_order_item_id)} value={batchDraft.quantities[row.stock_order_item_id] || ""} onChange={(event) => setBatchDraft({ ...batchDraft, quantities: { ...batchDraft.quantities, [row.stock_order_item_id]: event.target.value }, confirmed: false })} className="mt-1 h-8 w-full rounded border px-2"/></label> : null}
+          {batchDraft.adjustDetails ? <label>实际采购单价 ¥<input aria-label={`第 ${row.item.line_number} 行实际采购单价`} type="number" min={0} step="0.01" disabled={!batchDraft.selectedIds.includes(row.stock_order_item_id)} value={batchDraft.prices[row.stock_order_item_id] || ""} onChange={(event) => setBatchDraft({ ...batchDraft, prices: { ...batchDraft.prices, [row.stock_order_item_id]: event.target.value }, confirmed: false })} className="mt-1 h-8 w-full rounded border px-2"/></label> : null}
         </div>)}</div>
+        {!batchDraft.orderRows.some((row) => !row.item.procurement_cost_confirmed) ? <button type="button" className="mt-2 text-xs text-blue-700 hover:underline" onClick={() => setBatchDraft({ ...batchDraft, adjustDetails: !batchDraft.adjustDetails, confirmed: false })}>{batchDraft.adjustDetails ? "收起数量与价格调整" : "需要拆分数量或更正采购价？"}</button> : null}
         <label className="mt-3 flex items-center gap-2 text-slate-700"><input type="checkbox" checked={batchDraft.confirmed} onChange={(event) => setBatchDraft({ ...batchDraft, confirmed: event.target.checked })}/>我已按送货单核对所选产品、数量和采购单价</label>
         <div className="mt-3 flex gap-2"><button type="button" disabled={busy || !suppliers.length} onClick={() => void submitBatch()} className="rounded-lg bg-blue-600 px-4 py-2 font-medium text-white disabled:opacity-50">{busy ? "保存中…" : "批量确认关联"}</button><button type="button" disabled={busy} onClick={() => setBatchDraft(null)} className="rounded-lg border px-4 py-2">取消</button></div>
       </div> : null}
       {orderRows.sort((a, b) => a.item.line_number - b.item.line_number).map((row) => <div key={row.stock_order_item_id} className="rounded-lg border bg-white p-3">
-      <div className="flex flex-wrap items-center justify-between gap-2"><div><span className="font-medium">第 {row.item.line_number} 行 · {[row.item.item_name, row.item.brand, row.item.model, row.item.quality].filter(Boolean).join(" / ") || "产品项"}</span><small className="ml-2 text-amber-800">待归属 {row.quantity} 件 · 已实收 {row.item.received_quantity} 件</small></div><button type="button" onClick={() => { setError(""); setNewNote(null); setBatchDraft(null); setDraft({ row, supplierId: "", noteNumber: "", date: "", quantity: String(row.quantity), unitPrice: "" }); }} className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-900">单项补充</button></div>
+      <div className="flex flex-wrap items-center justify-between gap-2"><div><span className="font-medium">第 {row.item.line_number} 行 · {[row.item.item_name, row.item.brand, row.item.model, row.item.quality].filter(Boolean).join(" / ") || "产品项"}</span><small className="ml-2 text-amber-800">待归属 {row.quantity} 件 · 已实收 {row.item.received_quantity} 件</small></div><button type="button" onClick={() => { setError(""); setNewNote(null); setBatchDraft(null); setDraft({ row, supplierId: suppliers.find((supplier) => supplier.system_code === row.item.warehouse_supplier_code)?.id || "", noteNumber: "", date: "", quantity: String(row.quantity), unitPrice: row.item.procurement_cost_confirmed ? Number(row.item.procurement_cost).toFixed(2) : "", adjustDetails: !row.item.procurement_cost_confirmed }); }} className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-900">单项补充</button></div>
       {draft?.row.stock_order_item_id === row.stock_order_item_id ? <div className="mt-3 grid gap-2 border-t pt-3 sm:grid-cols-2 xl:grid-cols-5">
         <label className="text-xs">供应商代码<AppSelect aria-label="历史来源供应商" required forceSearch value={draft.supplierId} onChange={(event) => setDraft({ ...draft, supplierId: event.target.value })} className="mt-1 h-9 w-full" placeholderValue=""><option value="">选择已核对供应商</option>{suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.system_code}</option>)}</AppSelect></label>
         <label className="text-xs">真实送货单号<input aria-label="历史来源送货单号" required maxLength={100} value={draft.noteNumber} onChange={(event) => setDraft({ ...draft, noteNumber: event.target.value })} className="mt-1 h-9 w-full rounded border px-2"/></label>
         <label className="text-xs">送货单日期<input aria-label="历史来源送货单日期" required type="date" max={new Date().toISOString().slice(0, 10)} value={draft.date} onChange={(event) => setDraft({ ...draft, date: event.target.value })} className="mt-1 h-9 w-full rounded border px-2"/></label>
-        <label className="text-xs">本次归属数量（最多 {row.quantity}）<input aria-label="历史来源数量" required type="number" min={1} max={row.quantity} step={1} value={draft.quantity} onChange={(event) => setDraft({ ...draft, quantity: event.target.value })} className="mt-1 h-9 w-full rounded border px-2"/></label>
-        <label className="text-xs">实际采购单价 ¥<input aria-label="历史来源采购单价" required type="number" min={0} step="0.01" value={draft.unitPrice} onChange={(event) => setDraft({ ...draft, unitPrice: event.target.value })} className="mt-1 h-9 w-full rounded border px-2"/></label>
+        {draft.adjustDetails ? <label className="text-xs">本次归属数量（最多 {row.quantity}）<input aria-label="历史来源数量" required type="number" min={1} max={row.quantity} step={1} value={draft.quantity} onChange={(event) => setDraft({ ...draft, quantity: event.target.value })} className="mt-1 h-9 w-full rounded border px-2"/></label> : null}
+        {draft.adjustDetails ? <label className="text-xs">实际采购单价 ¥<input aria-label="历史来源采购单价" required type="number" min={0} step="0.01" value={draft.unitPrice} onChange={(event) => setDraft({ ...draft, unitPrice: event.target.value })} className="mt-1 h-9 w-full rounded border px-2"/></label> : null}
+        {!draft.adjustDetails ? <div className="self-end text-xs text-slate-600">已实收待归属 {row.quantity} 件 · 仓库已确认采购价 ¥{Number(row.item.procurement_cost).toFixed(2)}<button type="button" className="ml-2 text-blue-700 hover:underline" onClick={() => setDraft({ ...draft, adjustDetails: true })}>拆分数量或更正价格</button></div> : null}
         <div className="flex items-end gap-2 sm:col-span-2 xl:col-span-5"><button type="button" disabled={busy || !suppliers.length} onClick={() => void submit()} className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-medium text-white disabled:opacity-50">{busy ? "保存中…" : "确认关联，不增加回货数量"}</button><button type="button" disabled={busy} onClick={() => setDraft(null)} className="rounded-lg border px-4 py-2 text-xs">取消</button></div>
       </div> : null}
     </div>)}</div> : null}</div>) : <p className="p-5 text-center text-sm text-emerald-700">历史回货来源已补齐</p>}</div>
