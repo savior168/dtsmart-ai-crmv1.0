@@ -91,13 +91,19 @@ export function SupplierReconciliationView({ canRecordPayment }: { canRecordPaym
     const queryFrom = params.get("from") || "";
     const queryTo = params.get("to") || "";
     if (!/^\d{4}-\d{2}-\d{2}$/.test(queryFrom) || !/^\d{4}-\d{2}-\d{2}$/.test(queryTo) || queryFrom > queryTo) return;
+    const querySupplierId = params.get("supplier_id") || "";
+    const querySearch = (params.get("search") || "").trim().slice(0, 80);
+    const validSupplierId = /^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(querySupplierId) ? querySupplierId : "";
     setFrom(queryFrom);
     setTo(queryTo);
+    setSupplierId(validSupplierId);
+    setSearchText(querySearch);
     setSelectedPreset("");
-    setFilters({ from: queryFrom, to: queryTo, supplierId: "", search: "" });
+    setFilters({ from: queryFrom, to: queryTo, supplierId: validSupplierId, search: querySearch });
   }, []);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [supplierSummary, setSupplierSummary] = useState<SupplierSummary[]>([]);
+  const [supplierOptions, setSupplierOptions] = useState<SupplierSummary[]>([]);
   const [monthlySummary, setMonthlySummary] = useState<MonthlySummary[]>([]);
   const [canViewDocuments, setCanViewDocuments] = useState(false);
   const [expandedSupplier, setExpandedSupplier] = useState<string | null>(null);
@@ -124,6 +130,7 @@ export function SupplierReconciliationView({ canRecordPayment }: { canRecordPaym
     if (!response?.ok) { setError(body.error || "供应商对账加载失败"); setSummary(null); setSupplierSummary([]); setMonthlySummary([]); setNotes([]); setCanViewDocuments(false); return; }
     setSummary(body.summary || null);
     setSupplierSummary(body.supplier_summary || []);
+    if (!filters.supplierId && !filters.search) setSupplierOptions(body.supplier_summary || []);
     setMonthlySummary(body.monthly_summary || []);
     setCanViewDocuments(body.can_view_documents === true);
     setNotes(body.notes || []);
@@ -227,8 +234,8 @@ export function SupplierReconciliationView({ canRecordPayment }: { canRecordPaym
     <div><h1 className="text-xl font-semibold">供应商对账</h1><p className="mt-1 text-sm text-slate-600">按送货日期汇总实收分配；一张纸质送货单可关联多张 PI。现金结也纳入应付，只有财务已登记付款才冲减未付。</p></div>
     <section className="rounded-xl border bg-white p-4 shadow-sm"><div className="flex flex-wrap items-center gap-2 text-sm">
       <CompactDateRange label="送货日期" fromLabel="送货开始日期" toLabel="送货结束日期" from={from} to={to} onFromChange={(value) => { setFrom(value); setSelectedPreset(""); }} onToChange={(value) => { setTo(value); setSelectedPreset(""); }} presets={BUSINESS_DATE_PRESETS} selectedPreset={selectedPreset} onPresetChange={selectPreset} onMonthRangeApply={(range) => { setFrom(range.from); setTo(range.to); setSelectedPreset(""); setMatrixOrigin(null); setPage(1); setExpanded(null); setExpandedSupplier(null); setFilters({ ...range, supplierId, search: searchText.trim() }); }}/>
+      <AppSelect aria-label="按供应商筛选送货单" value={supplierId} onChange={(event) => setSupplierId(event.target.value)} className="h-10 min-w-44 rounded-lg border border-slate-200 bg-white px-3 text-slate-700" forceSearch><option value="">全部供应商</option>{supplierOptions.map((option) => <option key={option.supplier_id} value={option.supplier_id}>{option.system_code}{option.supplier_name ? ` · ${option.supplier_name}` : ""}</option>)}{supplierId && !supplierOptions.some((option) => option.supplier_id === supplierId) ? <option value={supplierId}>当前选定供应商</option> : null}</AppSelect>
       <input aria-label="搜索送货单号、供应商代码或PI订单号" maxLength={80} value={searchText} onChange={(event) => setSearchText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") search(); }} placeholder="搜索送货单号 / 供应商代码 / PI订单号" className="h-10 min-w-64 flex-1 rounded-lg border border-slate-200 px-3 text-slate-700 placeholder:text-slate-400"/>
-      {supplierId ? <button type="button" onClick={clearSupplierFilter} className="h-10 whitespace-nowrap rounded-lg border border-blue-200 bg-blue-50 px-3 text-blue-700" aria-label="清除供应商筛选">供应商 {supplierSummary.find((item) => item.supplier_id === supplierId)?.system_code || "已选"} ×</button> : null}
       <button onClick={search} className="h-10 rounded-lg bg-blue-600 px-4 text-white">查询</button>
       <button type="button" onClick={reset} className="h-10 rounded-lg border px-3 text-slate-700">重置</button>
     </div><p className="mt-2 text-xs text-slate-500">按所选送货日期范围查找；搜索结果的汇总、月度数据和明细使用同一范围。</p></section>
