@@ -69,6 +69,29 @@ export async function POST(request: NextRequest) {
   try {
     const { supabase } = await warehouseAccess();
     const body = await request.json();
+    if ("lines" in body) {
+      const supplierId = String(body.supplier_id || "");
+      const noteNumber = String(body.note_number || "").trim();
+      const date = String(body.document_date || "");
+      const version = String(body.expected_stock_updated_at || "");
+      const lines = body.lines;
+      const validId = (value: unknown) => typeof value === "string"
+        && /^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(value);
+      if (!validId(supplierId) || !noteNumber || noteNumber.length > 100
+        || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(version))
+        || !Array.isArray(lines) || lines.length < 1 || lines.length > 50
+        || lines.some((line) => !line || !validId(line.stock_order_item_id)
+          || !Number.isSafeInteger(line.quantity) || line.quantity <= 0
+          || !/^(?:0|[1-9]\d{0,11})(?:\.\d{1,2})?$/.test(String(line.purchase_unit_price_cny)))) {
+        throw new Error("请核对同一张纸单的供应商、单号、日期，以及每项数量和采购价");
+      }
+      const result = await supabase.rpc("link_legacy_supplier_receipt_sources_batch", {
+        p_supplier_id: supplierId, p_note_number: noteNumber, p_document_date: date,
+        p_expected_stock_updated_at: version, p_lines: lines,
+      });
+      if (result.error) throw result.error;
+      return NextResponse.json({ data: result.data }, { headers: { "Cache-Control": "private, no-store" } });
+    }
     const id = String(body.stock_order_item_id || "");
     const supplierId = String(body.supplier_id || "");
     const noteNumber = String(body.note_number || "").trim();
