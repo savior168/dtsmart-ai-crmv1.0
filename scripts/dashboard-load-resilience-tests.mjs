@@ -35,5 +35,9 @@ assert.match(financeGrant, /FINANCE', 'reports\.view', true/, "finance report en
 assert.match(reportRoute, /account\.role === "FINANCE"[\s\S]*FinanceReportsView/, "finance must not fall through to sales report");
 assert.match(financeReport, /canViewReconciliation[\s\S]*supplier-reconciliation/, "finance report must gate reconciliation data by its own permission");
 assert.match(financeReport, /document_date/, "finance report must display the database document date field");
+assert.match(financeReport, /<CompactDateRange[^\r\n]*onMonthRangeApply=/, "finance date filter must use the shared month-enabled date range");
+assert.match(financeReport, /<AppSelect aria-label="按供应商筛选财务报表"/, "finance report must offer a supplier filter");
+assert.match(financeReport, /搜索送货单号、供应商代码或PI订单号/, "finance report must support document search");
+assert.doesNotMatch(financeReport, /format: "csv"|导出报表/, "finance report must not expose unsupported CSV export");
 
 console.log("dashboard load resilience checks passed");

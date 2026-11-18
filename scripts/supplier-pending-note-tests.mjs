@@ -56,6 +56,7 @@ assert.match(report, /number_pending[\s\S]*待补送货单号/);
 assert.match(reconciliationView, /groupAllocations\(note\.allocations\)\.slice\(0, 2\)[\s\S]*href=\{`\/orders\/\$\{group\.piId\}`\}/, "送货单行须直接显示关联 PI 编号并能打开对应订单");
 assert.match(reconciliationView, /notes\.map\(\(note\) => <Fragment key=\{note\.id\}>[\s\S]*<tr className="bg-slate-50"><td colSpan=\{13\} className="p-3"><NoteDetails note=\{note\}\/>/, "PI 与产品核对详情须紧跟当前送货单行显示");
 assert.match(reconciliationView, /搜索送货单号、供应商代码或PI订单号[\s\S]*按所选送货日期范围查找/);
+assert.match(reconciliationView, /<AppSelect aria-label="按供应商筛选送货单"[^\r\n]*supplierOptions\.map/, "对账供应商筛选须展示日期范围内有送货单的去重供应商");
 assert.match(reconciliationView, /送货单 <strong[\s\S]*供应商 <strong[\s\S]*实收 <strong[\s\S]*cash_paid_reported_cny > 0[\s\S]*<SummaryMetric label="应付货款"[\s\S]*<SummaryMetric label="已登记付款"[\s\S]*<SummaryMetric label="未付货款"/, "对账概览须突出三项金额，计数与非零现场报付降级展示");
 assert.match(report, /search\.length > 80[\s\S]*supplier_reconciliation_report_search[\s\S]*p_search: search/);
 assert.match(searchMigration, /supplier_reconciliation_report_search[\s\S]*where_clause \|\| chr\(10\)[\s\S]*d\.note_number[\s\S]*s\.system_code[\s\S]*so\.order_number[\s\S]*so\.warehouse_reference_number/);

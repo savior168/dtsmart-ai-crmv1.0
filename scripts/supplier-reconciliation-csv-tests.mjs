@@ -13,10 +13,10 @@ assert.doesNotMatch(reconciliationApi, /format === "csv"|renderSupplierReconcili
   "the incomplete finance reconciliation CSV API must be disabled");
 assert.match(reconciliationView, /搜索送货单号、供应商代码或PI订单号[\s\S]*?onKeyDown=\{\(event\) => \{ if \(event\.key === "Enter"\) search\(\); \}\}/,
   "a single search control must cover delivery note, supplier code and PI number");
-assert.doesNotMatch(reconciliationView, /\/api\/suppliers\?page=|<option value="">全部供应商<\/option>/,
-  "the redundant supplier picker must not fetch every supplier or compete with the search field");
-assert.match(reconciliationView, /aria-label="清除供应商筛选"/,
-  "supplier drill-down must expose a visible way to clear its scoped filter");
+assert.doesNotMatch(reconciliationView, /\/api\/suppliers\?page=/,
+  "the supplier picker must use only suppliers with delivery records in the selected range");
+assert.match(reconciliationView, /<AppSelect aria-label="按供应商筛选送货单"[\s\S]*?<option value="">全部供应商<\/option>/,
+  "supplier filter and drill-down must provide a clear-all choice");
 assert.doesNotMatch(reconciliationView, /legacyUnlinked|全历史另有/,
   "historical supplier-source remediation must not appear on the finance reconciliation page");
 const warehouseQueue = readFileSync(new URL("../components/missing-stock-documents-view.tsx", import.meta.url), "utf8");
