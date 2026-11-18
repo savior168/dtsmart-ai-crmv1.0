@@ -6,6 +6,7 @@ import { AppDialog } from "@/components/ui/app-dialog";
 import { SupplierDeliveryNoteFiles, type SupplierDeliveryNoteView } from "@/components/supplier-delivery-note-files";
 import { SupplierMonthlyMatrix } from "@/components/supplier-monthly-matrix";
 import { CompactDateRange } from "@/components/ui/compact-date-range";
+import { MonthRangeShortcut } from "@/components/ui/month-range-shortcut";
 import { AppSelect } from "@/components/ui/app-select";
 import { AppPagination } from "@/components/ui/app-pagination";
 import { BUSINESS_DATE_PRESETS, businessDatePreset, type BusinessDatePreset } from "@/lib/reports/date-presets";
@@ -96,8 +97,6 @@ export function SupplierReconciliationView({ canRecordPayment }: { canRecordPaym
     setSelectedPreset("");
     setFilters({ from: queryFrom, to: queryTo, supplierId: "", search: "" });
   }, []);
-  const [suppliers, setSuppliers] = useState<Array<{ id: string; system_code: string; short_name: string | null; english_short_name: string | null }>>([]);
-  const [supplierError, setSupplierError] = useState("");
   const [summary, setSummary] = useState<Summary | null>(null);
   const [supplierSummary, setSupplierSummary] = useState<SupplierSummary[]>([]);
   const [monthlySummary, setMonthlySummary] = useState<MonthlySummary[]>([]);
@@ -132,26 +131,6 @@ export function SupplierReconciliationView({ canRecordPayment }: { canRecordPaym
     setError("");
   }, [filters, page, pageSize]);
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => {
-    let cancelled = false;
-    async function loadSuppliers() {
-      try {
-        const all: typeof suppliers = [];
-        for (let page = 1; page <= 10000; page++) {
-          const response = await fetch(`/api/suppliers?page=${page}`, { cache: "no-store" });
-          const body = await response.json();
-          if (!response.ok) throw new Error(body.error || "供应商筛选项加载失败");
-          all.push(...(body.data || []));
-          if (all.length >= body.count || !(body.data || []).length) break;
-        }
-        if (!cancelled) { setSuppliers(all); setSupplierError(""); }
-      } catch (cause) {
-        if (!cancelled) setSupplierError(cause instanceof Error ? cause.message : "供应商筛选项加载失败");
-      }
-    }
-    void loadSuppliers();
-    return () => { cancelled = true; };
-  }, []);
   function search() {
     if (!from || !to || from > to) { setError("请选择有效的送货日期范围"); return; }
     setMatrixOrigin(null);
@@ -172,6 +151,10 @@ export function SupplierReconciliationView({ canRecordPayment }: { canRecordPaym
     setMatrixOrigin(null);
     setPage(1); setExpanded(null); setExpandedSupplier(null);
     setFilters({ ...range, supplierId: "", search: "" });
+  }
+  function clearSupplierFilter() {
+    setMatrixOrigin(null); setSupplierId(""); setPage(1); setExpanded(null);
+    setFilters((current) => ({ ...current, supplierId: "" }));
   }
   function showSupplierNotes(id: string) {
     setMatrixOrigin(null);
@@ -245,12 +228,12 @@ export function SupplierReconciliationView({ canRecordPayment }: { canRecordPaym
     <div><h1 className="text-xl font-semibold">供应商对账</h1><p className="mt-1 text-sm text-slate-600">按送货日期汇总实收分配；一张纸质送货单可关联多张 PI。现金结也纳入应付，只有财务已登记付款才冲减未付。</p></div>
     <section className="rounded-xl border bg-white p-4 shadow-sm"><div className="flex flex-wrap items-center gap-2 text-sm">
       <CompactDateRange label="送货日期" fromLabel="送货开始日期" toLabel="送货结束日期" from={from} to={to} onFromChange={(value) => { setFrom(value); setSelectedPreset(""); }} onToChange={(value) => { setTo(value); setSelectedPreset(""); }} presets={BUSINESS_DATE_PRESETS} selectedPreset={selectedPreset} onPresetChange={selectPreset}/>
-      <AppSelect aria-label="筛选供应商" value={supplierId} onChange={(event) => setSupplierId(event.target.value)} className="h-10 min-w-48 max-w-64 rounded-lg border border-slate-200 bg-white px-3 text-slate-700"><option value="">全部供应商</option>{suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.system_code} · {supplier.short_name || supplier.english_short_name || "未补名称"}</option>)}</AppSelect>
-      <input aria-label="搜索送货单号、供应商代码或PI订单号" maxLength={80} value={searchText} onChange={(event) => setSearchText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") search(); }} placeholder="送货单号 / 供应商代码 / PI订单号" className="h-10 min-w-60 flex-1 rounded-lg border border-slate-200 px-3 text-slate-700 placeholder:text-slate-400"/>
+      <MonthRangeShortcut from={from} to={to} onApply={(range) => { setFrom(range.from); setTo(range.to); setSelectedPreset(""); setMatrixOrigin(null); setPage(1); setExpanded(null); setExpandedSupplier(null); setFilters({ ...range, supplierId, search: searchText.trim() }); }}/>
+      <input aria-label="搜索送货单号、供应商代码或PI订单号" maxLength={80} value={searchText} onChange={(event) => setSearchText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") search(); }} placeholder="搜索送货单号 / 供应商代码 / PI订单号" className="h-10 min-w-64 flex-1 rounded-lg border border-slate-200 px-3 text-slate-700 placeholder:text-slate-400"/>
+      {supplierId ? <button type="button" onClick={clearSupplierFilter} className="h-10 whitespace-nowrap rounded-lg border border-blue-200 bg-blue-50 px-3 text-blue-700" aria-label="清除供应商筛选">供应商 {supplierSummary.find((item) => item.supplier_id === supplierId)?.system_code || "已选"} ×</button> : null}
       <button onClick={search} className="h-10 rounded-lg bg-blue-600 px-4 text-white">查询</button>
       <button type="button" onClick={reset} className="h-10 rounded-lg border px-3 text-slate-700">重置</button>
     </div><p className="mt-2 text-xs text-slate-500">按所选送货日期范围查找；搜索结果的汇总、月度数据和明细使用同一范围。</p></section>
-    {supplierError ? <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{supplierError}；当前供应商筛选项可能不完整，请刷新页面后重试。</p> : null}
     {error && !payment ? <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</p> : null}
     <section className="space-y-2" aria-label="供应商对账概览">
       <div className="flex flex-wrap items-center gap-x-5 gap-y-1 rounded-xl border bg-white px-4 py-2.5 text-xs text-slate-600">
@@ -274,9 +257,9 @@ export function SupplierReconciliationView({ canRecordPayment }: { canRecordPaym
       </table>{!loading && !supplierSummary.length ? <p className="py-8 text-center text-sm text-slate-500">所选日期范围没有供应商回货分配</p> : null}</div>
       {expandedSupplier ? <div className="mt-3 rounded-lg bg-slate-50 p-3"><h3 className="text-sm font-medium">{supplierSummary.find((row) => row.supplier_id === expandedSupplier)?.system_code} · 月度采购与付款</h3><div className="mt-2 overflow-x-auto"><table className="w-full min-w-[520px] text-left text-xs"><thead><tr className="border-b"><th className="py-2">月份</th><th>应付</th><th>已付</th><th>未付</th></tr></thead><tbody>{monthlySummary.filter((row) => row.supplier_id === expandedSupplier).map((row) => <tr key={row.month} className="border-b last:border-0"><td className="py-2">{row.month.slice(0, 7)}</td><td>{money(row.allocated_cny)}</td><td>{money(row.paid_cny)}</td><td>{money(row.unpaid_cny)}</td></tr>)}</tbody></table></div></div> : null}
     </section>
-    <div id="supplier-monthly-matrix" className="scroll-mt-20" aria-busy={loading}>{loading ? <p role="status" className="mb-2 text-xs text-slate-600">正在更新月度对账数据…</p> : null}<div className={loading ? "pointer-events-none opacity-50" : ""}><SupplierMonthlyMatrix suppliers={supplierSummary} monthly={monthlySummary} metric={matrixMetric} dateFrom={filters.from} dateTo={filters.to} onMetricChange={setMatrixMetric} onDrill={drillToMonth}/></div></div>
-    {matrixOrigin ? <div role="status" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900"><span>正在核对：{suppliers.find((item) => item.id === filters.supplierId)?.system_code || "所选供应商"} · {filters.from} 至 {filters.to}。上方汇总与下方明细均已切换到同一范围。</span><button type="button" onClick={returnToMatrix} className="rounded-lg border border-blue-300 bg-white px-3 py-1.5 font-medium text-blue-700">返回原汇总范围</button></div> : null}
-    <section id="supplier-delivery-notes" className="scroll-mt-20 rounded-xl border bg-white p-4"><div className="flex flex-wrap items-center justify-between gap-2"><div><h2 className="font-semibold">采购明细</h2><p className="mt-1 text-xs text-slate-500">一张真实送货单一行；展开可核对关联 PI、产品分配与付款流水。</p></div>{filters.supplierId ? <button type="button" onClick={() => { setMatrixOrigin(null); setSupplierId(""); setPage(1); setExpanded(null); setFilters((current) => ({ ...current, supplierId: "" })); }} className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs text-blue-700">{suppliers.find((item) => item.id === filters.supplierId)?.system_code || "所选供应商"} · 清除筛选</button> : null}</div>
+    <div id="supplier-monthly-matrix" className="scroll-mt-20" aria-busy={loading}>{loading ? <p role="status" className="mb-2 text-xs text-slate-600">正在更新月度对账数据…</p> : null}<div className={loading ? "pointer-events-none opacity-50" : ""}><SupplierMonthlyMatrix suppliers={supplierSummary} monthly={monthlySummary} metric={matrixMetric} dateFrom={filters.from} dateTo={filters.to} supplierId={filters.supplierId} onMetricChange={setMatrixMetric} onDrill={drillToMonth}/></div></div>
+    {matrixOrigin ? <div role="status" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900"><span>正在核对：{filters.supplierId ? supplierSummary.find((item) => item.supplier_id === filters.supplierId)?.system_code || "所选供应商" : "全部供应商"} · {filters.from} 至 {filters.to}。上方汇总与下方明细均已切换到同一范围。</span><button type="button" onClick={returnToMatrix} className="rounded-lg border border-blue-300 bg-white px-3 py-1.5 font-medium text-blue-700">返回原汇总范围</button></div> : null}
+    <section id="supplier-delivery-notes" className="scroll-mt-20 rounded-xl border bg-white p-4"><div className="flex flex-wrap items-center justify-between gap-2"><div><h2 className="font-semibold">采购明细</h2><p className="mt-1 text-xs text-slate-500">一张真实送货单一行；展开可核对关联 PI、产品分配与付款流水。</p></div>{filters.supplierId ? <button type="button" onClick={clearSupplierFilter} className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs text-blue-700">{supplierSummary.find((item) => item.supplier_id === filters.supplierId)?.system_code || "所选供应商"} · 清除筛选</button> : null}</div>
       <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[1600px] text-left text-sm"><thead><tr className="border-b bg-slate-50 text-slate-600"><th className="p-3">送货日期</th><th>供应商</th><th>当时商务条件</th><th>送货单号</th><th className="min-w-44">关联 PI</th><th className="min-w-52">纸单影像</th><th className="min-w-44">核对提示</th><th>数量</th><th>分配金额</th><th>纸单金额 / 差额</th><th>已付</th><th>未付</th><th>操作</th></tr></thead><tbody>{notes.map((note) => <Fragment key={note.id}><tr className="border-b align-top"><td className="p-3">{note.document_date}</td><td>{note.supplier_code}<small className="block text-slate-500">{note.supplier_name}</small></td><td>{settlementLabel(note.settlement_cycle, note.settlement_days, note.settlement_terms_original)}</td><td>{note.note_number}</td><td className="max-w-56 py-2 pr-3"><div className="flex flex-wrap gap-1.5">{groupAllocations(note.allocations).slice(0, 2).map((group) => <Link key={group.piId} href={`/orders/${group.piId}`} className="rounded border border-blue-100 bg-blue-50 px-1.5 py-0.5 text-xs text-blue-700 hover:underline" title={`打开 PI ${group.piNumber || group.systemPiNumber}`}>{group.piNumber || group.systemPiNumber}</Link>)}{groupAllocations(note.allocations).length > 2 ? <button type="button" onClick={() => setExpanded(note.id)} className="text-xs text-blue-700 hover:underline">另 {groupAllocations(note.allocations).length - 2} 单 ↓</button> : null}{!note.allocations.length ? <span className="text-xs text-amber-700">未关联 PI</span> : null}</div></td><td className="w-52 min-w-52 max-w-52 p-2 align-top"><SupplierDeliveryNoteFiles note={{ id: note.id, supplier_code: note.supplier_code, note_number: note.note_number, document_date: note.document_date, attachments: note.attachments || [] }} compact/></td><td className="w-44 min-w-44 max-w-44 px-2 py-3 align-top">{noteChecks(note, canViewDocuments).length ? noteChecks(note, canViewDocuments).map((check) => <span key={check} className="mb-1 block w-fit rounded bg-amber-50 px-2 py-0.5 text-xs text-amber-800">{check}</span>) : <span className="text-xs text-emerald-700">资料齐备 · 金额一致</span>}</td><td>{note.allocated_quantity}</td><td>{money(note.allocated_cny)}</td><td>{note.paper_total_cny === null ? "未录入" : <>{money(note.paper_total_cny)}<small className={`block ${Math.abs(note.paper_total_cny - note.allocated_cny) > 0.005 ? "text-amber-700" : "text-emerald-700"}`}>{Math.abs(note.paper_total_cny - note.allocated_cny) > 0.005 ? `差额 ${money(note.paper_total_cny - note.allocated_cny)}` : "金额一致"}</small></>}</td><td>{money(note.paid_cny)}</td><td className="font-medium">{money(note.unpaid_cny)}</td><td className="space-x-2 whitespace-nowrap"><button onClick={() => setExpanded((value) => value === note.id ? null : note.id)} className="text-blue-700">{expanded === note.id ? "收起" : `查看PI（${groupAllocations(note.allocations).length}）`}</button>{canRecordPayment ? <button onClick={() => { setError(""); setPaperDraft({ noteId: note.id, noteNumber: note.note_number, amount: note.paper_total_cny === null ? "" : Number(note.paper_total_cny).toFixed(2), version: note.updated_at, reason: "" }); }} className="text-blue-700">核对纸单</button> : null}{canRecordPayment && note.unpaid_cny > 0 ? <button onClick={() => openPayment(note)} className="text-emerald-700">登记付款</button> : null}</td></tr>{expanded === note.id ? <tr className="bg-slate-50"><td colSpan={13} className="p-3"><NoteDetails note={note}/></td></tr> : null}</Fragment>)}</tbody></table>
         {!loading && notes.length === 0 ? <p className="py-10 text-center text-sm text-slate-500">该日期范围没有送货单回货记录</p> : null}</div>
       <div className="mt-4"><AppPagination page={page} pageSize={pageSize} total={summary?.note_count || 0} itemLabel="张送货单" pageSizes={[10, 20, 50, 100]} onPage={(next) => { setPage(next); setExpanded(null); }} onPageSize={(size) => { setPageSize(size); setPage(1); setExpanded(null); }}/></div>

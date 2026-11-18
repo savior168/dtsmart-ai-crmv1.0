@@ -33,6 +33,11 @@ assert.match(csv, /"'=DANGEROUS"/, "导出不得让供应商名称执行电子�
 assert.match(csv, /"-5"/, "负数冲正应作为数值导出");
 assert.throws(() => renderSupplierMonthlyCsv([{ ...suppliers[0], system_code: "a", supplier_name: null }], monthly, "allocated_cny"), /不一致/);
 const view = readFileSync(new URL("../components/supplier-reconciliation-view.tsx", import.meta.url), "utf8");
+const matrixView = readFileSync(new URL("../components/supplier-monthly-matrix.tsx", import.meta.url), "utf8");
+assert.match(matrixView, /onClick=\{\(\) => onDrill\(supplierId, month\)\}/,
+  "month totals must drill into the current supplier scope for that month");
+assert.match(matrixView, /不代表该月实际付款额/,
+  "paid amounts grouped by delivery-note month must not be mistaken for payment-date cash flow");
 assert.match(view, /function drillToMonth[\s\S]*setFilters\(next\)/, "点击月份须更新真正的后端筛选条件");
 assert.match(view, /function returnToMatrix[\s\S]*setFilters\(matrixOrigin\)/, "下钻后须能恢复原统计范围");
 assert.match(view, /<SupplierMonthlyMatrix[\s\S]*onDrill=\{drillToMonth\}/, "供应商月度矩阵须接入对账页面");
