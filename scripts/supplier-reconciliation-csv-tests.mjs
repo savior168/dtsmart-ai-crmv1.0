@@ -20,7 +20,7 @@ assert.match(warehouseQueue, /LegacySupplierSourcesView/,
   "the warehouse missing-document queue must expose historical supplier-source remediation");
 const warehousePage = readFileSync(new URL("../app/stock-orders/missing-documents/page.tsx", import.meta.url), "utf8");
 const legacyApi = readFileSync(new URL("../app/api/stock-orders/legacy-receipt-sources/route.ts", import.meta.url), "utf8");
-const legacyMigration = readFileSync(new URL("../supabase/migrations/20261118134000_link_legacy_supplier_receipt_source.sql", import.meta.url), "utf8");
+const legacyMigration = readFileSync(new URL("../supabase/migrations/20261118044017_link_legacy_supplier_receipt_source.sql", import.meta.url), "utf8");
 assert.match(warehousePage, /showLegacySources=\{account\.role === "WAREHOUSE"\}/);
 assert.match(legacyApi, /context\.account\.role !== "WAREHOUSE"/);
 assert.match(legacyMigration, /actor\.role <> 'WAREHOUSE'/);

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const read = (path) => readFileSync(path, "utf8");
-const migration = read("supabase/migrations/20261118131000_supplier_delivery_note_pending_number.sql");
+const migration = read("supabase/migrations/20261118043938_supplier_delivery_note_pending_number.sql");
 const single = read("app/api/stock-orders/[id]/receipts/route.ts");
 const batch = read("app/api/stock-orders/[id]/receipts/batch/route.ts");
 const complete = read("app/api/supplier-delivery-notes/[id]/number/route.ts");
@@ -10,7 +10,7 @@ const stock = read("components/stock-order-detail-view.tsx");
 const files = read("components/supplier-delivery-note-files.tsx");
 const report = read("app/api/supplier-reconciliation/route.ts");
 const reconciliationView = read("components/supplier-reconciliation-view.tsx");
-const reminders = read("supabase/migrations/20261118132000_shipped_pi_document_reminders.sql");
+const reminders = read("supabase/migrations/20261118043957_shipped_pi_document_reminders.sql");
 const cron = read("app/api/cron/stock-document-reminders/route.ts");
 
 assert.match(migration, /record_supplier_receipt_pending[\s\S]*public\.record_supplier_receipt\([\s\S]*number_pending = true/);
