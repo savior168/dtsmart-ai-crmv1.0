@@ -89,7 +89,7 @@ export function MissingStockDocumentsView({ showLegacySources = false }: { showL
         <tbody>
           {loading ? <tr><td colSpan={3} className="p-8 text-center">加载中…</td></tr> : visible.length ? visible.map((row) => <Fragment key={row.stock_order_id}>
             <tr className="border-t">
-              <td className="p-3 font-medium">{row.order_number}</td>
+              <td className="p-3 font-medium"><Link href={`/stock-orders/${row.stock_order_id}`} target="_blank" rel="noopener noreferrer" aria-label={`新页签查看备货单 ${row.order_number}`} className="text-blue-700 hover:underline">{row.order_number}</Link></td>
               <td className="py-3"><div className="flex flex-wrap gap-1.5">
                 {row.pending_note_number_count ? <span className="rounded bg-amber-50 px-2 py-1 text-amber-900">送货单号待补 {row.pending_note_number_count} 张</span> : null}
                 {row.pending_note_photo_count ? <span className="rounded bg-amber-50 px-2 py-1 text-amber-900">待补单号的送货单缺照片 {row.pending_note_photo_count} 张</span> : null}
