@@ -179,6 +179,10 @@ assert.doesNotMatch(config,/\[\.\.\.industryTerms, \.\.\.keywords\]/,"补充关�
 assert.match(config,/knownKeywordOwners[\s\S]*owners\.has\(industry\)[\s\S]*applicableKeywords/,"系统推荐关键词必须只与其所属行业配对，避免无关行业关键词交叉浪费搜索调用");
 const create=fs.readFileSync(new URL("../components/ai-acquisition/create-view.tsx",import.meta.url),"utf8");
 const geographyPicker=fs.readFileSync(new URL("../components/ai-acquisition/geography-picker.tsx",import.meta.url),"utf8");
+const geographyApi=fs.readFileSync(new URL("../app/api/ai-acquisition/geography/route.ts",import.meta.url),"utf8");
+assert.doesNotMatch(create,/import\s*\{[^}]*geographyScopeDisplayLabel[^}]*\}\s*from\s*["']@\/lib\/ai-acquisition\/geography["']/,"创建页不得把完整地域索引打入浏览器脚本");
+assert.doesNotMatch(geographyPicker,/import\s*\{[^}]*geographyScopeDisplayLabel[^}]*\}\s*from\s*["']@\/lib\/ai-acquisition\/geography["']/,"地域树不得把完整地域索引打入浏览器脚本");
+assert.match(geographyApi,/export async function POST[\s\S]*requirePermission\("ai\.acquisition\.create"\)[\s\S]*normalizeGeographyScopes[\s\S]*geographyScopeDisplayLabel/,"中文地域标签须通过已授权且已校验的服务端接口获取");
 assert.match(create,/已选 \{form\.industries\.length\}\/\{MAX_ACQUISITION_INDUSTRIES\}/,"行业上限和当前已选数必须在字段旁持续可见");
 assert.match(create,/已选 \{values\.length\}\/\{MAX_ACQUISITION_KEYWORDS\}/,"关键词上限和当前已选数必须在字段旁持续可见");
 assert.match(create,/未覆盖的自定义关键词不会假装已翻译/,"获客规则不得误称任意自定义词都会自动翻译");
