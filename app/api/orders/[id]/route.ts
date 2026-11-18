@@ -27,8 +27,8 @@ export async function GET(
         .eq("id", id)
         .single();
     if (order.error) throw order.error;
-    if (account.role === "ORDER_CLERK" && order.data.confirmation_method !== "DIRECT_PI") throw new Error("FORBIDDEN");
-    const relatedClient = account.role === "ORDER_CLERK" ? createAdminClient() : supabase;
+    if (["ORDER_CLERK", "FINANCE"].includes(account.role) && order.data.confirmation_method !== "DIRECT_PI") throw new Error("FORBIDDEN");
+    const relatedClient = ["ORDER_CLERK", "FINANCE"].includes(account.role) ? createAdminClient() : supabase;
     const [items, stock, quote, customerNames] = await Promise.all([
       supabase
         .from("sales_order_items")
@@ -92,10 +92,11 @@ export async function GET(
       ordered_units: (stockItems.data || []).reduce((sum, item) => sum + Number(item.quantity), 0),
       received_units: (stockItems.data || []).reduce((sum, item) => sum + Number(item.received_quantity), 0),
     } : null;
-    const clerkCustomer = account.role === "ORDER_CLERK" ? await relatedClient.from("customers")
+    const needsRelatedFallback = ["ORDER_CLERK", "FINANCE"].includes(account.role);
+    const clerkCustomer = needsRelatedFallback ? await relatedClient.from("customers")
       .select("company_name,contact_name,tax_number").eq("id", order.data.customer_id).maybeSingle() : null;
     if (clerkCustomer?.error) throw clerkCustomer.error;
-    const clerkOwner = account.role === "ORDER_CLERK" && !order.data.owner && order.data.sales_user_id
+    const clerkOwner = needsRelatedFallback && !order.data.owner && order.data.sales_user_id
       ? await relatedClient.from("users").select("name,email").eq("id", order.data.sales_user_id).maybeSingle()
       : null;
     if (clerkOwner?.error) throw clerkOwner.error;
@@ -149,7 +150,7 @@ export async function GET(
     return NextResponse.json({
       order: { ...order.data, owner: clerkOwner?.data || order.data.owner,
         preparer: preparer?.data || null, customer: {
-        ...(account.role === "ORDER_CLERK" ? clerkCustomer?.data : order.data.customer),
+        ...(needsRelatedFallback ? clerkCustomer?.data : order.data.customer),
         contact_name: customerNames.get(id) || null,
       } },
       items: items.data || [],

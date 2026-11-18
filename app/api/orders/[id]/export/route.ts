@@ -33,13 +33,13 @@ export async function GET(
     ]);
     if (order.error) throw order.error;
     if (items.error) throw items.error;
-    if (account.role === "ORDER_CLERK" && order.data.confirmation_method !== "DIRECT_PI") throw new Error("FORBIDDEN");
+    if (["ORDER_CLERK", "FINANCE"].includes(account.role) && order.data.confirmation_method !== "DIRECT_PI") throw new Error("FORBIDDEN");
     const customerNames = await loadOrderCustomerNames([id]);
-    const clerkCustomer = account.role === "ORDER_CLERK" ? await createAdminClient().from("customers")
+    const clerkCustomer = ["ORDER_CLERK", "FINANCE"].includes(account.role) ? await createAdminClient().from("customers")
       .select("company_name,contact_name,tax_number,phone").eq("id", order.data.customer_id).maybeSingle() : null;
     if (clerkCustomer?.error) throw clerkCustomer.error;
     const documentOrder = { ...order.data, customer: {
-      ...(account.role === "ORDER_CLERK" ? clerkCustomer?.data : order.data.customer),
+      ...(["ORDER_CLERK", "FINANCE"].includes(account.role) ? clerkCustomer?.data : order.data.customer),
       contact_name: customerNames.get(id) || null,
     } };
     if (["DRAFT", "CANCELLED"].includes(order.data.status)) throw new Error("PI草稿或已取消订单不能作为正式PI导出");

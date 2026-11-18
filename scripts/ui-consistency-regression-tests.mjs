@@ -66,7 +66,7 @@ assert.match(read("app/ai-usage/page.tsx"), /params\.business_type \|\| params\.
 assert.match(read("components/ai-screening/usage-view.tsx"), /businessTypeControl[\s\S]*CompactDateRange label="分析日期"[\s\S]*\{businessTypeControl\}[\s\S]*模型/, "AI筛选用量必须在同一筛选栏展示业务类型和分析日期");
 assert.match(read("components/ai-acquisition/usage-view.tsx"), /businessTypeControl[\s\S]*CompactDateRange label="用量日期"[\s\S]*\{businessTypeControl\}[\s\S]*任务状态/, "AI获客用量必须在同一筛选栏展示业务类型和用量日期");
 const compactDateRange = read("components/ui/compact-date-range.tsx");
-assert.match(compactDateRange, /CalendarRange[\s\S]*<span[^>]*>\{label\}<\/span>[\s\S]*type="date"[\s\S]*max=\{to \|\| undefined\}[\s\S]*type="date"[\s\S]*min=\{from \|\| undefined\}/, "日期范围必须共用带简短业务名称的紧凑控件并约束起止日期");
+assert.match(compactDateRange, /<span[^>]*>\{label\}<\/span>[\s\S]*type="date"[\s\S]*max=\{to \|\| undefined\}[\s\S]*type="date"[\s\S]*min=\{from \|\| undefined\}/, "日期范围必须共用带简短业务名称的紧凑控件并约束起止日期");
 assert.match(read("components/ai-acquisition/usage-view.tsx"), /xl:grid-cols-\[1\.2fr_\.65fr_\.75fr_\.75fr_\.9fr_auto\]/, "AI获客切换后必须保持与AI筛选相同的筛选栏网格和页面宽度");
 assert.match(read("components/ai-screening/usage-view.tsx"), /xl:grid-cols-\[1\.2fr_\.65fr_\.75fr_\.75fr_\.9fr_auto\]/, "AI筛选必须使用统一用量页筛选栏网格");
 assert.match(read("components/customers-view.tsx"), /AppTabs[\s\S]*我的客户[\s\S]*保护到期与续期[\s\S]*冲突客户/, "我的客户与客户公海必须复用统一子页签组件");

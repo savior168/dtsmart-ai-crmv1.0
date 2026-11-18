@@ -1,6 +1,5 @@
 "use client";
 
-import { CalendarRange } from "lucide-react";
 import { AppSelect } from "@/components/ui/app-select";
 import { MonthRangeShortcut } from "@/components/ui/month-range-shortcut";
 
@@ -37,15 +36,14 @@ export function CompactDateRange({
       title={label}
     >
       <legend className="sr-only">{label}</legend>
-      <CalendarRange aria-hidden="true" size={15} className="ml-2.5 shrink-0 text-slate-400" />
-      <span className="ml-1.5 shrink-0 text-xs font-medium text-slate-500">{label}</span>
+      <span className="ml-2.5 shrink-0 text-xs font-medium text-slate-500">{label}</span>
       <input
         type="date"
         aria-label={fromLabel}
         value={from}
         max={to || undefined}
         onChange={(event) => onFromChange(event.target.value)}
-        className="h-full min-w-0 w-[122px] border-0 bg-transparent px-2 text-sm outline-none"
+        className="h-full min-w-0 w-[113px] border-0 bg-transparent px-1.5 text-sm outline-none"
       />
       <span aria-hidden="true" className="shrink-0 text-slate-300">—</span>
       <input
@@ -54,7 +52,7 @@ export function CompactDateRange({
         value={to}
         min={from || undefined}
         onChange={(event) => onToChange(event.target.value)}
-        className="h-full min-w-0 w-[122px] border-0 bg-transparent px-2 text-sm outline-none"
+        className="h-full min-w-0 w-[113px] border-0 bg-transparent px-1.5 text-sm outline-none"
       />
       {presets?.length && onPresetChange ? <>
         <span aria-hidden="true" className="h-5 w-px shrink-0 bg-slate-200" />

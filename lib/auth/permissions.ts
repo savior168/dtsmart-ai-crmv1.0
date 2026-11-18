@@ -101,7 +101,7 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   { code: "orders.preview", label: "预览PI单据", group: "销售管理", description: "打开PI单据预览页面；正式单据的导出仍需导出权限", kind: "ACTION" },
   { code: "orders.create", label: "创建PI订单", group: "销售管理", description: "销售员和主管为本人客户创建PI；跟单员可为任意在职销售员或主管的客户创建并提交PI", kind: "ACTION" },
   { code: "orders.import", label: "导入PI订单", group: "销售管理", description: "将Excel客户PI保存为本人待补全导入草稿，核对后再创建PI订单", kind: "ACTION" },
-  { code: "orders.data_all", label: "查看全部销售订单", group: "销售管理", description: "管理员可查看全部；主管还需单独开启下属数据开关，且仅能只读查看直属下属订单", kind: "DATA" },
+  { code: "orders.data_all", label: "查看全部销售订单", group: "销售管理", description: "管理员和获授权财务员可查看全部 PI；主管还需单独开启下属数据开关，且仅能只读查看下属订单", kind: "DATA" },
   { code: "orders.edit", label: "修改本人订单", group: "销售管理", description: "修改本人PI草稿或历史订单说明", kind: "ACTION" },
   { code: "orders.cost_review", label: "复核本人创建PI的销售成本", group: "销售管理", description: "整单交货代后，仅创建该PI的销售员、主管或跟单员可逐项修正销售预估成本；不显示实际采购价", kind: "ACTION" },
   { code: "orders.delete_draft", label: "删除未提交PI草稿", group: "销售管理", description: "仅有授权且属于本人创建范围、从未提交仓库的PI草稿可删除；已提交历史不可删除", kind: "ACTION" },

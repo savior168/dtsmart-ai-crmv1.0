@@ -73,7 +73,7 @@ export async function GET(request: NextRequest) {
         .order(SORT_COLUMNS[sortBy as keyof typeof SORT_COLUMNS], { ascending: sortDir === "asc" })
         .order("id", { ascending: true })
         .range(rangeStart, rangeEnd);
-      if (account.role === "ORDER_CLERK") query = query.eq("confirmation_method", "DIRECT_PI");
+      if (["ORDER_CLERK", "FINANCE"].includes(account.role)) query = query.eq("confirmation_method", "DIRECT_PI");
       if (ownerId) query = query.eq("sales_user_id", ownerId);
       if (creatorId) query = query.eq("prepared_by", creatorId);
       if (selectedIds.length) query = query.in("id", selectedIds);
@@ -175,7 +175,7 @@ export async function GET(request: NextRequest) {
       : { data: [], error: null };
     if (visibleCustomers.error) throw visibleCustomers.error;
     const accessibleCustomerIds = new Set((visibleCustomers.data || []).map((item) => item.id));
-    const relatedClient = account.role === "ORDER_CLERK" ? createAdminClient() : supabase;
+    const relatedClient = ["ORDER_CLERK", "FINANCE"].includes(account.role) ? createAdminClient() : supabase;
     const [owners, creators, stockOrders, customerNames] = await Promise.all([
       ownerIds.length
         ? createAdminClient().from("users").select("id,name,email").in("id", ownerIds)
