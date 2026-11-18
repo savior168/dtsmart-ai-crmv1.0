@@ -31,7 +31,7 @@ assert.match(reminders, /i\.shipped_quantity > 0[\s\S]*not exists \([\s\S]*suppl
 assert.match(reminders, /on conflict\(recipient_id,dedupe_key\)[\s\S]*action_status = 'RESOLVED'/);
 assert.match(reminders, /stock\.procurement\.edit[\s\S]*user_permission_overrides/);
 assert.match(cron, /CRON_SECRET[\s\S]*refresh_shipped_pi_document_reminders/);
-assert.match(read("supabase/migrations/20261118133000_stock_internal_notes_server_only.sql"), /p_permission like ''supplier\.%'' or p_permission like ''suppliers\.%''/);
+assert.match(read("supabase/migrations/20261118060929_stock_internal_notes_server_only.sql"), /p_permission like ''supplier\.%'' or p_permission like ''suppliers\.%''/);
 assert.match(read("app/api/attachments/[id]/route.ts"), /supplier_delivery_note_id && \["SALES", "ORDER_CLERK"\]/);
 assert.match(read("app/api/stock-orders/missing-documents/route.ts"), /requirePermission\("stock\.view"\)[\s\S]*supplier\.documents\.view/);
 console.log("supplier pending note contracts passed");

@@ -26,6 +26,6 @@ assert.deepEqual(Array.from(result, (item) => item.label), ["采购中", "部分
 assert.equal(JSON.stringify(result).includes("SECRET"), false, "PI 进度摘要不得携带原始仓库备注");
 assert.match(read("app/api/orders/[id]/route.ts"), /stock_events: stockEvents\.map/);
 assert.match(read("app/api/stock-orders/[id]/route.ts"), /status_note: privateOrderNote\?\.data\?\.status_note \|\| null/);
-assert.match(read("supabase/migrations/20261118133000_stock_internal_notes_server_only.sql"), /revoke select on public\.stock_orders, public\.stock_order_events/);
-assert.match(read("supabase/migrations/20261118133000_stock_internal_notes_server_only.sql"), /null::text as status_note/g);
+assert.match(read("supabase/migrations/20261118060929_stock_internal_notes_server_only.sql"), /revoke select on public\.stock_orders, public\.stock_order_events/);
+assert.match(read("supabase/migrations/20261118060929_stock_internal_notes_server_only.sql"), /null::text as status_note/g);
 console.log("PI stock visibility tests passed");
