@@ -42,8 +42,13 @@ export async function GET(request: NextRequest) {
       const recent = Array.isArray(result.recent) ? result.recent : [];
       const itemsByStockId = await loadStockProgressItems(supabase, recent.map((order: { id: string }) => order.id));
       const customerNames = await loadOrderCustomerNames(recent.map((order: { sales_order_id: string }) => order.sales_order_id));
+      const recentNumbers = recent.length ? await supabase.from("stock_orders")
+        .select("id,warehouse_reference_number").in("id", recent.map((order: { id: string }) => order.id)) : null;
+      if (recentNumbers?.error) throw recentNumbers.error;
+      const orderNumbers = new Map((recentNumbers?.data || []).map((order) => [order.id, order.warehouse_reference_number]));
       return NextResponse.json({ ...result, recent: recent.map((order: { id: string; status: string; sales_order_id: string }) => ({
         ...order, customer_name: customerNames.get(order.sales_order_id) || null,
+        warehouse_reference_number: orderNumbers.get(order.id) || null,
         progress: summarizeStockProgress(order.status, itemsByStockId.get(order.id) || []),
       })) }, {
         headers: { "Cache-Control": "private, max-age=10, stale-while-revalidate=30" },
