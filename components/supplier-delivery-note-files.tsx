@@ -9,6 +9,8 @@ export type SupplierDeliveryNoteView = {
   id: string;
   supplier_code: string;
   note_number: string;
+  number_pending?: boolean;
+  updated_at?: string;
   document_date: string;
   attachments: SupplierDeliveryNoteFile[];
 };
@@ -23,6 +25,21 @@ export function SupplierDeliveryNoteFiles({ note, canUpload = false, onUploaded,
   const [preview, setPreview] = useState<SupplierDeliveryNoteFile | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [numberDraft, setNumberDraft] = useState("");
+
+  async function completeNumber() {
+    const value = numberDraft.trim();
+    if (!value || busy || !note.number_pending || !note.updated_at) return;
+    setBusy(true); setError("");
+    const response = await fetch(`/api/supplier-delivery-notes/${note.id}/number`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ note_number: value, expected_updated_at: note.updated_at }),
+    }).catch(() => null);
+    const result = response ? await response.json().catch(() => ({})) : {};
+    setBusy(false);
+    if (!response?.ok) { setError(result.error || "补录失败，请刷新后重试"); return; }
+    setNumberDraft(""); onUploaded?.();
+  }
 
   async function upload(files: FileList | null) {
     if (!files?.length || busy) return;
@@ -58,6 +75,10 @@ export function SupplierDeliveryNoteFiles({ note, canUpload = false, onUploaded,
         </button>
       </> : null}
     </div>
+    {note.number_pending && canUpload ? <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-950">
+      <p>回货已登记，纸质送货单号待补；补录前不可核对纸单金额或登记付款。</p>
+      <div className="mt-2 flex flex-wrap gap-2"><input aria-label="补录纸质送货单号" maxLength={100} value={numberDraft} onChange={(event) => setNumberDraft(event.target.value)} className="h-8 min-w-40 flex-1 rounded border border-amber-300 bg-white px-2" placeholder="输入真实纸单号"/><button type="button" disabled={busy || !numberDraft.trim()} onClick={() => void completeNumber()} className="rounded bg-amber-800 px-3 text-white disabled:opacity-40">补录单号</button></div>
+    </div> : null}
     {note.attachments.length ? <div className="mt-2 flex flex-wrap gap-2">{note.attachments.map((file) => <button key={file.id} type="button" onClick={() => setPreview(file)} className="group flex items-center gap-2 rounded-md border bg-slate-50 px-2 py-1.5 text-left text-xs hover:border-blue-300 hover:bg-blue-50">
       <FileImage size={15} className="shrink-0 text-blue-600"/><span className="max-w-52 truncate" title={file.filename}>{file.filename}</span><span className="text-slate-400">预览</span>
     </button>)}</div> : <p className="mt-2 text-xs text-amber-700">尚未上传纸质送货单照片</p>}

@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authErrorStatus, requirePermission } from "@/lib/auth/current-user";
 import { sqlErrorMessage } from "@/lib/sales-flow";
+import { assertSupplierRoleAllowed } from "@/lib/auth/supplier-role-boundary";
 
 export async function PATCH(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    const { supabase } = await requirePermission("stock.procurement.edit");
+    const { supabase, account } = await requirePermission("stock.procurement.edit");
+    assertSupplierRoleAllowed(account.role);
     const { id } = await context.params;
     const body = await request.json();
     if (!Array.isArray(body.items)) throw new Error("采购价明细格式不正确");

@@ -125,7 +125,8 @@ assert.match(audienceMigration, /revoke all on function public\.publish_system_a
 assert.match(notificationApi, /eq\("recipient_id", user\.id\)[\s\S]*enrichOperationNotices/, "通知仍须先按当前收件人隔离，再补充操作上下文");
 assert.match(notificationApi, /stock_order_events[\s\S]*created_by[\s\S]*cleanName\(actor\.name, actor\.email\)/, "备货操作弹框必须根据真实事件操作者用户名生成文案");
 assert.match(notificationApi, /\$\{cleanName\(actor\.name, actor\.email\)\}：为 \$\{cleanName\(sales\?\.name, "用户"\)\} 提交订单/, "代提交时须展示制单人与归属人的用户名，但不显示角色名");
-assert.match(notificationApi, /\$\{cleanName\(actor\.name, actor\.email\)\}：对订单 \$\{number\} 执行备货操作：\$\{detail\}/, "备货操作提醒必须包含操作者用户名、业务订单号和具体事件内容");
+assert.match(notificationApi, /订单 \$\{number\} 的\$\{transition\}/, "备货提醒应包含业务订单号和状态变更摘要");
+assert.doesNotMatch(notificationApi, /String\(event\.note \|\| ""\)/, "通知不得将仓库原始备注发送给销售或跟单");
 assert.doesNotMatch(notificationApi, /actorRole\(|（制单人）|归属销售员|请仓库|请销售员/, "操作通知不应展示角色名称");
 assert.match(notificationApi, /PI_CHANGE_APPLIED[\s\S]*decided_by[\s\S]*确认并同步了PI订单变更/, "PI变更处理提醒必须列出实际处理人和操作结果");
 console.log("notification voice whitelist tests passed");

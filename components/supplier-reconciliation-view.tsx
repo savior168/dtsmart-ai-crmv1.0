@@ -1,8 +1,10 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { AppDialog } from "@/components/ui/app-dialog";
 import { SupplierDeliveryNoteFiles, type SupplierDeliveryNoteView } from "@/components/supplier-delivery-note-files";
+import { SupplierMonthlyMatrix } from "@/components/supplier-monthly-matrix";
 import { CompactDateRange } from "@/components/ui/compact-date-range";
 import { AppSelect } from "@/components/ui/app-select";
 import { AppPagination } from "@/components/ui/app-pagination";
@@ -14,6 +16,7 @@ type Allocation = { id: string; pi_number: string; system_pi_number: string; pi_
   correction_of: string | null; correction_reason: string | null; recorded_at: string };
 type Payment = { id: string; amount_cny: number; paid_on: string; method: string; reference: string };
 type Note = { id: string; supplier_id: string; supplier_code: string; supplier_name: string;
+  number_pending: boolean;
   settlement_cycle: string; settlement_days: number | null; settlement_terms_original?: string | null; note_number: string; document_date: string; updated_at: string;
   paper_total_cny: number | null; allocated_quantity: number; allocated_cny: number;
   cash_paid_reported_cny: number; paid_cny: number; unpaid_cny: number; allocations: Allocation[]; payments: Payment[]; attachments: SupplierDeliveryNoteView["attachments"] };
@@ -28,18 +31,28 @@ type PaymentDraft = { noteId: string; noteNumber: string; amount: string;
   paidOn: string; method: string; reference: string };
 type PaperDraft = { noteId: string; noteNumber: string; amount: string; version: string; reason: string };
 const money = (value: number) => `${Number(value || 0) < 0 ? "−" : ""}¥${Math.abs(Number(value || 0)).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+function SummaryMetric({ label, value, loading, hint, onClick, tone = "text-slate-900" }: {
+  label: string; value: string; loading: boolean; hint: string; onClick: () => void; tone?: string;
+}) {
+  return <button type="button" onClick={onClick} className="min-w-0 rounded-xl border bg-white p-4 text-left shadow-sm transition hover:border-blue-300 hover:shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500" aria-label={`${label}：${loading ? "加载中" : value}，${hint}`}>
+    <span className="block text-xs font-medium text-slate-500">{label}</span>
+    <strong className={`mt-2 block break-all text-2xl font-semibold tabular-nums ${tone}`}>{loading ? "—" : value}</strong>
+    <span className="mt-2 block text-xs text-blue-700">{hint} →</span>
+  </button>;
+}
 const settlementLabel = settlementDisplay;
-function noteChecks(note: Note) {
+function noteChecks(note: Note, canViewDocuments: boolean) {
   const checks: string[] = [];
-  if (!note.attachments?.length) checks.push("缺纸单图片");
+  if (note.number_pending) checks.push("待补送货单号，暂不可核对或付款");
+  if (canViewDocuments && !note.attachments?.length) checks.push("缺纸单图片");
   if (note.paper_total_cny === null) checks.push("待录纸单金额");
   else if (Math.abs(note.paper_total_cny - note.allocated_cny) > 0.005) checks.push("金额有差异");
   return checks;
 }
 function groupAllocations(allocations: Allocation[]) {
-  const groups = new Map<string, { piNumber: string; systemPiNumber: string; items: Allocation[]; quantity: number; amount: number }>();
+  const groups = new Map<string, { piId: string; piNumber: string; systemPiNumber: string; items: Allocation[]; quantity: number; amount: number }>();
   for (const item of allocations) {
-    const group = groups.get(item.pi_id) || { piNumber: item.pi_number, systemPiNumber: item.system_pi_number, items: [], quantity: 0, amount: 0 };
+    const group = groups.get(item.pi_id) || { piId: item.pi_id, piNumber: item.pi_number, systemPiNumber: item.system_pi_number, items: [], quantity: 0, amount: 0 };
     group.items.push(item);
     group.quantity += Number(item.quantity || 0);
     group.amount += Number(item.amount_cny || 0);
@@ -55,6 +68,8 @@ export function SupplierReconciliationView({ canRecordPayment }: { canRecordPaym
   const [selectedPreset, setSelectedPreset] = useState<BusinessDatePreset | "">("month");
   const [supplierId, setSupplierId] = useState("");
   const [filters, setFilters] = useState({ ...initial, supplierId: "" });
+  const [matrixOrigin, setMatrixOrigin] = useState<typeof filters | null>(null);
+  const [matrixMetric, setMatrixMetric] = useState<"allocated_cny" | "paid_cny" | "unpaid_cny">("allocated_cny");
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const queryFrom = params.get("from") || "";
@@ -68,9 +83,9 @@ export function SupplierReconciliationView({ canRecordPayment }: { canRecordPaym
   const [suppliers, setSuppliers] = useState<Array<{ id: string; system_code: string; short_name: string | null; english_short_name: string | null }>>([]);
   const [supplierError, setSupplierError] = useState("");
   const [summary, setSummary] = useState<Summary | null>(null);
-  const [legacyUnlinked, setLegacyUnlinked] = useState<{ line_count: number; quantity: number } | null>(null);
   const [supplierSummary, setSupplierSummary] = useState<SupplierSummary[]>([]);
   const [monthlySummary, setMonthlySummary] = useState<MonthlySummary[]>([]);
+  const [canViewDocuments, setCanViewDocuments] = useState(false);
   const [expandedSupplier, setExpandedSupplier] = useState<string | null>(null);
   const [notes, setNotes] = useState<Note[]>([]);
   const [page, setPage] = useState(1);
@@ -80,7 +95,6 @@ export function SupplierReconciliationView({ canRecordPayment }: { canRecordPaym
   const [paperDraft, setPaperDraft] = useState<PaperDraft | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [exporting, setExporting] = useState(false);
   const [error, setError] = useState("");
   const loadSequence = useRef(0);
   const load = useCallback(async () => {
@@ -92,11 +106,11 @@ export function SupplierReconciliationView({ canRecordPayment }: { canRecordPaym
     const body = response ? await response.json().catch(() => ({})) : {};
     if (sequence !== loadSequence.current) return;
     setLoading(false);
-    if (!response?.ok) { setError(body.error || "供应商对账加载失败"); setSummary(null); setLegacyUnlinked(null); setSupplierSummary([]); setMonthlySummary([]); setNotes([]); return; }
+    if (!response?.ok) { setError(body.error || "供应商对账加载失败"); setSummary(null); setSupplierSummary([]); setMonthlySummary([]); setNotes([]); setCanViewDocuments(false); return; }
     setSummary(body.summary || null);
-    setLegacyUnlinked(body.legacy_unlinked || null);
     setSupplierSummary(body.supplier_summary || []);
     setMonthlySummary(body.monthly_summary || []);
+    setCanViewDocuments(body.can_view_documents === true);
     setNotes(body.notes || []);
     setError("");
   }, [filters, page, pageSize]);
@@ -123,6 +137,7 @@ export function SupplierReconciliationView({ canRecordPayment }: { canRecordPaym
   }, []);
   function search() {
     if (!from || !to || from > to) { setError("请选择有效的送货日期范围"); return; }
+    setMatrixOrigin(null);
     setPage(1); setExpanded(null); setExpandedSupplier(null); setFilters({ from, to, supplierId });
   }
   function selectPreset(value: string) {
@@ -130,41 +145,41 @@ export function SupplierReconciliationView({ canRecordPayment }: { canRecordPaym
     const preset = value as BusinessDatePreset;
     const range = businessDatePreset(preset);
     setFrom(range.from); setTo(range.to); setSelectedPreset(preset);
+    setMatrixOrigin(null);
     setPage(1); setExpanded(null); setExpandedSupplier(null);
     setFilters({ ...range, supplierId });
   }
   function reset() {
     const range = businessDatePreset("month");
     setFrom(range.from); setTo(range.to); setSelectedPreset("month"); setSupplierId("");
+    setMatrixOrigin(null);
     setPage(1); setExpanded(null); setExpandedSupplier(null);
     setFilters({ ...range, supplierId: "" });
   }
   function showSupplierNotes(id: string) {
+    setMatrixOrigin(null);
     setSupplierId(id); setPage(1); setExpanded(null);
     setFilters((current) => ({ ...current, supplierId: id }));
     document.getElementById("supplier-delivery-notes")?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
-  async function exportCsv() {
-    if (loading || exporting || !filters.from || !filters.to) return;
-    setExporting(true); setError("");
-    try {
-      const params = new URLSearchParams({ from: filters.from, to: filters.to, format: "csv" });
-      if (filters.supplierId) params.set("supplier_id", filters.supplierId);
-      const response = await fetch(`/api/supplier-reconciliation?${params}`, { cache: "no-store" });
-      if (!response.ok) {
-        const body = await response.json().catch(() => ({}));
-        throw new Error(body.error || "供应商对账导出失败");
-      }
-      const url = URL.createObjectURL(await response.blob());
-      const link = document.createElement("a");
-      link.href = url; link.download = `供应商对账-${filters.from}-${filters.to}.csv`;
-      document.body.appendChild(link); link.click(); link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "供应商对账导出失败");
-    } finally {
-      setExporting(false);
-    }
+  function drillToMonth(id: string, month: string) {
+    if (!/^\d{4}-\d{2}$/.test(month)) return;
+    const [year, monthNumber] = month.split("-").map(Number);
+    const monthStart = `${month}-01`;
+    const monthEnd = new Date(Date.UTC(year, monthNumber, 0)).toISOString().slice(0, 10);
+    const next = { from: filters.from > monthStart ? filters.from : monthStart,
+      to: filters.to < monthEnd ? filters.to : monthEnd, supplierId: id };
+    if (!matrixOrigin) setMatrixOrigin(filters);
+    setFrom(next.from); setTo(next.to); setSupplierId(id); setSelectedPreset("");
+    setPage(1); setExpanded(null); setExpandedSupplier(null); setFilters(next);
+    window.setTimeout(() => document.getElementById("supplier-delivery-notes")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+  }
+  function returnToMatrix() {
+    if (!matrixOrigin) return;
+    setFrom(matrixOrigin.from); setTo(matrixOrigin.to); setSupplierId(matrixOrigin.supplierId);
+    setPage(1); setExpanded(null); setExpandedSupplier(null); setFilters(matrixOrigin);
+    setMatrixOrigin(null);
+    window.setTimeout(() => document.getElementById("supplier-monthly-matrix")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
   }
   function openPayment(note: Note) {
     setError("");
@@ -216,16 +231,23 @@ export function SupplierReconciliationView({ canRecordPayment }: { canRecordPaym
       <AppSelect aria-label="筛选供应商" value={supplierId} onChange={(event) => setSupplierId(event.target.value)} className="h-10 min-w-48 max-w-64 rounded-lg border border-slate-200 bg-white px-3 text-slate-700"><option value="">全部供应商</option>{suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.system_code} · {supplier.short_name || supplier.english_short_name || "未补名称"}</option>)}</AppSelect>
       <button onClick={search} className="h-10 rounded-lg bg-blue-600 px-4 text-white">查询</button>
       <button type="button" onClick={reset} className="h-10 rounded-lg border px-3 text-slate-700">重置</button>
-      <button type="button" disabled={loading || exporting} onClick={() => void exportCsv()} className="h-10 rounded-lg border px-4 text-slate-700 disabled:opacity-40">{exporting ? "导出中…" : "导出当前筛选 CSV"}</button>
     </div></section>
     {supplierError ? <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{supplierError}；当前供应商筛选项可能不完整，请刷新页面后重试。</p> : null}
     {error && !payment ? <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</p> : null}
-    {legacyUnlinked && legacyUnlinked.line_count > 0 ? <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">全历史另有 {legacyUnlinked.line_count} 项回货（共 {legacyUnlinked.quantity} 件）没有原始供应商/送货单来源；此数不受上方日期筛选影响，也未计入本页任何供应商应付与月度汇总。须由仓库核对纸单后再补充真实来源，不能自动编造。</p> : null}
-    <section className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-7" aria-label="供应商对账概览">{([
-      ["送货单", summary?.note_count, "张"], ["供应商", summary?.supplier_count, "家"], ["实收数量", summary?.quantity, "件"],
-      ["应付货款", summary && money(summary.allocated_cny), ""], ["现场报付待核", summary && money(summary.cash_paid_reported_cny), ""], ["已登记付款", summary && money(summary.paid_cny), ""], ["未付货款", summary && money(summary.unpaid_cny), ""],
-    ] as const).map(([label, value, unit]) => <div key={label} className="min-w-0 rounded-xl border bg-white px-3 py-3"><p className="truncate text-xs text-slate-500" title={label}>{label}</p><strong className="mt-1 block truncate text-base tabular-nums text-slate-900 lg:text-lg" title={loading || value === null || value === undefined ? undefined : `${value}${unit}`}>{loading || value === null || value === undefined ? "—" : `${value}${unit}`}</strong>{label === "现场报付待核" ? <p className="text-[11px] text-slate-500">不冲减应付</p> : null}</div>)}</section>
-    <section className="rounded-xl border bg-white p-4" aria-label="供应商采购货款汇总">
+    <section className="space-y-2" aria-label="供应商对账概览">
+      <div className="grid gap-3 sm:grid-cols-3">
+        <SummaryMetric label="送货单" value={`${summary?.note_count || 0} 张`} loading={loading || !summary} hint="查看采购明细" onClick={() => document.getElementById("supplier-delivery-notes")?.scrollIntoView({ behavior: "smooth" })}/>
+        <SummaryMetric label="供应商" value={`${summary?.supplier_count || 0} 家`} loading={loading || !summary} hint="查看供应商汇总" onClick={() => document.getElementById("supplier-purchase-summary")?.scrollIntoView({ behavior: "smooth" })}/>
+        <SummaryMetric label="实收数量" value={`${summary?.quantity || 0} 件`} loading={loading || !summary} hint="查看来源明细" onClick={() => document.getElementById("supplier-delivery-notes")?.scrollIntoView({ behavior: "smooth" })}/>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <SummaryMetric label="应付货款" value={money(summary?.allocated_cny || 0)} loading={loading || !summary} hint="查看采购明细" onClick={() => document.getElementById("supplier-delivery-notes")?.scrollIntoView({ behavior: "smooth" })} tone="text-blue-700"/>
+        <SummaryMetric label="现场报付待核" value={money(summary?.cash_paid_reported_cny || 0)} loading={loading || !summary} hint="不冲减应付 · 查看明细" onClick={() => document.getElementById("supplier-delivery-notes")?.scrollIntoView({ behavior: "smooth" })} tone="text-amber-700"/>
+        <SummaryMetric label="已登记付款" value={money(summary?.paid_cny || 0)} loading={loading || !summary} hint="查看付款流水" onClick={() => document.getElementById("supplier-delivery-notes")?.scrollIntoView({ behavior: "smooth" })} tone="text-emerald-700"/>
+        <SummaryMetric label="未付货款" value={money(summary?.unpaid_cny || 0)} loading={loading || !summary} hint="查看待付明细" onClick={() => document.getElementById("supplier-delivery-notes")?.scrollIntoView({ behavior: "smooth" })} tone="text-rose-700"/>
+      </div>
+    </section>
+    <section id="supplier-purchase-summary" className="scroll-mt-20 rounded-xl border bg-white p-4" aria-label="供应商采购货款汇总">
       <h2 className="font-semibold">供应商采购货款汇总</h2>
       <p className="mt-1 text-xs text-slate-500">与下方采购明细共用日期和供应商筛选；汇总覆盖全部匹配送货单，不受明细分页影响。</p>
       <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[760px] text-left text-sm">
@@ -234,10 +256,12 @@ export function SupplierReconciliationView({ canRecordPayment }: { canRecordPaym
       </table>{!loading && !supplierSummary.length ? <p className="py-8 text-center text-sm text-slate-500">所选日期范围没有供应商回货分配</p> : null}</div>
       {expandedSupplier ? <div className="mt-3 rounded-lg bg-slate-50 p-3"><h3 className="text-sm font-medium">{supplierSummary.find((row) => row.supplier_id === expandedSupplier)?.system_code} · 月度采购与付款</h3><div className="mt-2 overflow-x-auto"><table className="w-full min-w-[520px] text-left text-xs"><thead><tr className="border-b"><th className="py-2">月份</th><th>应付</th><th>已付</th><th>未付</th></tr></thead><tbody>{monthlySummary.filter((row) => row.supplier_id === expandedSupplier).map((row) => <tr key={row.month} className="border-b last:border-0"><td className="py-2">{row.month.slice(0, 7)}</td><td>{money(row.allocated_cny)}</td><td>{money(row.paid_cny)}</td><td>{money(row.unpaid_cny)}</td></tr>)}</tbody></table></div></div> : null}
     </section>
-    <section id="supplier-delivery-notes" className="scroll-mt-20 rounded-xl border bg-white p-4"><div className="flex flex-wrap items-center justify-between gap-2"><div><h2 className="font-semibold">采购明细</h2><p className="mt-1 text-xs text-slate-500">一张真实送货单一行；展开可核对关联 PI、产品分配与付款流水。</p></div>{filters.supplierId ? <button type="button" onClick={() => { setSupplierId(""); setPage(1); setExpanded(null); setFilters((current) => ({ ...current, supplierId: "" })); }} className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs text-blue-700">{suppliers.find((item) => item.id === filters.supplierId)?.system_code || "所选供应商"} · 清除筛选</button> : null}</div>
-      <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[1220px] text-left text-sm"><thead><tr className="border-b bg-slate-50 text-slate-600"><th className="p-3">送货日期</th><th>供应商</th><th>当时商务条件</th><th>送货单号</th><th>纸单影像</th><th>核对提示</th><th>数量</th><th>分配金额</th><th>纸单金额 / 差额</th><th>已付</th><th>未付</th><th>操作</th></tr></thead><tbody>{notes.map((note) => <tr key={note.id} className="border-b align-top"><td className="p-3">{note.document_date}</td><td>{note.supplier_code}<small className="block text-slate-500">{note.supplier_name}</small></td><td>{settlementLabel(note.settlement_cycle, note.settlement_days, note.settlement_terms_original)}</td><td>{note.note_number}</td><td className="max-w-52 p-2"><SupplierDeliveryNoteFiles note={{ id: note.id, supplier_code: note.supplier_code, note_number: note.note_number, document_date: note.document_date, attachments: note.attachments || [] }} compact/></td><td className="min-w-28 py-3">{noteChecks(note).length ? noteChecks(note).map((check) => <span key={check} className="mb-1 block w-fit rounded bg-amber-50 px-2 py-0.5 text-xs text-amber-800">{check}</span>) : <span className="text-xs text-emerald-700">资料齐备 · 金额一致</span>}</td><td>{note.allocated_quantity}</td><td>{money(note.allocated_cny)}</td><td>{note.paper_total_cny === null ? "未录入" : <>{money(note.paper_total_cny)}<small className={`block ${Math.abs(note.paper_total_cny - note.allocated_cny) > 0.005 ? "text-amber-700" : "text-emerald-700"}`}>{Math.abs(note.paper_total_cny - note.allocated_cny) > 0.005 ? `差额 ${money(note.paper_total_cny - note.allocated_cny)}` : "金额一致"}</small></>}</td><td>{money(note.paid_cny)}</td><td className="font-medium">{money(note.unpaid_cny)}</td><td className="space-x-2 whitespace-nowrap"><button onClick={() => setExpanded((value) => value === note.id ? null : note.id)} className="text-blue-700">{expanded === note.id ? "收起" : `查看PI（${groupAllocations(note.allocations).length}）`}</button>{canRecordPayment ? <button onClick={() => { setError(""); setPaperDraft({ noteId: note.id, noteNumber: note.note_number, amount: note.paper_total_cny === null ? "" : Number(note.paper_total_cny).toFixed(2), version: note.updated_at, reason: "" }); }} className="text-blue-700">核对纸单</button> : null}{canRecordPayment && note.unpaid_cny > 0 ? <button onClick={() => openPayment(note)} className="text-emerald-700">登记付款</button> : null}</td></tr>)}</tbody></table>
+    <div id="supplier-monthly-matrix" className="scroll-mt-20" aria-busy={loading}>{loading ? <p role="status" className="mb-2 text-xs text-slate-600">正在更新月度对账数据…</p> : null}<div className={loading ? "pointer-events-none opacity-50" : ""}><SupplierMonthlyMatrix suppliers={supplierSummary} monthly={monthlySummary} metric={matrixMetric} dateFrom={filters.from} dateTo={filters.to} onMetricChange={setMatrixMetric} onDrill={drillToMonth}/></div></div>
+    {matrixOrigin ? <div role="status" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900"><span>正在核对：{suppliers.find((item) => item.id === filters.supplierId)?.system_code || "所选供应商"} · {filters.from} 至 {filters.to}。上方汇总与下方明细均已切换到同一范围。</span><button type="button" onClick={returnToMatrix} className="rounded-lg border border-blue-300 bg-white px-3 py-1.5 font-medium text-blue-700">返回原汇总范围</button></div> : null}
+    <section id="supplier-delivery-notes" className="scroll-mt-20 rounded-xl border bg-white p-4"><div className="flex flex-wrap items-center justify-between gap-2"><div><h2 className="font-semibold">采购明细</h2><p className="mt-1 text-xs text-slate-500">一张真实送货单一行；展开可核对关联 PI、产品分配与付款流水。</p></div>{filters.supplierId ? <button type="button" onClick={() => { setMatrixOrigin(null); setSupplierId(""); setPage(1); setExpanded(null); setFilters((current) => ({ ...current, supplierId: "" })); }} className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs text-blue-700">{suppliers.find((item) => item.id === filters.supplierId)?.system_code || "所选供应商"} · 清除筛选</button> : null}</div>
+      <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[1220px] text-left text-sm"><thead><tr className="border-b bg-slate-50 text-slate-600"><th className="p-3">送货日期</th><th>供应商</th><th>当时商务条件</th><th>送货单号</th><th className="min-w-44">关联 PI</th><th>纸单影像</th><th>核对提示</th><th>数量</th><th>分配金额</th><th>纸单金额 / 差额</th><th>已付</th><th>未付</th><th>操作</th></tr></thead><tbody>{notes.map((note) => <tr key={note.id} className="border-b align-top"><td className="p-3">{note.document_date}</td><td>{note.supplier_code}<small className="block text-slate-500">{note.supplier_name}</small></td><td>{settlementLabel(note.settlement_cycle, note.settlement_days, note.settlement_terms_original)}</td><td>{note.note_number}</td><td className="max-w-56 py-2 pr-3"><div className="flex flex-wrap gap-1.5">{groupAllocations(note.allocations).slice(0, 2).map((group) => <Link key={group.piId} href={`/orders/${group.piId}`} className="rounded border border-blue-100 bg-blue-50 px-1.5 py-0.5 text-xs text-blue-700 hover:underline" title={`打开 PI ${group.piNumber || group.systemPiNumber}`}>{group.piNumber || group.systemPiNumber}</Link>)}{groupAllocations(note.allocations).length > 2 ? <button type="button" onClick={() => setExpanded(note.id)} className="text-xs text-blue-700 hover:underline">另 {groupAllocations(note.allocations).length - 2} 单 ↓</button> : null}{!note.allocations.length ? <span className="text-xs text-amber-700">未关联 PI</span> : null}</div></td><td className="max-w-52 p-2"><SupplierDeliveryNoteFiles note={{ id: note.id, supplier_code: note.supplier_code, note_number: note.note_number, document_date: note.document_date, attachments: note.attachments || [] }} compact/></td><td className="min-w-28 py-3">{noteChecks(note, canViewDocuments).length ? noteChecks(note, canViewDocuments).map((check) => <span key={check} className="mb-1 block w-fit rounded bg-amber-50 px-2 py-0.5 text-xs text-amber-800">{check}</span>) : <span className="text-xs text-emerald-700">资料齐备 · 金额一致</span>}</td><td>{note.allocated_quantity}</td><td>{money(note.allocated_cny)}</td><td>{note.paper_total_cny === null ? "未录入" : <>{money(note.paper_total_cny)}<small className={`block ${Math.abs(note.paper_total_cny - note.allocated_cny) > 0.005 ? "text-amber-700" : "text-emerald-700"}`}>{Math.abs(note.paper_total_cny - note.allocated_cny) > 0.005 ? `差额 ${money(note.paper_total_cny - note.allocated_cny)}` : "金额一致"}</small></>}</td><td>{money(note.paid_cny)}</td><td className="font-medium">{money(note.unpaid_cny)}</td><td className="space-x-2 whitespace-nowrap"><button onClick={() => setExpanded((value) => value === note.id ? null : note.id)} className="text-blue-700">{expanded === note.id ? "收起" : `查看PI（${groupAllocations(note.allocations).length}）`}</button>{canRecordPayment ? <button onClick={() => { setError(""); setPaperDraft({ noteId: note.id, noteNumber: note.note_number, amount: note.paper_total_cny === null ? "" : Number(note.paper_total_cny).toFixed(2), version: note.updated_at, reason: "" }); }} className="text-blue-700">核对纸单</button> : null}{canRecordPayment && note.unpaid_cny > 0 ? <button onClick={() => openPayment(note)} className="text-emerald-700">登记付款</button> : null}</td></tr>)}</tbody></table>
         {!loading && notes.length === 0 ? <p className="py-10 text-center text-sm text-slate-500">该日期范围没有送货单回货记录</p> : null}</div>
-      {expanded ? (() => { const note = notes.find((row) => row.id === expanded); if (!note) return null; const groups = groupAllocations(note.allocations); return <div className="mt-4 rounded-xl border bg-slate-50 p-4 text-sm"><h3 className="font-semibold">{note.supplier_code} · {note.note_number} · 关联 PI（{groups.length} 单）</h3><div className="mt-2 overflow-x-auto"><table className="w-full min-w-[650px] text-left text-xs"><thead><tr className="border-b"><th className="py-2">PI订单号 / 产品</th><th>回货数量</th><th>采购单价</th><th>金额</th></tr></thead><tbody>{groups.map((group) => <Fragment key={group.items[0].pi_id}><tr className="border-b bg-blue-50/70 font-semibold"><td className="py-2">{group.piNumber}</td><td>{group.quantity}</td><td>—</td><td>{money(group.amount)}</td></tr>{group.items.map((item) => <tr key={item.id} className="border-b last:border-0"><td className="py-2 pl-4 text-slate-700">{item.product}{item.correction_of ? <small className="block text-rose-700">冲正原记录 {item.correction_of.slice(0, 8)} · {item.correction_reason}</small> : null}</td><td>{item.quantity}</td><td>{money(item.unit_price_cny)}</td><td>{money(item.amount_cny)}</td></tr>)}</Fragment>)}</tbody></table></div><h4 className="mt-4 font-medium">付款流水</h4>{note.payments.length ? note.payments.map((entry) => <p key={entry.id} className="mt-1 text-xs">{entry.paid_on} · {money(entry.amount_cny)} · {entry.method} · 凭证 {entry.reference}</p>) : <p className="mt-1 text-xs text-slate-500">暂无已确认付款</p>}</div>; })() : null}
+      {expanded ? (() => { const note = notes.find((row) => row.id === expanded); if (!note) return null; const groups = groupAllocations(note.allocations); return <div className="mt-4 rounded-xl border bg-slate-50 p-4 text-sm"><h3 className="font-semibold">{note.supplier_code} · {note.note_number} · 关联 PI（{groups.length} 单）</h3><div className="mt-2 overflow-x-auto"><table className="w-full min-w-[650px] text-left text-xs"><thead><tr className="border-b"><th className="py-2">PI订单号 / 产品</th><th>回货数量</th><th>采购单价</th><th>金额</th></tr></thead><tbody>{groups.map((group) => <Fragment key={group.items[0].pi_id}><tr className="border-b bg-blue-50/70 font-semibold"><td className="py-2"><Link href={`/orders/${group.piId}`} className="font-semibold text-blue-700 hover:underline">{group.piNumber || group.systemPiNumber}</Link>{group.systemPiNumber && group.systemPiNumber !== group.piNumber ? <small className="ml-2 font-normal text-slate-500">系统号 {group.systemPiNumber}</small> : null}</td><td>{group.quantity}</td><td>—</td><td>{money(group.amount)}</td></tr>{group.items.map((item) => <tr key={item.id} className="border-b last:border-0"><td className="py-2 pl-4 text-slate-700">{item.product}{item.correction_of ? <small className="block text-rose-700">冲正原记录 {item.correction_of.slice(0, 8)} · {item.correction_reason}</small> : null}</td><td>{item.quantity}</td><td>{money(item.unit_price_cny)}</td><td>{money(item.amount_cny)}</td></tr>)}</Fragment>)}</tbody></table></div><h4 className="mt-4 font-medium">付款流水</h4>{note.payments.length ? note.payments.map((entry) => <p key={entry.id} className="mt-1 text-xs">{entry.paid_on} · {money(entry.amount_cny)} · {entry.method} · 凭证 {entry.reference}</p>) : <p className="mt-1 text-xs text-slate-500">暂无已确认付款</p>}</div>; })() : null}
       <div className="mt-4"><AppPagination page={page} pageSize={pageSize} total={summary?.note_count || 0} itemLabel="张送货单" pageSizes={[10, 20, 50, 100]} onPage={(next) => { setPage(next); setExpanded(null); }} onPageSize={(size) => { setPageSize(size); setPage(1); setExpanded(null); }}/></div>
     </section>
     <AppDialog open={paperDraft !== null} title="核对纸质送货单金额" description="录入纸单金额后与系统已分配货款比对；差额不会自动改写 PI、回货或付款记录。" onClose={() => { if (!busy) { setPaperDraft(null); setError(""); } }}>

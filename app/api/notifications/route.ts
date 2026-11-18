@@ -23,6 +23,8 @@ function cleanName(name: unknown, fallback = "用户") {
 }
 
 async function enrichOperationNotices(rows: NoticeRow[]) {
+  const safeFallback = () => rows.map((row) => ["STOCK_ORDER_CREATED", "STOCK_STATUS_CHANGED"].includes(row.type)
+    ? { ...row, content: "关联备货单有更新，请进入 PI 订单查看最新进度。" } : row);
   const targets = rows.filter(row => ["STOCK_ORDER_CREATED", "STOCK_STATUS_CHANGED", "PI_CHANGE_REQUESTED", "PI_CHANGE_APPLIED", "PI_CHANGE_REJECTED"].includes(row.type));
   if (!targets.length) return rows;
   try {
@@ -31,22 +33,22 @@ async function enrichOperationNotices(rows: NoticeRow[]) {
     const orderIds = [...new Set(targets.filter(row => row.entity_type === "sales_order" && row.entity_id).map(row => row.entity_id!))];
     const [stocksResult, eventsResult] = await Promise.all([
       stockIds.length ? admin.from("stock_orders").select("id,sales_order_id,sales_user_id,warehouse_reference_number,order_number").in("id", stockIds) : Promise.resolve({ data: [], error: null }),
-      stockIds.length ? admin.from("stock_order_events").select("stock_order_id,from_status,to_status,note,created_by,created_at").in("stock_order_id", stockIds).order("created_at", { ascending: false }).limit(2000) : Promise.resolve({ data: [], error: null }),
+      stockIds.length ? admin.from("stock_order_events").select("stock_order_id,from_status,to_status,created_by,created_at").in("stock_order_id", stockIds).order("created_at", { ascending: false }).limit(2000) : Promise.resolve({ data: [], error: null }),
     ]);
     // A failed enrichment must never hide a notification or block the inbox.
-    if (stocksResult.error || eventsResult.error) return rows;
+    if (stocksResult.error || eventsResult.error) return safeFallback();
     const stocks = stocksResult.data || [];
     const events = eventsResult.data || [];
     const salesOrderIds = [...new Set([...orderIds, ...stocks.map(row => row.sales_order_id)])];
     const directOrdersResult = salesOrderIds.length
       ? await admin.from("sales_orders").select("id,sales_user_id,prepared_by,warehouse_reference_number,order_number").in("id", salesOrderIds)
       : { data: [], error: null };
-    if (directOrdersResult.error) return rows;
+    if (directOrdersResult.error) return safeFallback();
     const orders = directOrdersResult.data || [];
     const amendmentQuery = salesOrderIds.length
       ? await admin.from("pi_amendment_requests").select("id,sales_order_id,stock_order_id,requested_by,decided_by,status,reason,decision_note,created_at,decided_at").in("sales_order_id", salesOrderIds).order("created_at", { ascending: false }).limit(1000)
       : { data: [], error: null };
-    if (amendmentQuery.error) return rows;
+    if (amendmentQuery.error) return safeFallback();
     const amendments = amendmentQuery.data || [];
     const userIds = new Set<string>();
     for (const event of events) userIds.add(event.created_by);
@@ -62,7 +64,7 @@ async function enrichOperationNotices(rows: NoticeRow[]) {
     const usersResult = userIds.size
       ? await admin.from("users").select("id,name,email,role").in("id", [...userIds])
       : { data: [], error: null };
-    if (usersResult.error) return rows;
+    if (usersResult.error) return safeFallback();
     const users = new Map((usersResult.data || []).map(user => [user.id, user]));
     const stockMap = new Map(stocks.map(stock => [stock.id, stock]));
     const orderMap = new Map(orders.map(order => [order.id, order]));
@@ -88,9 +90,10 @@ async function enrichOperationNotices(rows: NoticeRow[]) {
         const content = `${who}：${action}，订单号 ${number}${reason ? `；说明：${reason}` : ""}。${prompt}`.slice(0, 500);
         return { ...row, content, metadata: { ...(row.metadata || {}), order_number: number, ...(actor ? { actor_name: cleanName(actor.name, actor.email) } : {}) } };
       }
-      if (!["STOCK_ORDER_CREATED", "STOCK_STATUS_CHANGED"].includes(row.type) || row.entity_type !== "stock_order" || !row.entity_id) return row;
+      if (!["STOCK_ORDER_CREATED", "STOCK_STATUS_CHANGED"].includes(row.type)) return row;
+      if (row.entity_type !== "stock_order" || !row.entity_id) return { ...row, content: "关联备货单有更新，请进入 PI 订单查看最新进度。" };
       const stock = stockMap.get(row.entity_id);
-      if (!stock) return row;
+      if (!stock) return { ...row, content: "关联备货单有更新，请进入 PI 订单查看最新进度。" };
       const order = orderMap.get(stock.sales_order_id) || null;
       const number = businessNumber(stock, order || undefined);
       const event = lookupEvent(stock.id, row.created_at);
@@ -98,27 +101,24 @@ async function enrichOperationNotices(rows: NoticeRow[]) {
       const sales = users.get(stock.sales_user_id);
       const preparer = order?.prepared_by ? users.get(order.prepared_by) : null;
       let content = row.content || "";
-      if (row.type === "STOCK_ORDER_CREATED" && actor) {
-        if (preparer && preparer.id === actor.id && preparer.id !== stock.sales_user_id) {
+      if (row.type === "STOCK_ORDER_CREATED") {
+        if (actor && preparer && preparer.id === actor.id && preparer.id !== stock.sales_user_id) {
           content = `${cleanName(actor.name, actor.email)}：为 ${cleanName(sales?.name, "用户")} 提交订单 ${number} 的备货单，请及时安排备货。`;
         } else {
-          content = `${cleanName(actor.name, actor.email)}：提交订单 ${number} 的备货单，请及时安排备货。`;
+          content = `${actor ? `${cleanName(actor.name, actor.email)}：` : ""}订单 ${number} 的备货单已提交，请及时安排备货。`;
         }
-      } else if (row.type === "STOCK_STATUS_CHANGED" && actor && event) {
-        const detail = String(event.note || "").replace(/\s+/g, " ").trim();
-        const transition = event.from_status && event.to_status
+      } else if (row.type === "STOCK_STATUS_CHANGED") {
+        const transition = event?.from_status && event.to_status
           ? `备货状态由${stageLabel[event.from_status] || event.from_status}更新为${stageLabel[event.to_status] || event.to_status}` : "更新了备货信息";
-        const actionPrompt = event.to_status === "SHORTAGE" ? "请尽快协调处理。"
-          : event.to_status === "READY_TO_SHIP" ? "请核对并安排交货代。"
-            : event.to_status === "SHIPPED" ? "请跟进客户并复核预估成本。" : "请及时查看并按需处理。";
-        content = detail
-          ? `${cleanName(actor.name, actor.email)}：对订单 ${number} 执行备货操作：${detail}。${actionPrompt}`.slice(0, 500)
-          : `${cleanName(actor.name, actor.email)}：将订单 ${number} 的${transition}。${actionPrompt}`;
+        const actionPrompt = event?.to_status === "SHORTAGE" ? "请尽快协调处理。"
+          : event?.to_status === "READY_TO_SHIP" ? "请核对并安排交货代。"
+            : event?.to_status === "SHIPPED" ? "请跟进客户并复核预估成本。" : "请及时查看并按需处理。";
+        content = `${actor ? `${cleanName(actor.name, actor.email)}：` : ""}订单 ${number} 的${transition}。${actionPrompt}`;
       }
       return { ...row, content, metadata: { ...(row.metadata || {}), order_number: number, ...(actor ? { actor_name: cleanName(actor.name, actor.email) } : {}), ...(sales?.name ? { salesperson_name: cleanName(sales.name) } : {}), ...(preparer?.name ? { preparer_name: cleanName(preparer.name) } : {}) } };
     });
   } catch {
-    return rows;
+    return safeFallback();
   }
 }
 

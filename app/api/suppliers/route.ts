@@ -2,10 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { authErrorStatus, hasPermission, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { parseSupplierInput } from "@/lib/suppliers/input";
+import { assertSupplierRoleAllowed } from "@/lib/auth/supplier-role-boundary";
 
 export async function GET(request: NextRequest) {
   try {
     const { account } = await requirePermission("suppliers.view");
+    assertSupplierRoleAllowed(account.role);
     const params = request.nextUrl.searchParams;
     const search = (params.get("q") || "").trim().slice(0, 80);
     const admin = createAdminClient();
@@ -49,6 +51,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const { account } = await requirePermission("suppliers.manage");
+    assertSupplierRoleAllowed(account.role);
     const input = parseSupplierInput(await request.json());
     const admin = createAdminClient();
     let systemCode = input.system_code;

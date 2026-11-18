@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authErrorStatus, requireAdmin } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { CORE_PERMISSION_CODES, PERMISSION_CATALOG, isKnownPermission, isRetiredPermission, normalizeRole, permissionPageCode } from "@/lib/auth/permissions";
+import { CORE_PERMISSION_CODES, PERMISSION_CATALOG, isKnownPermission, isRetiredPermission, normalizeRole, permissionPageCode, supplierDocumentGrantForbidden } from "@/lib/auth/permissions";
 import { userPermissionChanges } from "@/lib/auth/role-permission-changes";
 
 type OverrideEffect = "ALLOW" | "DENY" | "INHERIT";
@@ -53,6 +53,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     if (targetError) throw targetError;
     if (!target) return NextResponse.json({ error: "用户不存在" }, { status: 404 });
     if (normalizeRole(target.role) === "ADMIN") return NextResponse.json({ error: "系统管理员固定拥有全部权限" }, { status: 400 });
+    if (effect === "ALLOW" && supplierDocumentGrantForbidden(target.role, permission)) return NextResponse.json({ error: "销售员和制单员不得查看供应商送货单凭证" }, { status: 400 });
     const changes = userPermissionChanges(permission, effect);
     if (effect === "INHERIT") {
       const { error } = await admin.from("user_permission_overrides").delete().eq("user_id", id).in("permission_code", changes.map((item) => item.permission_code));

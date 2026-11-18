@@ -4,6 +4,7 @@ export const NOTIFICATION_TYPES = [
   { type: "STOCK_ORDER_CREATED", label: "新备货单", popup: true, voice: true },
   { type: "STOCK_STATUS_CHANGED", label: "整单备货状态与异常", popup: true, voice: true },
   { type: "STOCK_PROGRESS_ROUTINE", label: "逐项回货与理货数量更新", popup: false, voice: false },
+  { type: "STOCK_DOCUMENT_MISSING", label: "已交货代 PI 缺送货单凭证", popup: false, voice: false },
   { type: "PI_CHANGE_REQUESTED", label: "PI 变更待确认", popup: true, voice: true },
   { type: "PI_CHANGE_APPLIED", label: "PI 变更已确认", popup: true, voice: true },
   { type: "PI_CHANGE_REJECTED", label: "PI 变更被退回", popup: true, voice: true },

@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authErrorStatus, requirePermission } from "@/lib/auth/current-user";
 import { sqlErrorMessage } from "@/lib/sales-flow";
+import { assertSupplierRoleAllowed } from "@/lib/auth/supplier-role-boundary";
 
 export async function PATCH(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    const { supabase } = await requirePermission("stock.update");
+    const { supabase, account } = await requirePermission("stock.update");
+    assertSupplierRoleAllowed(account.role);
     const { id } = await context.params;
     const body = await request.json();
     const expectedUpdatedAt = String(body.expected_updated_at || "");

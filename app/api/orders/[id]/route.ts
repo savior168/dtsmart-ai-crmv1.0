@@ -10,6 +10,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { loadOrderCustomerNames } from "@/lib/order-customer-name";
 import { resolvePiRequirementAttachments } from "@/lib/orders/pi-requirement-attachment-view";
 import { sellerCostReviewLineNumbers } from "@/lib/orders/seller-cost-review";
+import { summarizePiStockEvents } from "@/lib/orders/pi-stock-event-summary";
 
 export async function GET(
   _: NextRequest,
@@ -36,7 +37,7 @@ export async function GET(
         .order("line_number"),
       relatedClient
         .from("stock_orders")
-        .select("id,stock_number,status,status_note,updated_at")
+        .select("id,stock_number,status,updated_at")
         .eq("sales_order_id", id)
         .maybeSingle(),
       relatedClient
@@ -52,6 +53,21 @@ export async function GET(
     const stockItems = stock.data ? await relatedClient.from("stock_order_items")
       .select("line_number,quantity,received_quantity,prepared_quantity,shipped_quantity,preparation_status").eq("stock_order_id", stock.data.id).is("pi_amendment_cancelled_at", null) : null;
     if (stockItems?.error) throw stockItems.error;
+    const stockEventsResult = stock.data && order.data.confirmation_method === "DIRECT_PI"
+      ? await createAdminClient().from("stock_order_events")
+        .select("id,from_status,to_status,note,created_by,created_at")
+        .eq("stock_order_id", stock.data.id)
+        .order("created_at", { ascending: false }).order("id", { ascending: false })
+        .limit(50)
+      : null;
+    if (stockEventsResult?.error) throw stockEventsResult.error;
+    const stockEvents = summarizePiStockEvents(stockEventsResult?.data || []).slice(0, 20);
+    const stockEventActorIds = [...new Set(stockEvents.map((event) => event.created_by).filter((value): value is string => Boolean(value)))];
+    const stockEventActors = stockEventActorIds.length
+      ? await createAdminClient().from("users").select("id,name").in("id", stockEventActorIds)
+      : { data: [], error: null };
+    if (stockEventActors.error) throw stockEventActors.error;
+    const stockEventActorNames = new Map((stockEventActors.data || []).map((actor) => [actor.id, actor.name || "已停用用户"]));
     const amendmentResult = order.data.confirmation_method === "DIRECT_PI"
       ? await createAdminClient().from("pi_amendment_requests")
         .select("id,status,base_revision,applied_revision,reason,decision_note,created_at,decided_at,before_items,proposed_items")
@@ -140,6 +156,10 @@ export async function GET(
       stock_order: stock.data ? { ...stock.data, progress: summarizeStockProgress(stock.data.status, stockItems?.data || []) } : null,
       receiving_progress: receivingProgress,
       item_progress: stockItems?.data || [],
+      stock_events: stockEvents.map((event) => ({
+        id: event.id, created_at: event.created_at, label: event.label,
+        actor_name: event.created_by ? stockEventActorNames.get(event.created_by) || "已停用用户" : "系统",
+      })),
       amendments,
       price_corrections: (priceCorrections?.data || []).map((entry) => ({ ...entry, actor_name: priceCorrectionActorNames.get(entry.user_id) || "已停用用户" })),
       requirement_attachments: resolvePiRequirementAttachments(requirementAttachments?.data || [], items.data || []),

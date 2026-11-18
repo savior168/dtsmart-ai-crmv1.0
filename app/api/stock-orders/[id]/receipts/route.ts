@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authErrorStatus, hasPermission, requirePermission } from "@/lib/auth/current-user";
 import { sqlErrorMessage } from "@/lib/sales-flow";
+import { assertSupplierRoleAllowed } from "@/lib/auth/supplier-role-boundary";
 
 export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
     const { supabase, account } = await requirePermission("stock.update");
+    assertSupplierRoleAllowed(account.role);
     if (!hasPermission(account, "stock.procurement.edit")) throw new Error("无采购核价权限");
     const { id } = await context.params;
     const body = await request.json() as Record<string, unknown>;
@@ -21,16 +23,16 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
       || !Number.isSafeInteger(quantity) || quantity <= 0
       || !/^(?:0|[1-9]\d{0,11})(?:\.\d{1,2})?$/.test(priceText) || !Number.isFinite(unitPrice)
       || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(version))
-      || !noteNumber || noteNumber.length > 100 || note.length > 1000
+      || noteNumber.length > 100 || noteNumber.startsWith("__PENDING__") || note.length > 1000
       || cashPaidText !== null && !/^(?:0|[1-9]\d{0,11})(?:\.\d{1,2})?$/.test(cashPaidText)
       || cashPaidText !== null && Number(cashPaidText) > quantity * unitPrice) {
-      throw new Error("请选择产品、供应商，填写本次回货数量、送货单号、送货日期和采购单价");
+      throw new Error("请选择产品、供应商，填写回货数量、日期和采购单价；送货单号可稍后补录");
     }
-    const { data, error } = await supabase.rpc("record_supplier_receipt", {
+    const { data, error } = await supabase.rpc(noteNumber ? "record_supplier_receipt" : "record_supplier_receipt_pending", {
       p_stock_order_id: id,
       p_stock_order_item_id: body.stock_order_item_id,
       p_supplier_id: body.supplier_id,
-      p_note_number: noteNumber,
+      ...(noteNumber ? { p_note_number: noteNumber } : {}),
       p_document_date: date,
       p_quantity: quantity,
       p_purchase_unit_price_cny: unitPrice,

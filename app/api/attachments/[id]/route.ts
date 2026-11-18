@@ -8,6 +8,14 @@ async function access(id: string) {
   const admin = createAdminClient();
   const { data: attachment, error } = await admin.from("attachments").select("id,customer_id,uploaded_by,followup_id,quote_id,stock_order_id,sales_order_id,supplier_delivery_note_id,filename,storage_path,mime_type").eq("id", id).single();
   if (error || !attachment) throw error || new Error("附件不存在");
+  // A supplier paper image stays procurement-private even when an attachment
+  // row also points at a PI/stock order the salesperson may otherwise read.
+  if (attachment.supplier_delivery_note_id && ["SALES", "ORDER_CLERK"].includes(account.role)) {
+    throw new Error("FORBIDDEN");
+  }
+  if (attachment.supplier_delivery_note_id && !hasPermission(account, "supplier.documents.view")) {
+    throw new Error("FORBIDDEN");
+  }
 
   let allowed = account.role === "ADMIN";
   async function canReadOwner(ownerId: string | null | undefined, customer = false) {
@@ -43,7 +51,7 @@ async function access(id: string) {
   }
   if (attachment.supplier_delivery_note_id) {
     allowed ||= hasPermission(account, "supplier.reconciliation.view");
-    if (!allowed && hasPermission(account, "stock.view")) {
+    if (!allowed && hasPermission(account, "stock.view") && hasPermission(account, "stock.procurement.edit")) {
       const allocations = await admin.from("supplier_receipt_allocations").select("stock_order_item_id")
         .eq("delivery_note_id", attachment.supplier_delivery_note_id);
       if (allocations.error) throw allocations.error;

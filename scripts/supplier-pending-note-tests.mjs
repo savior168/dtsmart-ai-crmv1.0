@@ -1,0 +1,36 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+
+const read = (path) => readFileSync(path, "utf8");
+const migration = read("supabase/migrations/20261118131000_supplier_delivery_note_pending_number.sql");
+const single = read("app/api/stock-orders/[id]/receipts/route.ts");
+const batch = read("app/api/stock-orders/[id]/receipts/batch/route.ts");
+const complete = read("app/api/supplier-delivery-notes/[id]/number/route.ts");
+const stock = read("components/stock-order-detail-view.tsx");
+const files = read("components/supplier-delivery-note-files.tsx");
+const report = read("app/api/supplier-reconciliation/route.ts");
+const reconciliationView = read("components/supplier-reconciliation-view.tsx");
+const reminders = read("supabase/migrations/20261118132000_shipped_pi_document_reminders.sql");
+const cron = read("app/api/cron/stock-document-reminders/route.ts");
+
+assert.match(migration, /record_supplier_receipt_pending[\s\S]*public\.record_supplier_receipt\([\s\S]*number_pending = true/);
+assert.match(migration, /record_supplier_receipts_batch_with_pending[\s\S]*public\.record_supplier_receipts_batch\([\s\S]*number_pending = true/);
+assert.match(migration, /complete_supplier_delivery_note_number[\s\S]*actor\.role in \('SALES','ORDER_CLERK'\)[\s\S]*p_expected_updated_at[\s\S]*number_pending = false/);
+assert.match(migration, /supplier_payment_requires_number[\s\S]*before insert or update of delivery_note_id/);
+assert.match(migration, /supplier_note_confirmation_requires_number/);
+assert.match(single, /noteNumber \? "record_supplier_receipt" : "record_supplier_receipt_pending"/);
+assert.match(batch, /record_supplier_receipts_batch_with_pending/);
+assert.match(complete, /assertSupplierRoleAllowed\(account\.role\)/);
+assert.doesNotMatch(stock, /!receiptDraft\.noteNumber\.trim\(\)|!line\.noteNumber\.trim\(\)/);
+assert.match(stock, /纸质送货单号（选填，可后补）/);
+assert.match(files, /note\.updated_at[\s\S]*补录单号/);
+assert.match(report, /number_pending[\s\S]*待补送货单号/);
+assert.match(reconciliationView, /groupAllocations\(note\.allocations\)\.slice\(0, 2\)[\s\S]*href=\{`\/orders\/\$\{group\.piId\}`\}/, "送货单行须直接显示关联 PI 编号并能打开对应订单");
+assert.match(reconciliationView, /id="supplier-purchase-summary"[\s\S]*id="supplier-delivery-notes"/, "汇总卡片应能下钻到同范围汇总和采购明细");
+assert.match(reminders, /i\.shipped_quantity > 0[\s\S]*not exists \([\s\S]*supplier_receipt_allocations[\s\S]*d\.number_pending or not exists \([\s\S]*public\.attachments/);
+assert.match(reminders, /on conflict\(recipient_id,dedupe_key\)[\s\S]*action_status = 'RESOLVED'/);
+assert.match(reminders, /stock\.procurement\.edit[\s\S]*user_permission_overrides/);
+assert.match(cron, /CRON_SECRET[\s\S]*refresh_shipped_pi_document_reminders/);
+assert.match(read("app/api/attachments/[id]/route.ts"), /supplier_delivery_note_id && \["SALES", "ORDER_CLERK"\]/);
+assert.match(read("app/api/stock-orders/missing-documents/route.ts"), /requirePermission\("stock\.view"\)[\s\S]*supplier\.documents\.view/);
+console.log("supplier pending note contracts passed");

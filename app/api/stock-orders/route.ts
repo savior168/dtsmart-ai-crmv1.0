@@ -70,7 +70,7 @@ export async function GET(request: NextRequest) {
     const from = (page - 1) * pageSize;
     const makeQuery = (rangeStart: number, rangeEnd: number) => {
       let query = supabase.from("stock_orders_with_pi_preparer")
-        .select("id,quote_id,sales_order_id,quote_number,order_number,warehouse_reference_number,stock_number,sales_user_id,pi_prepared_by,customer_short_name,destination_country,status,stocking_requirements,status_note,expected_ready_at,ready_at,created_at,updated_at", { count: "exact" })
+        .select("id,quote_id,sales_order_id,quote_number,order_number,warehouse_reference_number,stock_number,sales_user_id,pi_prepared_by,customer_short_name,destination_country,status,stocking_requirements,expected_ready_at,ready_at,created_at,updated_at", { count: "exact" })
         .order(SORT_COLUMNS[sortBy as keyof typeof SORT_COLUMNS], { ascending: sortDir === "asc" })
         .order("id", { ascending: true }).range(rangeStart, rangeEnd);
       if (ownerId) query = query.eq("sales_user_id", ownerId);
@@ -130,7 +130,7 @@ export async function GET(request: NextRequest) {
       const batches = await mapExportBatches(idBatches, 4, async (batchIds) => {
         const [details, firstItems, firstShipped] = await Promise.all([
           supabase.from("stock_orders").select(
-            "id,sales_order_id,sales_user_id,stock_number,quote_number,order_number,warehouse_reference_number,customer_short_name,destination_country,status,stocking_requirements,status_note,expected_ready_at,created_at,delivery_recipient,delivery_phone,delivery_email,delivery_address,salesperson:users!stock_orders_sales_user_id_fkey(name,email)",
+            "id,sales_order_id,sales_user_id,stock_number,quote_number,order_number,warehouse_reference_number,customer_short_name,destination_country,status,stocking_requirements,expected_ready_at,created_at,delivery_recipient,delivery_phone,delivery_email,delivery_address,salesperson:users!stock_orders_sales_user_id_fkey(name,email)",
           ).in("id", batchIds),
           supabase.from("stock_order_items").select(
             "stock_order_id,line_number,product_type_snapshot,product_specifications_snapshot,product_color_snapshot,item_name,brand,model,quality,description,description_zh,estimated_unit_cost_cny,quantity,received_quantity,prepared_quantity,shipped_quantity,preparation_status,preparation_requirement,internal_note",
@@ -209,7 +209,7 @@ export async function GET(request: NextRequest) {
         const items = itemsByStockId.get(row.id) || [];
         if (!detail || !items.length || detail.status !== row.status) throw new Error("备货数据已更新，请刷新筛选结果");
         files.push({ name: documentExportFilename(row.stock_number, "备货单", "xlsx", exportedAt),
-          data: await buildStockWorkbook({ ...detail, customer_name: customerNames.get(detail.sales_order_id) || null,
+          data: await buildStockWorkbook({ ...detail, status_note: null, customer_name: customerNames.get(detail.sales_order_id) || null,
             salesperson: detail.salesperson || salesOwnerById.get(detail.sales_user_id) || null,
             order_change_note: piNoteById.get(detail.sales_order_id)?.confirmation_note || null,
             forwarder_address: piNoteById.get(detail.sales_order_id)?.forwarder_address || null,
@@ -261,13 +261,13 @@ export async function GET(request: NextRequest) {
     if (preparers.error) throw preparers.error;
     const clerkOwnerById = new Map((clerkOwners.data || []).map((owner) => [owner.id, owner]));
     const preparerById = new Map((preparers.data || []).map((user) => [user.id, user]));
-    return NextResponse.json({ data: (data || []).map((item) => ({ ...item,
+    return NextResponse.json({ data: (data || []).map((item) => ({ ...item, status_note: null,
       customer_name: customerNames.get(item.sales_order_id) || null,
       customer_detail_id: accessibleCustomerIds.has(customerIdByOrder.get(item.sales_order_id)) ? customerIdByOrder.get(item.sales_order_id) : null,
       sales: clerkOwnerById.get(item.sales_user_id) || null,
       preparer: preparerIdByOrder.get(item.sales_order_id) ? preparerById.get(preparerIdByOrder.get(item.sales_order_id)!) || null : null,
       progress: summarizeStockProgress(item.status, itemsByStockId.get(item.id) || []) })),
-      count: count || 0, page, page_size: pageSize, profile: { id: account.id, role: account.role }, can_update: hasPermission(account, "stock.update"), can_export: hasPermission(account, "stock.export"), can_preview: hasPermission(account, "stock.preview"), can_view_pi: account.role !== "WAREHOUSE" && hasPermission(account, "orders.view"), can_view_all: hasPermission(account, "stock.data_all") });
+      count: count || 0, page, page_size: pageSize, profile: { id: account.id, role: account.role }, can_update: hasPermission(account, "stock.update"), can_export: hasPermission(account, "stock.export"), can_preview: hasPermission(account, "stock.preview"), can_view_pi: account.role !== "WAREHOUSE" && hasPermission(account, "orders.view"), can_view_all: hasPermission(account, "stock.data_all"), can_view_documents: !["SALES", "ORDER_CLERK"].includes(account.role) && hasPermission(account, "supplier.documents.view") });
   } catch (error) {
     const message = sqlErrorMessage(error, "备货单列表加载失败");
     return NextResponse.json({ error: message }, { status: authErrorStatus(message) || 400 });

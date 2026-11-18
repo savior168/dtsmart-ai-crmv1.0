@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin, authErrorStatus, clearPermissionCache } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { CORE_PERMISSION_CODES, PERMISSION_CATALOG, USER_ROLES, isKnownPermission, isRetiredPermission, permissionPageCode } from "@/lib/auth/permissions";
+import { CORE_PERMISSION_CODES, PERMISSION_CATALOG, USER_ROLES, isKnownPermission, isRetiredPermission, permissionPageCode, supplierDocumentGrantForbidden } from "@/lib/auth/permissions";
 import { rolePermissionChanges } from "@/lib/auth/role-permission-changes";
 import { CUSTOM_ROLES_ENABLED, readRoleDefinitions, resolveConfigurableRole } from "@/lib/auth/role-registry";
 
@@ -92,6 +92,7 @@ export async function PATCH(request: NextRequest) {
     const admin = createAdminClient();
     if (!await resolveConfigurableRole(admin, role)) return NextResponse.json({ error: "角色无效或已停用" }, { status: 400 });
     if (role === "ADMIN") return NextResponse.json({ error: "系统管理员核心权限不可关闭" }, { status: 400 });
+    if (enabled && supplierDocumentGrantForbidden(role, permission)) return NextResponse.json({ error: "销售员和制单员不得查看供应商送货单凭证" }, { status: 400 });
     if (CORE_PERMISSION_CODES.has(permission) || CORE_PERMISSION_CODES.has(permissionPageCode(permission))) return NextResponse.json({ error: "系统核心权限不能下放给非系统管理员" }, { status: 400 });
     const now = new Date().toISOString();
     const changes = rolePermissionChanges(permission, enabled);

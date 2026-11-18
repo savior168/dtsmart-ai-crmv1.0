@@ -35,7 +35,7 @@ assert.match(quoteDetail, /can_attach:[\s\S]*\["DRAFT","GENERATED","SENT"\]/, "�
 const attachmentDetail = read("app/api/attachments/[id]/route.ts");
 assert.match(attachmentDetail, /报价发送后附件作为业务凭证保留，不能删除/, "已发送报价的附件必须作为业务凭证保留");
 const stockApi = read("app/api/stock-orders/[id]/route.ts");
-assert.match(stockApi, /const warehouseEditor = hasPermission\(account, "stock\.update"\)[\s\S]*can_update: warehouseEditor/, "备货状态须由独立动作授权决定");
+assert.match(stockApi, /const warehouseEditor = !hideSupplierCode && \(hasPermission\(account, "stock\.update"\)[\s\S]*can_update: warehouseEditor/, "备货状态须由独立动作授权决定，且销售和跟单不得越权执行仓库动作");
 assert.doesNotMatch(stockApi, /(?:^|[,\s])unit_price\b|total_amount|customer:customers|delivery_phone|delivery_email/, "仓库接口不得返回销售价格或客户私人联系方式；授权仓库采购单价除外");
 assert.match(stockApi, /can_view_procurement: canViewProcurement[\s\S]*can_edit_procurement: canViewProcurement/, "采购字段查看和编辑能力必须由服务端单独授权");
 assert.match(stockApi, /const canViewProcurement = !\["SALES", "ORDER_CLERK"\]\.includes\(account\.role\) && hasPermission\(account, "stock\.procurement\.edit"\)/, "销售员与跟单员不得查看采购敏感字段");

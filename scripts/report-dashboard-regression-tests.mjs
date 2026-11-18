@@ -34,6 +34,10 @@ const orderList = read("components/orders-view.tsx");
 const stockList = read("components/stock-orders-view.tsx");
 const operationsPermissions = read("supabase/migrations/20261020071428_operations_role_reports_default.sql");
 const operationsOverview = read("components/operations-overview.tsx");
+assert.match(operationsOverview, /<CompactDateRange label="创建日期"/, "岗位报表日期筛选应复用统一范围控件");
+assert.match(operationsOverview, /canFilterCreator \? "xl:grid-cols-5"/, "制单员五张核心指标卡应在宽屏同排展示");
+assert.match(operationsOverview, /piTotal \? \(ownPi \/ piTotal \* 100\)\.toFixed\(1\)/, "本人制单占比应与状态分布精度一致");
+assert.match(operationsOverview, /piTotal - ownPi\) \/ piTotal \* 100 : 0/, "没有 PI 时构成进度条不应显示满格");
 
 assert.match(migration, /left join public\.customers c on c\.owner_id=s\.id and c\.deleted_at is null/, "销售客户指标只能统计当前归属且在库的客户");
 assert.match(migration, /count\(c\.id\) filter\(where c\.created_at>=p_from and c\.created_at<p_to\) as new_customers/, "期间新增必须与报表日期范围一致");

@@ -3,6 +3,7 @@ import { hasPermission, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { storageObjectName } from "@/lib/storage-object-key";
 import { isPiRequirementImage } from "@/lib/pi-requirement-image";
+import { assertSupplierRoleAllowed } from "@/lib/auth/supplier-role-boundary";
 
 const IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const IMAGE_LIMIT = 5 * 1024 * 1024;
@@ -12,7 +13,9 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
   const uploadedPaths: string[] = [];
   try {
     const { supabase, account } = await requirePermission("stock.update");
-    if (!hasPermission(account, "stock.procurement.edit")) throw new Error("FORBIDDEN");
+    assertSupplierRoleAllowed(account.role);
+    if (!hasPermission(account, "stock.procurement.edit")
+      || !hasPermission(account, "supplier.documents.manage")) throw new Error("FORBIDDEN");
     const { id } = await context.params;
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) throw new Error("送货单记录无效");
 

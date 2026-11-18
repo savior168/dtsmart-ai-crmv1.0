@@ -120,6 +120,7 @@ const splitMigration = readFileSync(new URL("../supabase/migrations/202611091015
 assert.match(splitMigration, /when 'customers\.view' then array\['customers\.pool\.view', 'customers\.mine\.view'\]/);
 assert.match(splitMigration, /when 'reports\.view' then array\['sales\.performance\.view'\]/);
 const effectiveDbPages = [
+  { prefix: "supplier.documents.", page: "supplier.documents.view" },
   { prefix: "customers.pool.", page: "customers.pool.view" },
   { prefix: "customers.mine.", page: "customers.mine.view" },
   { prefix: "sales.performance.", page: "sales.performance.view" },

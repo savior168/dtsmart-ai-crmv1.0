@@ -117,6 +117,8 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   { code: "stock.data_all", label: "查看全部备货单", group: "采购管理", description: "按归属人查看全部采购备货进度", kind: "DATA" },
   { code: "stock.update", label: "更新备货状态", group: "采购管理", description: "采购备货人员更新备货状态与备注", kind: "ACTION" },
   { code: "stock.procurement.edit", label: "确认实际采购价", group: "采购管理", description: "指定采购人员核实并维护备货单实际采购单价；可与备货状态权限分别授权", kind: "ACTION" },
+  { code: "supplier.documents.view", label: "送货单凭证与待补清单", group: "采购管理", description: "查看关联送货单号与纸单影像；销售员和制单员始终禁止", kind: "PAGE" },
+  { code: "supplier.documents.manage", label: "补录供应商送货单凭证", group: "采购管理", description: "仓库登记后补录真实纸单号与上传影像；须同时有查看凭证权限", kind: "ACTION" },
   { code: "stock.prepare", label: "完善备货信息", group: "采购管理", description: "仓库员完善历史报价产生的备货草稿；PI明细由销售在PI订单中修改", kind: "ACTION" },
   { code: "stock.submit", label: "确认备货草稿", group: "采购管理", description: "仓库员确认历史报价产生的备货草稿；PI由销售确认后自动提交", kind: "ACTION" },
   { code: "stock.export", label: "导出备货单", group: "采购管理", description: "按备货模板导出备货Excel", kind: "ACTION" },
@@ -186,6 +188,7 @@ export function permissionPageCode(code: string) {
   if (code.startsWith("quotes.")) return "quotes.view";
   if (code.startsWith("orders.")) return "orders.view";
   if (code.startsWith("stock.")) return "stock.view";
+  if (code === "supplier.documents.manage") return "supplier.documents.view";
   if (code.startsWith("suppliers.")) return "suppliers.view";
   if (code.startsWith("supplier.reconciliation.")) return "supplier.reconciliation.view";
   if (code.startsWith("pi.rates.")) return "pi.rates.view";
@@ -202,6 +205,10 @@ export function permissionPageCode(code: string) {
   return code;
 }
 
+export function supplierDocumentGrantForbidden(role: string, permission: string) {
+  return (role === "SALES" || role === "ORDER_CLERK") && permission.startsWith("supplier.documents.");
+}
+
 export type PermissionAccount = {
   role: UserRole;
   permissions: string[];
@@ -212,6 +219,7 @@ export type PermissionAccount = {
 /** The same decision is used by server handlers and the role regression matrix. */
 export function evaluatePermission(account: PermissionAccount, permission: string) {
   if (account.role === "ADMIN") return true;
+  if (supplierDocumentGrantForbidden(account.role, permission)) return false;
   // My Customers has a separate, explicit per-user grant. A role default or
   // the general supervisor switch must never expose subordinate customers.
   if (account.role === "SUPERVISOR" && permission === "customers.data_all"

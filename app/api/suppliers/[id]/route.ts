@@ -2,12 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { authErrorStatus, hasPermission, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { parseSupplierInput } from "@/lib/suppliers/input";
+import { assertSupplierRoleAllowed } from "@/lib/auth/supplier-role-boundary";
 
 type Context = { params: Promise<{ id: string }> };
 
 export async function GET(_: NextRequest, context: Context) {
   try {
     const { account } = await requirePermission("suppliers.view");
+    assertSupplierRoleAllowed(account.role);
     const { id } = await context.params;
     const codeOnly = account.role === "WAREHOUSE" && !hasPermission(account, "suppliers.manage");
     const columns = codeOnly ? "id,system_code" : "*";
@@ -28,6 +30,7 @@ export async function GET(_: NextRequest, context: Context) {
 export async function PATCH(request: NextRequest, context: Context) {
   try {
     const { account } = await requirePermission("suppliers.manage");
+    assertSupplierRoleAllowed(account.role);
     const { id } = await context.params;
     const body = await request.json();
     const admin = createAdminClient();
@@ -67,6 +70,7 @@ export async function PATCH(request: NextRequest, context: Context) {
 export async function DELETE(request: NextRequest, context: Context) {
   try {
     const { account } = await requirePermission("suppliers.manage");
+    assertSupplierRoleAllowed(account.role);
     const { id } = await context.params;
     if (request.nextUrl.searchParams.get("permanent") === "true") {
       const { data, error } = await createAdminClient().rpc("delete_unlinked_supplier", { p_supplier_id: id });

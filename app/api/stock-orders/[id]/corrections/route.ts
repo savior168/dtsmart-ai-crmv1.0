@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { authErrorStatus, requirePermission } from "@/lib/auth/current-user";
 import { sqlErrorMessage } from "@/lib/sales-flow";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { assertSupplierRoleAllowed } from "@/lib/auth/supplier-role-boundary";
 
 type CorrectionChange = {
   item_id?: unknown;
@@ -13,7 +14,8 @@ type CorrectionChange = {
 
 export async function PATCH(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    const { supabase } = await requirePermission("stock.update");
+    const { supabase, account } = await requirePermission("stock.update");
+    assertSupplierRoleAllowed(account.role);
     const { id } = await context.params;
     const body = await request.json() as { changes?: CorrectionChange[]; expected_updated_at?: unknown; reason?: unknown };
     const changes = body.changes;

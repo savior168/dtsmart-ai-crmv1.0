@@ -9,7 +9,7 @@ import { AppStatusBadge } from "@/components/ui/app-list";
 import { CountryLabel } from "@/components/country-label";
 import { numberedPiChangeNote } from "@/lib/pi-change-note";
 import type { StockProgress } from "@/lib/stock-progress";
-import { PI_EXECUTING_STATUSES, piOrderStatusLabel } from "@/lib/stock-progress";
+import { piOrderStatusLabel, stockItemProgress, stockProgressLabel, stockProgressTone } from "@/lib/stock-progress";
 import { PiAmendmentSalesPanel } from "@/components/pi-amendment-panels";
 import { ArchivedPiRequirementAttachments, PiRequirementAttachments, type PiRequirementAttachment } from "@/components/pi-requirement-attachments";
 import type { PiAmendmentRecord } from "@/lib/orders/pi-amendment-view";
@@ -95,7 +95,8 @@ type Payload = {
   }>;
   stock_order: { id: string; stock_number: string; status: string; progress: StockProgress } | null;
   receiving_progress: { total_items: number; received_items: number; ordered_units: number; received_units: number } | null;
-  item_progress: Array<{ line_number: number; received_quantity: number; shipped_quantity: number }>;
+  item_progress: Array<{ line_number: number; quantity: number; received_quantity: number; prepared_quantity: number; shipped_quantity: number; preparation_status: string }>;
+  stock_events: Array<{ id: string; created_at: string; label: string; actor_name: string }>;
   amendments: PiAmendmentRecord[];
   price_corrections?: Array<{ id: string; user_id: string; actor_name?: string; created_at: string; content: {
     line_number?: number; previous_sale_cny?: number; revised_sale_cny?: number;
@@ -348,7 +349,7 @@ export function OrderDetailView({ id }: { id: string }) {
               href={`/stock-orders/${data.stock_order.id}`}
               className="h-9 rounded-lg border px-3 py-2 text-sm text-emerald-700"
             >
-              查看备货单
+              查看备货单进度
             </Link> : null}
             {data.can_edit_draft ? <Link href={`/orders/${id}/edit`} className="h-9 rounded-lg border px-3 py-2 text-sm text-blue-700">修改PI草稿及商品</Link> : null}
             {data.can_delete_draft ? <button type="button" disabled={busy} onClick={() => setDeleteOpen(true)} className="inline-flex h-9 items-center gap-2 rounded-lg border border-rose-200 px-3 text-sm text-rose-700 disabled:opacity-50"><Trash2 size={15}/>删除未提交草稿</button> : null}
@@ -362,7 +363,7 @@ export function OrderDetailView({ id }: { id: string }) {
               <h1 className="text-xl font-bold">{directPi ? `订单编号：${o.warehouse_reference_number || "未填写"}` : `历史销售订单 ${o.order_number}`}</h1>
               <p className="mt-1 text-sm text-slate-500">{directPi ? <>PI订单：{o.order_number} · 销售员：{o.owner?.name || o.owner?.email || "—"} · 制单人：{o.preparer?.name || o.preparer?.email || o.owner?.name || "—"} · 创建时间：{new Date(o.created_at).toLocaleString("zh-CN")}</> : <>报价编号：{o.quote_number} · 销售员：{o.owner?.name || o.owner?.email || "—"}</>}</p>
             </div>
-            <AppStatusBadge status={o.status} tone={directPi && (PI_EXECUTING_STATUSES as readonly string[]).includes(o.status) ? "violet" : undefined}>{directPi ? piOrderStatusLabel(o.status) : SALES_ORDER_STATUS_LABELS[o.status]}</AppStatusBadge>
+            <AppStatusBadge status={o.status} tone={directPi && data.stock_order && o.status !== "DRAFT" ? stockProgressTone(data.stock_order.progress) : undefined}>{directPi && data.stock_order && o.status !== "DRAFT" ? stockProgressLabel(data.stock_order.progress) : directPi ? piOrderStatusLabel(o.status) : SALES_ORDER_STATUS_LABELS[o.status]}</AppStatusBadge>
           </header>
           {error ? (
             <p className="m-5 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">
@@ -376,6 +377,7 @@ export function OrderDetailView({ id }: { id: string }) {
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-3"><p className="text-xs text-slate-500">产品销售额 / 销售口径毛利 · 人民币</p><p className="mt-1 font-semibold tabular-nums">¥{productSalesCny.toFixed(2)} <span className="text-slate-400">/</span> <span className={productProfitCny < 0 ? "text-rose-700" : "text-emerald-700"}>¥{productProfitCny.toFixed(2)}</span></p><p className="mt-1 text-xs text-slate-500">毛利率 {productSalesCny > 0 ? (productProfitCny / productSalesCny * 100).toFixed(2) : "0.00"}% · 按销售成本估计/复核值计算，不含仓库费用</p></div>
             </div>
             <PiInfoCards order={o} />
+            {data.stock_order && o.status !== "DRAFT" ? <div className="border-t px-5 py-3 text-sm"><div className="flex flex-wrap items-center gap-x-5 gap-y-1"><b>备货概况：{stockProgressLabel(data.stock_order.progress)}</b><span>订购 {data.stock_order.progress.ordered_units} 件</span><span>已回货 {data.stock_order.progress.received_units} 件</span><span>已理货 {data.stock_order.progress.prepared_units} 件</span><span>已交货代 {data.stock_order.progress.shipped_units} 件</span></div><p className="mt-1 text-xs text-slate-500">产品逐项进度见下方明细；刷新备货进度可获取最新记录。</p></div> : null}
           </> : <div className="grid gap-4 p-5 md:grid-cols-5">{[["客户名称", o.customer?.contact_name?.trim() || "未填写"], ["公司名称", o.customer_short_name], ["目的国家", o.destination_country || "-"], ["确认渠道", o.confirmation_method || "-"], ["确认时间", o.confirmed_at ? new Date(o.confirmed_at).toLocaleString("zh-CN") : "尚未提交仓库"]].map(([k, v]) => <div key={k} className="rounded-lg bg-slate-50 p-4"><small className="text-slate-500">{k}</small><p className="mt-2 font-medium">{k === "目的国家" ? <CountryLabel value={o.destination_country}/> : v}</p></div>)}</div>}
           {directPi && data.stock_order && o.status === "DRAFT" ? <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-amber-50 px-5 py-3 text-sm text-amber-800"><span>原备货单已撤回（历史），当前不作为仓库待办。修改 PI 草稿并重新提交后，仓库才会收到更新后的备货单。</span>{data.can_view_stock ? <Link href={`/stock-orders/${data.stock_order.id}`} className="font-medium text-blue-700 underline underline-offset-2">查看原备货记录</Link> : null}</div> : null}
           {directPi ? <section className="border-t px-5 py-3 text-sm"><h2 className="font-semibold">整单理货要求</h2><p className="mt-1 whitespace-pre-wrap break-words text-slate-700">{data.stocking_requirements || "常规理货"}</p><PiRequirementAttachments attachments={data.requirement_attachments || []} lineNumber={null} className="mt-2"/></section> : null}
@@ -399,6 +401,7 @@ export function OrderDetailView({ id }: { id: string }) {
                     directPi ? "产品质量" : "质量",
                     directPi ? "产品描述" : "客户描述",
                     "数量",
+                    ...(directPi ? ["备货 / 交货进度"] : []),
                     ...(directPi ? ["销售单价（人民币）", "销售成本（预估/复核）", "销售毛利率"] : []),
                     "单价",
                     "金额",
@@ -427,6 +430,7 @@ export function OrderDetailView({ id }: { id: string }) {
                     <td className="px-3 py-3">{i.quality || "-"}</td>
                     <td className="px-3 py-3">{i.description || "-"}</td>
                     <td className="px-3 py-3">{i.quantity}</td>
+                    {directPi ? <td className="min-w-[145px] px-3 py-3">{(() => { const progress = data.item_progress.find((row) => row.line_number === i.line_number); if (i.pi_amendment_cancelled_at) return "已删除"; if (!progress) return "待仓库接单"; const stage = stockItemProgress(progress); return <><span className={`rounded px-1.5 py-0.5 text-xs font-medium ${stage.tone}`}>{stage.label}</span><span className="mt-1 block whitespace-nowrap text-xs text-slate-500">回货 {progress.received_quantity} / 理货 {progress.prepared_quantity} / 交货代 {progress.shipped_quantity} · 共 {progress.quantity} 件</span></>; })()}</td> : null}
                     {directPi ? <><td className="px-3 py-3">¥{Number(i.unit_price_cny).toFixed(2)}</td><td className="px-3 py-3">¥{Number(i.estimated_unit_cost_cny).toFixed(2)}{costReviewRequired && i.estimated_unit_cost_cny !== null ? <button type="button" disabled={busy} onClick={() => { setError(""); setCostReview({ itemId: i.id, lineNumber: i.line_number, expected: Number(i.estimated_unit_cost_cny), revised: Number(i.estimated_unit_cost_cny).toFixed(2), reason: "" }); }} className="ml-2 whitespace-nowrap text-xs text-blue-700 hover:underline disabled:opacity-40">复核成本</button> : null}</td><td className="px-3 py-3">{i.pi_amendment_cancelled_at ? "不计入" : Number(i.unit_price_cny) > 0 ? `${((Number(i.unit_price_cny) - Number(i.estimated_unit_cost_cny)) / Number(i.unit_price_cny) * 100).toFixed(2)}%` : "—"}{canCorrectLine ? <button type="button" onClick={() => { setError(""); setPriceCorrection({ itemId: i.id, lineNumber: i.line_number, expectedSale: Number(i.unit_price_cny), expectedCost: Number(i.estimated_unit_cost_cny), revisedSale: Number(i.unit_price_cny).toFixed(2), revisedCost: Number(i.estimated_unit_cost_cny).toFixed(2), reason: "" }); }} className="mt-1 block whitespace-nowrap text-xs text-blue-700 hover:underline">更正价格</button> : null}</td></> : null}
                     <td className="px-3 py-3">
                       {o.currency} {Number(i.unit_price).toFixed(2)}
@@ -440,7 +444,7 @@ export function OrderDetailView({ id }: { id: string }) {
               </tbody>
               <tfoot>
                 <tr className="border-t bg-blue-50">
-                  <td colSpan={directPi ? 11 : 8} className="px-3 py-3 text-right">
+                  <td colSpan={directPi ? 12 : 8} className="px-3 py-3 text-right">
                     订单总额（含运费及各项费用）
                   </td>
                   <td className="px-3 py-3 text-right font-bold text-blue-700">
@@ -453,6 +457,7 @@ export function OrderDetailView({ id }: { id: string }) {
           </div>
           {directPi ? <div className="border-b p-5 text-sm"><b>订单变更说明</b><p className="mt-2 whitespace-pre-wrap text-slate-700">{o.confirmation_note ? numberedPiChangeNote(o.confirmation_note) : "暂无变更"}</p></div> : null}
           {directPi && data.price_corrections?.length ? <details className="border-b px-5 py-3 text-sm"><summary className="cursor-pointer font-medium text-blue-700">价格更正记录 · 最近 {data.price_corrections.length} 条{data.price_corrections.length === 20 ? "（完整记录保存在操作日志）" : ""}</summary><div className="mt-2 space-y-2">{data.price_corrections.map((entry) => <div key={entry.id} className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-slate-800">第 {entry.content.line_number ?? "—"} 项 · {entry.actor_name || "已停用用户"} · {new Date(entry.created_at).toLocaleString("zh-CN")} · 售价 ¥{Number(entry.content.previous_sale_cny).toFixed(2)} → ¥{Number(entry.content.revised_sale_cny).toFixed(2)} · 成本 ¥{Number(entry.content.previous_cost_cny).toFixed(2)} → ¥{Number(entry.content.revised_cost_cny).toFixed(2)}<span className="ml-2">原因：{entry.content.reason || "—"}</span></div>)}</div></details> : null}
+          {directPi && data.stock_order ? <details className="border-b px-5 py-3 text-sm"><summary className="cursor-pointer font-medium text-blue-700">备货关键进度 · 最近 {data.stock_events?.length || 0} 条</summary><div className="mt-2 space-y-2">{data.stock_events?.length ? data.stock_events.map((event) => <div key={event.id} className="flex flex-wrap gap-x-3 gap-y-1 rounded-lg border bg-slate-50 px-3 py-2 text-xs text-slate-700"><time>{new Date(event.created_at).toLocaleString("zh-CN")}</time><b>{event.label}</b><span>操作人：{event.actor_name}</span></div>) : <p className="text-xs text-slate-500">暂无关键状态变更</p>}<p className="text-xs text-slate-500">仅显示业务进度；供应商、采购与仓库内部备注不在此展示。</p></div></details> : null}
           {directPi && o.status !== "DRAFT" ? <PiAmendmentSalesPanel orderId={id} revision={o.pi_revision}
             currency={o.currency} fxRate={Number(o.fx_rate_cny_to_payment || 0)}
             items={data.items.filter((item) => !item.pi_amendment_cancelled_at).map((item) => ({ id: item.id, line_number: item.line_number,

@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authErrorStatus, hasPermission, requirePermission } from "@/lib/auth/current-user";
 import { sqlErrorMessage } from "@/lib/sales-flow";
+import { assertSupplierRoleAllowed } from "@/lib/auth/supplier-role-boundary";
 
 export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
     const { supabase, account } = await requirePermission("stock.update");
+    assertSupplierRoleAllowed(account.role);
     if (!hasPermission(account, "stock.procurement.edit")) throw new Error("无采购核价权限");
     const { id } = await context.params;
     const body = await request.json() as Record<string, unknown>;

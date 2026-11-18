@@ -12,10 +12,13 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
     const { supabase, account } = await requirePermission("stock.view");
     const { id } = await context.params;
     const canViewProcurement = !["SALES", "ORDER_CLERK"].includes(account.role) && hasPermission(account, "stock.procurement.edit");
+    const canViewDocuments = !["SALES", "ORDER_CLERK"].includes(account.role) && hasPermission(account, "supplier.documents.view");
+    const canManageDocuments = canViewDocuments && hasPermission(account, "supplier.documents.manage")
+      && hasPermission(account, "stock.update") && canViewProcurement;
     const [{ data: order, error }, { data: items, error: itemError }, { data: events, count: eventCount, error: eventError }] = await Promise.all([
-      supabase.from("stock_orders").select("id,quote_id,sales_order_id,quote_number,order_number,warehouse_reference_number,stock_number,sales_user_id,customer_short_name,destination_country,delivery_recipient,delivery_address,status,stocking_requirements,status_note,expected_ready_at,ready_at,created_at,updated_at,sales:users!stock_orders_sales_user_id_fkey(name,email)").eq("id", id).maybeSingle(),
+      supabase.from("stock_orders").select("id,quote_id,sales_order_id,quote_number,order_number,warehouse_reference_number,stock_number,sales_user_id,customer_short_name,destination_country,delivery_recipient,delivery_address,status,stocking_requirements,expected_ready_at,ready_at,created_at,updated_at,sales:users!stock_orders_sales_user_id_fkey(name,email)").eq("id", id).maybeSingle(),
       supabase.from("stock_order_items").select("id,line_number,product_type_snapshot,product_specifications_snapshot,product_color_snapshot,item_name,brand,model,quality,description,description_zh,estimated_unit_cost_cny,quantity,received_quantity,prepared_quantity,shipped_quantity,preparation_requirement,internal_note,preparation_status,pi_amendment_cancelled_at").eq("stock_order_id", id).order("line_number"),
-      supabase.from("stock_order_events").select("id,from_status,to_status,note,created_by,created_at", { count: "exact" }).eq("stock_order_id", id).order("created_at", { ascending: false }).order("id", { ascending: false }).range(0, 9),
+      supabase.from("stock_order_events").select("id,from_status,to_status,created_by,created_at", { count: "exact" }).eq("stock_order_id", id).order("created_at", { ascending: false }).order("id", { ascending: false }).range(0, 9),
     ]);
     if (error) throw error;
     if (!order) {
@@ -59,8 +62,10 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
       const kind = latestHighlights.get(item.id);
       return kind && kind !== "REMOVED" ? [{ line_number: item.line_number, kind }] : [];
     });
-    const hideSupplierCode = account.role === "SALES" || account.role === "ORDER_CLERK";
-    let visibleItems = (items || []).filter((item) => !item.pi_amendment_cancelled_at);
+    const hideSupplierCode = !canViewProcurement && !canViewDocuments;
+    const redactWarehouseNote = account.role === "SALES" || account.role === "ORDER_CLERK";
+    let visibleItems = (items || []).filter((item) => !item.pi_amendment_cancelled_at)
+      .map((item) => redactWarehouseNote ? { ...item, internal_note: null } : item);
     if (!hideSupplierCode) {
       const codes = await createAdminClient().from("stock_order_items")
         .select("id,warehouse_supplier_code").eq("stock_order_id", id);
@@ -100,13 +105,20 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
       : { data: [], error: null };
     if (actorResult.error) throw actorResult.error;
     const actors = new Map((actorResult.data || []).map((actor) => [actor.id, actor]));
-    const scopedEvents = (events || []).map((event) => ({ ...event, creator: actors.get(event.created_by) || null }));
+    const privateNotes = !["SALES", "ORDER_CLERK"].includes(account.role) && events?.length
+      ? await createAdminClient().from("stock_order_events").select("id,note").eq("stock_order_id", id).in("id", (events || []).map((event) => event.id))
+      : { data: [], error: null };
+    if (privateNotes.error) throw privateNotes.error;
+    const noteByEventId = new Map((privateNotes.data || []).map((event) => [event.id, event.note]));
+    const scopedEvents = (events || []).map((event) => ({ ...event,
+      note: noteByEventId.get(event.id) || null,
+      creator: actors.get(event.created_by) || null }));
     let expenses = null;
     let shipments = null;
-    let receipts: Array<{ id: string; stock_order_item_id: string; quantity: number; purchase_unit_price_cny: number; note_number: string; document_date: string; supplier_code: string; correction_of: string | null; remaining_quantity: number }> = [];
-    let deliveryNotes: Array<{ id: string; supplier_code: string; note_number: string; document_date: string; attachments: Array<{ id: string; filename: string; mime_type: string | null; size_bytes: number | null; created_at: string }> }> = [];
+    let receipts: Array<{ id: string; stock_order_item_id: string; quantity: number; purchase_unit_price_cny: number; note_number: string; number_pending: boolean; document_date: string; supplier_code: string; correction_of: string | null; remaining_quantity: number }> = [];
+    let deliveryNotes: Array<{ id: string; supplier_code: string; note_number: string; number_pending: boolean; updated_at: string; document_date: string; attachments: Array<{ id: string; filename: string; mime_type: string | null; size_bytes: number | null; created_at: string }> }> = [];
     let shipmentFeatureReady = false;
-    if (hasPermission(account, "stock.update")) {
+    if (!hideSupplierCode && hasPermission(account, "stock.update")) {
       const [expenseResult, shipmentResult] = await Promise.all([
         supabase.from("stock_order_expenses")
           .select("packaging_cost_cny,procurement_expenses_cny,shipping_expenses_cny,updated_at")
@@ -121,7 +133,7 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
       shipments = shipmentResult.data || [];
       shipmentFeatureReady = !shipmentResult.error;
     }
-    if (canViewProcurement && visibleItems.length) {
+    if ((canViewProcurement || canViewDocuments) && visibleItems.length) {
       const admin = createAdminClient();
       const allocations = await admin.from("supplier_receipt_allocations")
         .select("id,stock_order_item_id,delivery_note_id,quantity,purchase_unit_price_cny,correction_of")
@@ -130,7 +142,7 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
       if (allocations.error && !["42P01", "PGRST205"].includes(allocations.error.code || "")) throw allocations.error;
       const noteIds = [...new Set((allocations.data || []).map((row) => row.delivery_note_id))];
       const notes = noteIds.length ? await admin.from("supplier_delivery_notes")
-        .select("id,supplier_id,note_number,document_date").in("id", noteIds) : { data: [], error: null };
+        .select("id,supplier_id,note_number,number_pending,updated_at,document_date").in("id", noteIds) : { data: [], error: null };
       if (notes.error) throw notes.error;
       const supplierIds = [...new Set((notes.data || []).map((row) => row.supplier_id))];
       const suppliers = supplierIds.length ? await admin.from("suppliers")
@@ -152,24 +164,28 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
       for (const row of allocations.data || []) if (row.correction_of) {
         reversedById.set(row.correction_of, (reversedById.get(row.correction_of) || 0) - row.quantity);
       }
-      receipts = (allocations.data || []).map((row) => {
+      receipts = canViewProcurement ? (allocations.data || []).map((row) => {
         const note = notesById.get(row.delivery_note_id);
         return { id: row.id, stock_order_item_id: row.stock_order_item_id,
           quantity: row.quantity, purchase_unit_price_cny: row.purchase_unit_price_cny,
           correction_of: row.correction_of,
           remaining_quantity: row.correction_of ? 0 : row.quantity - (reversedById.get(row.id) || 0),
-          note_number: note?.note_number || "", document_date: note?.document_date || "",
+          note_number: !canViewDocuments ? "无权查看" : note?.number_pending ? "待补送货单号" : note?.note_number || "", number_pending: canViewDocuments && Boolean(note?.number_pending), document_date: note?.document_date || "",
           supplier_code: note ? codesById.get(note.supplier_id) || "" : "" };
-      });
-      deliveryNotes = (notes.data || []).map((note) => ({ id: note.id,
-        supplier_code: codesById.get(note.supplier_id) || "", note_number: note.note_number,
-        document_date: note.document_date, attachments: attachmentsByNoteId.get(note.id) || [] }));
+      }) : [];
+      deliveryNotes = canViewDocuments ? (notes.data || []).map((note) => ({ id: note.id,
+        supplier_code: codesById.get(note.supplier_id) || "", note_number: note.number_pending ? "待补送货单号" : note.note_number,
+        number_pending: note.number_pending, updated_at: note.updated_at,
+        document_date: note.document_date, attachments: attachmentsByNoteId.get(note.id) || [] })) : [];
     }
-    const warehouseEditor = hasPermission(account, "stock.update")
-      || hasPermission(account, "stock.prepare") || hasPermission(account, "stock.submit");
+    const warehouseEditor = !hideSupplierCode && (hasPermission(account, "stock.update")
+      || hasPermission(account, "stock.prepare") || hasPermission(account, "stock.submit"));
     const recalledPi = order.status === "DRAFT" && Boolean(order.warehouse_reference_number);
     const transitions:Record<string,string[]>={WAITING:["PREPARING","SHORTAGE","CANCELLED"],PREPARING:["RECEIVED","SHORTAGE","CANCELLED"],RECEIVED:["SORTING","SHORTAGE","CANCELLED"],SORTING:["READY_TO_SHIP","SHORTAGE","CANCELLED"],READY_TO_SHIP:["SHIPPED","CANCELLED"],SHORTAGE:["PREPARING","CANCELLED"],DRAFT:[],SHIPPED:[],READY:[],CANCELLED:[]};
-    return NextResponse.json({ order: { ...order, customer_name_snapshot: piDelivery.data?.customer_name_snapshot || null, forwarder_address: piDelivery.data?.forwarder_address || null, forwarder_recipient: piDelivery.data?.forwarder_recipient || null, forwarder_phone: piDelivery.data?.forwarder_phone || null, pi_created_at: piDelivery.data?.created_at || null, pi_preparer: piPreparer?.data || null, customer_name: customerNames.get(order.sales_order_id) || null, sales: order.sales || salesOwner?.data || null }, items: visibleItems, cancelled_items: (items || []).filter((item) => Boolean(item.pi_amendment_cancelled_at)), amendment_highlights: amendmentHighlights, requirement_attachments: resolvePiRequirementAttachments(requirementAttachments.data || [], activePiItems.data || []), receipts, delivery_notes: deliveryNotes, amendments, events: scopedEvents, event_count: eventCount || 0, ...(warehouseEditor ? { expenses, shipments, shipment_feature_ready: shipmentFeatureReady } : {}), can_export: hasPermission(account, "stock.export") && !["DRAFT", "CANCELLED"].includes(order.status), can_preview: hasPermission(account, "stock.preview"), can_view_pi: account.role !== "WAREHOUSE" && hasPermission(account,"orders.view"), recalled_pi: recalledPi, can_prepare: warehouseEditor && hasPermission(account,"stock.prepare") && order.status==="DRAFT" && !recalledPi, can_submit: warehouseEditor && hasPermission(account, "stock.submit") && order.status==="DRAFT" && !recalledPi, can_update: warehouseEditor && hasPermission(account, "stock.update") && order.status!=="DRAFT", can_edit_receiving: warehouseEditor && hasPermission(account,"stock.update") && ["WAITING","PREPARING","RECEIVED","SORTING","SHORTAGE"].includes(order.status), can_view_procurement: canViewProcurement, can_view_supplier_code: !hideSupplierCode, can_edit_procurement: canViewProcurement && ["WAITING","PREPARING","RECEIVED","SORTING","SHORTAGE"].includes(order.status), can_upload_delivery_note_files: hasPermission(account, "stock.update") && canViewProcurement, can_manage_suppliers: hasPermission(account, "suppliers.manage"), allowed_statuses:transitions[order.status]||[] });
+    const privateOrderNote = !hideSupplierCode ? await createAdminClient().from("stock_orders")
+      .select("status_note").eq("id", id).single() : null;
+    if (privateOrderNote?.error) throw privateOrderNote.error;
+    return NextResponse.json({ order: { ...order, status_note: privateOrderNote?.data?.status_note || null, customer_name_snapshot: piDelivery.data?.customer_name_snapshot || null, forwarder_address: piDelivery.data?.forwarder_address || null, forwarder_recipient: piDelivery.data?.forwarder_recipient || null, forwarder_phone: piDelivery.data?.forwarder_phone || null, pi_created_at: piDelivery.data?.created_at || null, pi_preparer: piPreparer?.data || null, customer_name: customerNames.get(order.sales_order_id) || null, sales: order.sales || salesOwner?.data || null }, items: visibleItems, cancelled_items: (items || []).filter((item) => Boolean(item.pi_amendment_cancelled_at)).map((item) => redactWarehouseNote ? { ...item, internal_note: null } : item), amendment_highlights: amendmentHighlights, requirement_attachments: resolvePiRequirementAttachments(requirementAttachments.data || [], activePiItems.data || []), receipts, delivery_notes: deliveryNotes, amendments, events: scopedEvents, event_count: eventCount || 0, ...(warehouseEditor ? { expenses, shipments, shipment_feature_ready: shipmentFeatureReady } : {}), can_export: hasPermission(account, "stock.export") && !["DRAFT", "CANCELLED"].includes(order.status), can_preview: hasPermission(account, "stock.preview"), can_view_pi: account.role !== "WAREHOUSE" && hasPermission(account,"orders.view"), recalled_pi: recalledPi, can_prepare: warehouseEditor && hasPermission(account,"stock.prepare") && order.status==="DRAFT" && !recalledPi, can_submit: warehouseEditor && hasPermission(account, "stock.submit") && order.status==="DRAFT" && !recalledPi, can_update: warehouseEditor && hasPermission(account, "stock.update") && order.status!=="DRAFT", can_edit_receiving: warehouseEditor && hasPermission(account,"stock.update") && ["WAITING","PREPARING","RECEIVED","SORTING","SHORTAGE"].includes(order.status), can_view_procurement: canViewProcurement, can_view_documents: canViewDocuments, can_view_supplier_code: !hideSupplierCode, can_edit_procurement: canViewProcurement && ["WAITING","PREPARING","RECEIVED","SORTING","SHORTAGE"].includes(order.status), can_upload_delivery_note_files: canManageDocuments, can_manage_suppliers: hasPermission(account, "suppliers.manage"), allowed_statuses:transitions[order.status]||[] });
   } catch (error) {
     const message = sqlErrorMessage(error, "备货单详情加载失败");
     return NextResponse.json({ error: message }, { status: authErrorStatus(message) || 400 });

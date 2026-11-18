@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Check, CheckCircle2, Clipboard, LoaderCircle, LockKeyhole, RefreshCw, Search, Settings2, UserPlus, UserX, X } from "lucide-react";
-import { CORE_PERMISSION_CODES, PERMISSION_CATALOG, ROLE_LABELS, STATUS_LABELS, evaluatePermission, isOrderClerkForbiddenPermission, permissionPageCode, type AccountStatus, type PermissionDefinition, type UserRole } from "@/lib/auth/permissions";
+import { CORE_PERMISSION_CODES, PERMISSION_CATALOG, ROLE_LABELS, STATUS_LABELS, evaluatePermission, isOrderClerkForbiddenPermission, permissionPageCode, supplierDocumentGrantForbidden, type AccountStatus, type PermissionDefinition, type UserRole } from "@/lib/auth/permissions";
 import { AUDIT_CATEGORIES, AUDIT_CATEGORY_LABELS, auditActionLabel, type AuditCategory } from "@/lib/audit-log";
 import { AppPagination } from "@/components/ui/app-pagination";
 import { RowActionItem, RowActionMenu } from "@/components/ui/row-action-menu";
@@ -211,7 +211,7 @@ function UserPermissionDialog({user,roles,close,saved}:{user:UserRow;roles:RoleD
     finally{setSaving("");}
   }
   const groups=["全部",...new Set((payload?.catalog||[]).map(item=>item.group))];
-  const catalog=(payload?.catalog||[]).filter(item=>(user.role==="ADMIN"||(!CORE_PERMISSION_CODES.has(item.code)&&!CORE_PERMISSION_CODES.has(permissionPageCode(item.code))))&&(group==="全部"||item.group===group)&&!(user.role==="SUPERVISOR"&&item.code==="customers.data_all"));
+  const catalog=(payload?.catalog||[]).filter(item=>(user.role==="ADMIN"||(!CORE_PERMISSION_CODES.has(item.code)&&!CORE_PERMISSION_CODES.has(permissionPageCode(item.code))))&&(group==="全部"||item.group===group)&&!(user.role==="SUPERVISOR"&&item.code==="customers.data_all")&&!supplierDocumentGrantForbidden(user.role,item.code));
   const overrideByCode=new Map((payload?.overrides||[]).map(item=>[item.permission_code,item.effect]));
   const effectiveCodes=new Set(payload?.role_permissions||[]);
   for(const override of payload?.overrides||[]){if(override.effect==="ALLOW")effectiveCodes.add(override.permission_code);else effectiveCodes.delete(override.permission_code);}

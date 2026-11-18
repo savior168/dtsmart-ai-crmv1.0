@@ -27,7 +27,8 @@ const reportRoute = readFileSync(new URL("../app/reports/page.tsx", import.meta.
 const financeGrant = readFileSync(new URL("../supabase/migrations/20261118100900_finance_dashboard_entry.sql", import.meta.url), "utf8");
 assert.match(landing, /account\.role === "ORDER_CLERK"[\s\S]*OrderClerkDashboard[\s\S]*account\.role === "FINANCE"[\s\S]*FinanceDashboard/, "operations roles must not render sales customer dashboard");
 assert.match(clerkApi, /requirePermission\("dashboard\.view"\)[\s\S]*account\.role !== "ORDER_CLERK"[\s\S]*orders\.data_all/, "clerk overview must enforce role and data scope server-side");
-assert.match(clerkView, /PI 草稿[\s\S]*待仓库接单[\s\S]*备货处理中[\s\S]*已交货代/, "clerk overview must show PI workflow rather than customer pipeline");
+assert.match(clerkView, /可查看 PI[\s\S]*待跟进订单[\s\S]*已交货代[\s\S]*本人待提交草稿[\s\S]*缺货异常[\s\S]*紧急待办/, "clerk overview must show a non-repeating PI snapshot and actionable workflow");
+assert.doesNotMatch(clerkView, /PI 订单阶段指标/, "clerk overview must not repeat the same counts in a third section");
 assert.match(financeView, /supplier-reconciliation[\s\S]*本月应付货款[\s\S]*本月送货单未付/, "finance overview must use authorized reconciliation data with explicit period labels");
 assert.match(financeGrant, /FINANCE', 'dashboard\.view', true[\s\S]*on conflict \(role_code, permission_code\) do nothing/, "finance entry must preserve existing role disables and per-user overrides");
 assert.match(financeGrant, /FINANCE', 'reports\.view', true/, "finance report entry must be separately granted without altering sales permissions");

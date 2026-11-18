@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authErrorStatus, hasPermission, requirePermission } from "@/lib/auth/current-user";
 import { sqlErrorMessage } from "@/lib/sales-flow";
+import { assertSupplierRoleAllowed } from "@/lib/auth/supplier-role-boundary";
 
 type BatchLine = {
   stock_order_item_id?: unknown;
@@ -17,6 +18,7 @@ const moneyPattern = /^(?:0|[1-9]\d{0,11})(?:\.\d{1,2})?$/;
 export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
     const { supabase, account } = await requirePermission("stock.update");
+    assertSupplierRoleAllowed(account.role);
     if (!hasPermission(account, "stock.procurement.edit")) throw new Error("无采购核价权限");
     const { id } = await context.params;
     const body = await request.json() as { lines?: BatchLine[]; expected_updated_at?: unknown; note?: unknown };
@@ -34,18 +36,18 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
         return typeof line?.stock_order_item_id !== "string" || typeof line?.supplier_id !== "string"
           || !Number.isSafeInteger(quantity) || quantity <= 0
           || !moneyPattern.test(price) || !Number.isFinite(Number(price))
-          || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !noteNumber || noteNumber.length > 100
+          || !/^\d{4}-\d{2}-\d{2}$/.test(date) || noteNumber.length > 100 || noteNumber.startsWith("__PENDING__")
           || paid !== null && (!moneyPattern.test(paid) || Number(paid) > quantity * Number(price));
       })
       || !Number.isFinite(Date.parse(String(body.expected_updated_at || "")))) {
-      throw new Error("请为每个来源填写有效的供应商代码、送货单号、日期、回货数量和采购单价");
+      throw new Error("请为每个来源填写供应商代码、日期、回货数量和采购单价；送货单号可稍后补录");
     }
-    const { data, error } = await supabase.rpc("record_supplier_receipts_batch", {
+    const { data, error } = await supabase.rpc("record_supplier_receipts_batch_with_pending", {
       p_stock_order_id: id,
       p_lines: lines.map((line) => ({
         item_id: line.stock_order_item_id,
         supplier_id: line.supplier_id,
-        note_number: String(line.note_number).trim(),
+        note_number: String(line.note_number ?? "").trim(),
         document_date: line.document_date,
         quantity: Number(line.quantity),
         purchase_unit_price_cny: String(line.purchase_unit_price_cny),
