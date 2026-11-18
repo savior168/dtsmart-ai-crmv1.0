@@ -434,6 +434,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [announcementModal, setAnnouncementModal] = useState<ShellNotice | null>(null);
   const [announcementError, setAnnouncementError] = useState("");
   const [announcementSaving, setAnnouncementSaving] = useState(false);
+  const handlingNoticeRef = useRef<{ from: string; href: string } | null>(null);
   const [noticeOpen, setNoticeOpen] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(false);
   const [voiceSaving, setVoiceSaving] = useState(false);
@@ -541,10 +542,16 @@ export function AppShell({ children }: { children: ReactNode }) {
   const canLoadNotices = Boolean(profile && (profile.role === "ADMIN" || profile.permissions.includes("notifications.view"))) && path !== "/login" && path !== "/reset-password";
   const canLoadAnnouncements = Boolean(profile) && path !== "/login" && path !== "/reset-password";
   const loadAnnouncements = useCallback(async () => {
+    const handling = handlingNoticeRef.current;
+    if (handling) {
+      if (path === handling.from || path === handling.href) return;
+      handlingNoticeRef.current = null;
+    }
     try {
       const response = await fetch("/api/notifications?status=modal&page_size=50", { cache: "no-store" });
       if (!response.ok) return;
       const body = await response.json();
+      if (handlingNoticeRef.current) return;
       const pending = ((body.data || []) as ShellNotice[])
         .filter(item => !item.acknowledged_at && !item.dismissed_at)
         .sort((a,b) => Number(isUrgentOperationalNotice(b)) - Number(isUrgentOperationalNotice(a)) ||
@@ -552,7 +559,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       setAnnouncementModal(pending[0] || null);
       if (pending[0]) setToastNotices(current => current.filter(item => item.id !== pending[0].id));
     } catch { /* A transient connection error must not mark a required notice acknowledged. */ }
-  }, []);
+  }, [path]);
   useEffect(() => {
     if (!canLoadAnnouncements) { setAnnouncementModal(null); return; }
     const refresh = () => void loadAnnouncements();
@@ -571,7 +578,8 @@ export function AppShell({ children }: { children: ReactNode }) {
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || "确认未保存，请重试");
       setAnnouncementModal(null);
-      await loadAnnouncements();
+      if (openDetail && item.href) handlingNoticeRef.current = { from: path, href: item.href.split("?")[0] };
+      else await loadAnnouncements();
       if (canLoadNotices) void loadNotices();
       if (openDetail && item.href) router.push(item.href);
     } catch (error) { setAnnouncementError(error instanceof Error ? error.message : "确认未保存，请重试"); }

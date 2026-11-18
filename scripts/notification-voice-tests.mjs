@@ -117,6 +117,7 @@ assert.match(notificationApi, /status === "modal"[\s\S]*is\("acknowledged_at", n
 assert.match(notificationApi, /status === "modal"[\s\S]*PI_CHANGE_REQUESTED[\s\S]*URGENT_STOCK_NOTICE_TITLES/, "居中弹窗接口须纳入 PI 变更与高风险备货事件");
 assert.match(notificationApi, /notice\.type === "PI_CHANGE_REQUESTED"[\s\S]*action !== "DISMISS"[\s\S]*不能在通知中心代替业务处理/, "未完成的 PI 变更不能靠通知中心伪造已处理或归档");
 assert.match(shell, /operational \? "紧急业务待办[\s\S]*关闭仅隐藏本次弹窗，业务待办仍保留[\s\S]*稍后处理[\s\S]*去处理/, "紧急业务弹窗必须提供手动处理与稍后关闭，且不误称关闭等于办结");
+assert.match(shell, /if \(openDetail && item\.href\) handlingNoticeRef\.current = \{ from: path, href: item\.href\.split\("\?"\)\[0\] \};[\s\S]*else await loadAnnouncements\(\);/, "点击去处理时不得立即弹出下一条紧急待办遮挡目标页面");
 assert.match(inbox, /piChangePending[\s\S]*!piChangePending[\s\S]*标记已处理/, "仓库 PI 变更须在业务流程中完成而非手动点通知已处理");
 assert.match(notificationApi, /action === "READ_ALL"[\s\S]*metadata->>delivery_level\.eq\.NORMAL/, "全部已读不得绕过需要居中提示的重要或紧急公告");
 assert.match(audienceMigration, /revoke all on function public\.publish_system_announcement\(uuid,text,text,text\[\]\)[\s\S]*from public, anon, authenticated/, "定向公告函数不得向匿名用户开放");
