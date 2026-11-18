@@ -6,7 +6,7 @@ import { activeDescendantIds } from "@/lib/auth/subordinate-scope";
 async function access(id: string) {
   const { account, supabase } = await requireUser();
   const admin = createAdminClient();
-  const { data: attachment, error } = await admin.from("attachments").select("id,customer_id,uploaded_by,followup_id,quote_id,stock_order_id,sales_order_id,supplier_delivery_note_id,filename,storage_path,mime_type").eq("id", id).single();
+  const { data: attachment, error } = await admin.from("attachments").select("id,kind,customer_id,uploaded_by,followup_id,quote_id,stock_order_id,sales_order_id,supplier_delivery_note_id,filename,storage_path,mime_type").eq("id", id).single();
   if (error || !attachment) throw error || new Error("附件不存在");
   // A supplier paper image stays procurement-private even when an attachment
   // row also points at a PI/stock order the salesperson may otherwise read.
@@ -42,6 +42,17 @@ async function access(id: string) {
     if (order.error) throw order.error;
     allowed ||= Boolean(hasPermission(account, "orders.view")
       && (order.data.prepared_by === account.id || await canReadOwner(order.data.sales_user_id)));
+    // Keep PI requirement-image access aligned with the order detail's RLS
+    // visibility, including explicitly granted finance and clerk scopes.
+    if (!allowed && !attachment.supplier_delivery_note_id
+      && ["PI_ORDER_REQUIREMENT", "PI_LINE_REQUIREMENT"].includes(attachment.kind)
+      && hasPermission(account, "orders.view")) {
+      const visibleOrder = await supabase.from("sales_orders")
+        .select("id").eq("id", attachment.sales_order_id)
+        .eq("confirmation_method", "DIRECT_PI").maybeSingle();
+      if (visibleOrder.error) throw visibleOrder.error;
+      allowed = Boolean(visibleOrder.data);
+    }
     if (account.role === "WAREHOUSE" && hasPermission(account, "stock.view")) {
       const stock = await admin.from("stock_orders").select("id,status")
         .eq("sales_order_id", attachment.sales_order_id).maybeSingle();

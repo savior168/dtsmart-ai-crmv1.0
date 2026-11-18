@@ -32,6 +32,7 @@ assert.match(form, /await uploadRequirementFiles\(orderId\);[\s\S]*if \(submitTo
 assert.match(warehouse, /requirement_attachments: resolvePiRequirementAttachments\(requirementAttachments\.data \|\| \[\], activePiItems\.data \|\| \[\]\)/);
 assert.match(download, /account\.role === "WAREHOUSE" && hasPermission\(account, "stock\.view"\)/);
 assert.match(download, /stock\.data && stock\.data\.status !== "DRAFT"/);
+assert.match(download, /\["PI_ORDER_REQUIREMENT", "PI_LINE_REQUIREMENT"\]\.includes\(attachment\.kind\)[\s\S]*hasPermission\(account, "orders\.view"\)[\s\S]*supabase\.from\("sales_orders"\)[\s\S]*confirmation_method", "DIRECT_PI"/, "PI 理货附件读取须与已授权 PI 详情使用同一 RLS 可见范围");
 assert.match(orderList, /hasPermission\(account, "customers\.view"\)[\s\S]*supabase\.from\("customers"\)\.select\("id"\)/);
 assert.match(stockList, /hasPermission\(account, "customers\.view"\)[\s\S]*supabase\.from\("customers"\)\.select\("id"\)/);
 assert.match(attachmentView, /const src = `\/api\/attachments\/\$\{item\.id\}\?preview=1`[\s\S]*<Image src=\{src\}[^>]*unoptimized loading="eager"/, "理货附件详情应内嵌即时可见缩略图并保持点击查看原图入口");
