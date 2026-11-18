@@ -105,7 +105,7 @@ export function MissingStockDocumentsView({ showLegacySources = false }: { showL
                 </div></div> : row.legacy_count > 0 ? <p className="text-amber-800">请在下方按产品核对供应商、真实送货单号和采购价；关联后可直接上传照片。</p> : row.missing_number_count || row.missing_image_count ? <p className="text-amber-800">尚无可补录的关联送货单或历史实收来源，请打开备货单核对回货记录。</p> : null}
               </>}
               {showLegacySources && row.legacy_count > 0 ? <LegacySupplierSourcesView orderId={row.stock_order_id} onUpdated={() => { void load(); void loadDetail(row.stock_order_id); }}/> : null}
-              <Link href={`/stock-orders/${row.stock_order_id}`} className="inline-block text-xs text-blue-700 hover:underline">查看完整备货单</Link>
+              <Link href={`/stock-orders/${row.stock_order_id}`} target="_blank" rel="noopener noreferrer" className="inline-block text-xs text-blue-700 hover:underline">查看完整备货单</Link>
             </div></td></tr> : null}
           </Fragment>) : <tr><td colSpan={3} className="p-8 text-center text-emerald-700">当前没有待补录事项</td></tr>}
         </tbody>
