@@ -82,8 +82,8 @@ export function LegacySupplierSourcesView() {
     await load();
   }
 
-  return <section className="mt-5 rounded-xl border border-amber-200 bg-white p-4" aria-label="历史回货来源待补清单">
-    <div className="flex flex-wrap items-start justify-between gap-2"><div><h2 className="font-semibold text-amber-900">历史回货来源待补 · {count} 项</h2><p className="mt-1 text-xs text-slate-600">仅仓库和管理员可处理。按真实供应商纸单逐项关联，可拆分到多张纸单；不会重新登记回货或增加库存。</p></div><button type="button" onClick={() => void load()} className="rounded-lg border px-3 py-1.5 text-xs text-blue-700">刷新</button></div>
+  return <section id="legacy-receipt-sources" className="mt-5 scroll-mt-5 rounded-xl border border-amber-200 bg-white p-4" aria-label="历史回货来源待补清单">
+    <div className="flex flex-wrap items-start justify-between gap-2"><div><h2 className="font-semibold text-amber-900">历史回货来源待补 · {count} 项</h2><p className="mt-1 text-xs text-slate-600">仅仓库员可处理。已登记实收但未归属真实送货单的产品才列入；未回货的备货产品无需补录。按实际纸单核对供应商代码、单号、日期、数量和采购单价，随后上传纸单照片；可拆分多张纸单，不会增加库存。</p></div><button type="button" onClick={() => void load()} className="rounded-lg border px-3 py-1.5 text-xs text-blue-700">刷新</button></div>
     {error ? <p role="alert" className="mt-3 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{error}</p> : null}
     {message ? <p role="status" className="mt-3 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800">{message}</p> : null}
     {newNote ? <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3"><SupplierDeliveryNoteFiles note={newNote} canUpload onUploaded={() => { setNewNote(null); setMessage("纸单照片已保存，可继续核对其他历史来源。"); void load(); }}/></div> : null}

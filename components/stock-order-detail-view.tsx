@@ -1096,7 +1096,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
               {(() => {
                 const seen = new Set<string>();
                 const recentNotes = (data.receipts || []).filter((receipt) => {
-                  if (receipt.correction_of || receipt.number_pending || !supplierOptions.some((supplier) => supplier.system_code === receipt.supplier_code)) return false;
+                  if (receipt.correction_of || receipt.remaining_quantity <= 0 || receipt.number_pending || !supplierOptions.some((supplier) => supplier.system_code === receipt.supplier_code)) return false;
                   const key = `${receipt.supplier_code}\u0000${receipt.note_number}`;
                   if (seen.has(key)) return false;
                   seen.add(key);
