@@ -36,12 +36,12 @@ assert.match(missingDocumentsView, /送货单号待补[\s\S]*送货单照片待�
 assert.match(read("app/api/stock-orders/missing-documents/route.ts"), /photographed = new Set[\s\S]*missingNotesByOrder[\s\S]*missing_photo_note_numbers/, "待补清单须按实际送货单号去重提示缺失照片");
 assert.match(missingDocumentsView, /row\.missing_photo_note_numbers\.join\("、"\)[\s\S]*缺照片/, "缺照片应指出具体送货单号");
 assert.match(missingDocumentsView, /row\.order\.warehouse_reference_number \|\| row\.order\.order_number/, "历史 PI 应优先显示制单人填写的 D 单号");
-assert.match(missingDocumentsView, /row\.legacy_count > 0 \? <p[^>]*>尚无关联送货单。请在下方按产品核对供应商/, "无送货单但有历史实收来源时须提示页内补录路径");
+assert.match(missingDocumentsView, /row\.legacy_count > 0 \? <p[^>]*>请在下方按产品核对供应商/, "有历史实收来源时须提示页内补录路径");
 assert.match(legacySourcesView, /已登记实收但未归属真实送货单/, "历史补录须明确不重复登记回货");
 assert.match(legacySourcesView, /import \{ AppSelect \} from "@\/components\/ui\/app-select";[\s\S]*<AppSelect aria-label="历史来源供应商" required forceSearch/, "历史补录应复用系统可搜索供应商选择组件");
 assert.doesNotMatch(legacySourcesView, /<select aria-label="历史来源供应商"/, "历史补录不得退回原生供应商下拉");
 assert.match(legacySourcesView, /new Map<string, Row\[\]>\(\)[\s\S]*待补 \{orderRows\.length\} 项[\s\S]*aria-expanded=\{expandedOrder === groupOrderId\}[\s\S]*orderRows\.sort/, "相同 PI 应合并为可展开的产品清单");
-assert.match(legacySourcesView, /同纸单批量补录[\s\S]*批量确认关联/, "同 PI 多项产品须支持一次关联同一张送货单");
+assert.match(legacySourcesView, /同送货单批量补录[\s\S]*批量确认关联/, "同 PI 多项产品须支持一次关联同一张送货单");
 assert.match(legacySourcesView, /showLinkedNote[\s\S]*body\.delivery_notes[\s\S]*setNewNote\(linked \|\| null\)/, "关联后须读取送货单真实照片状态并在本页展示上传入口");
 assert.match(legacySourcesApi, /"lines" in body[\s\S]*link_legacy_supplier_receipt_sources_batch/, "批量补录必须走单次事务 RPC");
 assert.match(batchLegacyMigration, /security invoker[\s\S]*jsonb_array_length\(p_lines\) not between 1 and 50[\s\S]*order_id <> current_order_id[\s\S]*link_legacy_supplier_receipt_source/, "批量补录须限制同 PI、50 项且复用单项权限与审计校验");
