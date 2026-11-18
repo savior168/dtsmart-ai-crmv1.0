@@ -17,9 +17,15 @@ export async function GET(request: NextRequest) {
     const rows: Array<{ stock_order_id: string; order_number: string; missing_number_count: number; missing_image_count: number; total_count: number }> = data || [];
     if (!rows.length) return NextResponse.json({ data: rows, count: 0, page });
     const admin = createAdminClient();
-    const items = await admin.from("stock_order_items").select("id,stock_order_id")
-      .in("stock_order_id", rows.map((row) => row.stock_order_id)).gt("shipped_quantity", 0);
+    const [items, stockOrders] = await Promise.all([
+      admin.from("stock_order_items").select("id,stock_order_id")
+        .in("stock_order_id", rows.map((row) => row.stock_order_id)).gt("shipped_quantity", 0),
+      admin.from("stock_orders").select("id,stock_number")
+        .in("id", rows.map((row) => row.stock_order_id)),
+    ]);
     if (items.error) throw items.error;
+    if (stockOrders.error) throw stockOrders.error;
+    const stockNumberById = new Map((stockOrders.data || []).map((order) => [order.id, order.stock_number]));
     const itemIds = (items.data || []).map((item) => item.id);
     const allocations = itemIds.length ? await admin.from("supplier_receipt_allocations")
       .select("stock_order_item_id,delivery_note_id").in("stock_order_item_id", itemIds)
@@ -35,6 +41,7 @@ export async function GET(request: NextRequest) {
     const orderByItem = new Map((items.data || []).map((item) => [item.id, item.stock_order_id]));
     const photographed = new Set((photos.data || []).map((photo) => photo.supplier_delivery_note_id));
     const missingNotesByOrder = new Map<string, Set<string>>();
+    const noteNumbersByOrder = new Map<string, Set<string>>();
     const pendingNumbersByOrder = new Map<string, Set<string>>();
     const pendingPhotosByOrder = new Map<string, Set<string>>();
     const notesById = new Map((notes.data || []).map((note) => [note.id, note]));
@@ -42,6 +49,10 @@ export async function GET(request: NextRequest) {
       const orderId = orderByItem.get(allocation.stock_order_item_id);
       const note = notesById.get(allocation.delivery_note_id);
       if (!orderId || !note) continue;
+      if (!note.number_pending && note.note_number) {
+        if (!noteNumbersByOrder.has(orderId)) noteNumbersByOrder.set(orderId, new Set());
+        noteNumbersByOrder.get(orderId)!.add(note.note_number);
+      }
       if (note.number_pending) {
         if (!pendingNumbersByOrder.has(orderId)) pendingNumbersByOrder.set(orderId, new Set());
         pendingNumbersByOrder.get(orderId)!.add(note.id);
@@ -61,7 +72,9 @@ export async function GET(request: NextRequest) {
       if (!allocatedItemIds.has(item.id)) unlinkedByOrder.set(item.stock_order_id, (unlinkedByOrder.get(item.stock_order_id) || 0) + 1);
     }
     return NextResponse.json({ data: rows.map((row) => ({ ...row,
+      stock_number: stockNumberById.get(row.stock_order_id) || null,
       missing_photo_note_numbers: [...(missingNotesByOrder.get(row.stock_order_id) || [])].sort(),
+      delivery_note_numbers: [...(noteNumbersByOrder.get(row.stock_order_id) || [])].sort(),
       pending_note_number_count: pendingNumbersByOrder.get(row.stock_order_id)?.size || 0,
       pending_note_photo_count: pendingPhotosByOrder.get(row.stock_order_id)?.size || 0,
       unlinked_shipped_item_count: unlinkedByOrder.get(row.stock_order_id) || 0,

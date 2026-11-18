@@ -41,10 +41,10 @@ export async function GET(request: NextRequest) {
     }
     const byItem = new Map(itemRows.map((item) => [item.id, item]));
     const orderIds = [...new Set(baselines.map((row) => byItem.get(row.stock_order_item_id)?.stock_order_id).filter((id): id is string => Boolean(id)))];
-    const authorizedOrders: Array<{ id: string; order_number: string; warehouse_reference_number: string | null; status: string; updated_at: string }> = [];
+    const authorizedOrders: Array<{ id: string; order_number: string; stock_number: string; warehouse_reference_number: string | null; status: string; updated_at: string }> = [];
     for (let offset = 0; offset < orderIds.length; offset += 200) {
       const result = await supabase.from("stock_orders")
-        .select("id,order_number,warehouse_reference_number,status,updated_at")
+        .select("id,order_number,stock_number,warehouse_reference_number,status,updated_at")
         .in("id", orderIds.slice(offset, offset + 200));
       if (result.error) throw result.error;
       authorizedOrders.push(...(result.data || []));
