@@ -31,13 +31,12 @@ type PaymentDraft = { noteId: string; noteNumber: string; amount: string;
   paidOn: string; method: string; reference: string };
 type PaperDraft = { noteId: string; noteNumber: string; amount: string; version: string; reason: string };
 const money = (value: number) => `${Number(value || 0) < 0 ? "−" : ""}¥${Math.abs(Number(value || 0)).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-function SummaryMetric({ label, value, loading, hint, onClick, tone = "text-slate-900", description }: {
-  label: string; value: string; loading: boolean; hint: string; onClick: () => void; tone?: string; description?: string;
+function SummaryMetric({ label, value, loading, hint, onClick, tone = "text-slate-900" }: {
+  label: string; value: string; loading: boolean; hint: string; onClick: () => void; tone?: string;
 }) {
   return <button type="button" onClick={onClick} title={hint} className="group flex min-h-24 min-w-0 flex-col justify-between rounded-xl border bg-white px-4 py-3 text-left shadow-sm transition hover:border-blue-300 hover:bg-blue-50/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500" aria-label={`${label}：${loading ? "加载中" : value}，${hint}`}>
     <span className="flex w-full items-center justify-between gap-2 text-xs font-medium text-slate-500"><span>{label}</span><span aria-hidden="true" className="text-base font-normal text-slate-400 group-hover:text-blue-700">↗</span></span>
     <strong className={`block break-all text-2xl font-semibold tabular-nums ${tone}`}>{loading ? "—" : value}</strong>
-    {description ? <span className="text-xs text-amber-700">{description}</span> : null}
   </button>;
 }
 const settlementLabel = settlementDisplay;
@@ -254,14 +253,14 @@ export function SupplierReconciliationView({ canRecordPayment }: { canRecordPaym
     {supplierError ? <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{supplierError}；当前供应商筛选项可能不完整，请刷新页面后重试。</p> : null}
     {error && !payment ? <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</p> : null}
     <section className="space-y-2" aria-label="供应商对账概览">
-      <div className="grid gap-2 sm:grid-cols-3">
-        <SummaryMetric label="送货单" value={`${summary?.note_count || 0} 张`} loading={loading || !summary} hint="查看采购明细" onClick={() => document.getElementById("supplier-delivery-notes")?.scrollIntoView({ behavior: "smooth" })}/>
-        <SummaryMetric label="供应商" value={`${summary?.supplier_count || 0} 家`} loading={loading || !summary} hint="查看供应商汇总" onClick={() => document.getElementById("supplier-purchase-summary")?.scrollIntoView({ behavior: "smooth" })}/>
-        <SummaryMetric label="实收数量" value={`${summary?.quantity || 0} 件`} loading={loading || !summary} hint="查看来源明细" onClick={() => document.getElementById("supplier-delivery-notes")?.scrollIntoView({ behavior: "smooth" })}/>
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-1 rounded-xl border bg-white px-4 py-2.5 text-xs text-slate-600">
+        <span>送货单 <strong className="ml-1 text-sm text-slate-900 tabular-nums">{loading || !summary ? "—" : `${summary.note_count} 张`}</strong></span>
+        <span>供应商 <strong className="ml-1 text-sm text-slate-900 tabular-nums">{loading || !summary ? "—" : `${summary.supplier_count} 家`}</strong></span>
+        <span>实收 <strong className="ml-1 text-sm text-slate-900 tabular-nums">{loading || !summary ? "—" : `${summary.quantity} 件`}</strong></span>
+        {!loading && summary && summary.cash_paid_reported_cny > 0 ? <button type="button" onClick={() => document.getElementById("supplier-delivery-notes")?.scrollIntoView({ behavior: "smooth" })} className="rounded-full bg-amber-50 px-2.5 py-1 font-medium text-amber-800 hover:bg-amber-100">现场报付待核 {money(summary.cash_paid_reported_cny)} · 不冲减应付 ↗</button> : null}
       </div>
-      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-2 sm:grid-cols-3">
         <SummaryMetric label="应付货款" value={money(summary?.allocated_cny || 0)} loading={loading || !summary} hint="查看采购明细" onClick={() => document.getElementById("supplier-delivery-notes")?.scrollIntoView({ behavior: "smooth" })} tone="text-blue-700"/>
-        <SummaryMetric label="现场报付待核" value={money(summary?.cash_paid_reported_cny || 0)} loading={loading || !summary} hint="查看采购明细" description="不冲减应付" onClick={() => document.getElementById("supplier-delivery-notes")?.scrollIntoView({ behavior: "smooth" })} tone="text-amber-700"/>
         <SummaryMetric label="已登记付款" value={money(summary?.paid_cny || 0)} loading={loading || !summary} hint="查看付款流水" onClick={() => document.getElementById("supplier-delivery-notes")?.scrollIntoView({ behavior: "smooth" })} tone="text-emerald-700"/>
         <SummaryMetric label="未付货款" value={money(summary?.unpaid_cny || 0)} loading={loading || !summary} hint="查看待付明细" onClick={() => document.getElementById("supplier-delivery-notes")?.scrollIntoView({ behavior: "smooth" })} tone="text-rose-700"/>
       </div>

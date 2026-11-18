@@ -16,6 +16,10 @@ begin
   definition := replace(definition,
     'p_offset integer DEFAULT 0)',
     'p_offset integer DEFAULT 0, p_search text DEFAULT NULL::text)');
+  definition := replace(definition,
+    'or p_limit < 1 or p_limit > 100 or p_offset < 0 then',
+    'or p_limit < 1 or p_limit > 100 or p_offset < 0' || chr(10) ||
+    '    or length(p_search) > 80 then');
   definition := replace(definition, where_clause, where_clause || chr(10) ||
     '        and (p_search is null' || chr(10) ||
     '          or position(lower(p_search) in lower(d.note_number)) > 0' || chr(10) ||
@@ -30,6 +34,7 @@ begin
   if definition = original
     or position('supplier_reconciliation_report_search' in definition) = 0
     or position('p_search text DEFAULT NULL::text' in definition) = 0
+    or position('or length(p_search) > 80 then' in definition) = 0
     or position('sa.delivery_note_id = d.id' in definition) = 0 then
     raise exception 'Supplier report definition changed; search migration stopped';
   end if;
