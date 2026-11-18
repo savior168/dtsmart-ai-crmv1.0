@@ -31,6 +31,8 @@ const cases = [
   ["主管独立授权但页面仍关闭", account("SUPERVISOR", ["customers.data_all"], { supervisor_can_view_customers: true }), "customers.data_all", false],
   ["仓库员无PI页面不能预览", account("WAREHOUSE", ["orders.preview"]), "orders.preview", false],
   ["财务员可查看对账", account("FINANCE", ["supplier.reconciliation.view"]), "supplier.reconciliation.view", true],
+  ["销售员误授权仍不可查看供应商档案", account("SALES", ["suppliers.view"]), "suppliers.view", false],
+  ["制单员误授权仍不可查看供应商对账", account("ORDER_CLERK", ["supplier.reconciliation.view"]), "supplier.reconciliation.view", false],
   ["财务员默认不能维护供应商", account("FINANCE", ["suppliers.view"]), "suppliers.manage", false],
   ["管理员可单独授权财务员维护供应商", account("FINANCE", ["suppliers.view", "suppliers.manage"]), "suppliers.manage", true],
   ["财务员未授权时不可读取客户", account("FINANCE", []), "customers.view", false],

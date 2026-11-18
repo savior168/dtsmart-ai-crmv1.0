@@ -205,8 +205,9 @@ export function permissionPageCode(code: string) {
   return code;
 }
 
-export function supplierDocumentGrantForbidden(role: string, permission: string) {
-  return (role === "SALES" || role === "ORDER_CLERK") && permission.startsWith("supplier.documents.");
+export function supplierGrantForbidden(role: string, permission: string) {
+  return (role === "SALES" || role === "ORDER_CLERK")
+    && (permission.startsWith("supplier.") || permission.startsWith("suppliers."));
 }
 
 export type PermissionAccount = {
@@ -219,7 +220,7 @@ export type PermissionAccount = {
 /** The same decision is used by server handlers and the role regression matrix. */
 export function evaluatePermission(account: PermissionAccount, permission: string) {
   if (account.role === "ADMIN") return true;
-  if (supplierDocumentGrantForbidden(account.role, permission)) return false;
+  if (supplierGrantForbidden(account.role, permission)) return false;
   // My Customers has a separate, explicit per-user grant. A role default or
   // the general supervisor switch must never expose subordinate customers.
   if (account.role === "SUPERVISOR" && permission === "customers.data_all"

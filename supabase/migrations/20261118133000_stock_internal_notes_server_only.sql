@@ -1,6 +1,20 @@
 begin;
 set local lock_timeout = '5s';
 
+-- Even if an administrator grants a supplier permission by mistake, sales
+-- and order clerks must not access supplier data through direct RPC calls.
+do $$
+declare
+  definition text := pg_get_functiondef('public.current_user_has_business_permission(text)'::regprocedure);
+  old_guard text := 'if actor.role in (''SALES'',''ORDER_CLERK'') and p_permission like ''supplier.documents.%'' then return false; end if;';
+begin
+  if position(old_guard in definition) = 0 then
+    raise exception 'Expected supplier permission guard is missing';
+  end if;
+  execute replace(definition, old_guard,
+    'if actor.role in (''SALES'',''ORDER_CLERK'') and (p_permission like ''supplier.%'' or p_permission like ''suppliers.%'') then return false; end if;');
+end $$;
+
 -- Warehouse notes are free text and may contain procurement identifiers.
 -- Browser roles may read the operational columns, while the API reads notes
 -- with the server role only after an RLS-scoped order lookup.
