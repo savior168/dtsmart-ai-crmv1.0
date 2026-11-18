@@ -44,6 +44,19 @@ export function StockOrdersView({initialFilters={}}:{initialFilters?:{status?:st
   const [exportBusy,setExportBusy]=useState(false);
   const [singleExportId,setSingleExportId]=useState<string|null>(null);
   const [selectedIds,setSelectedIds]=useState<string[]>([]);
+  const [pendingRemediation,setPendingRemediation]=useState(false);
+  useEffect(()=>{
+    if(!data?.can_view_documents||!["WAREHOUSE","ADMIN"].includes(data.profile.role)){setPendingRemediation(false);return;}
+    let active=true;
+    const check=async()=>{
+      const urls=["/api/stock-orders/missing-documents?page=1",...(data.profile.role==="WAREHOUSE"?["/api/stock-orders/legacy-receipt-sources?page=1"]:[])];
+      const results=await Promise.all(urls.map(async url=>{try{const response=await fetch(url,{cache:"no-store"});return response.ok?Number((await response.json()).count||0):0}catch{return 0}}));
+      if(active)setPendingRemediation(results.some(count=>count>0));
+    };
+    void check();
+    window.addEventListener("focus",check);
+    return()=>{active=false;window.removeEventListener("focus",check)};
+  },[data?.can_view_documents,data?.profile.role]);
   async function exportSelected() {
     if(exportBusy||!data?.can_export||!selectedIds.length)return;
     setExportBusy(true);setError("");
@@ -109,7 +122,7 @@ export function StockOrdersView({initialFilters={}}:{initialFilters?:{status?:st
   const canFilterCreator=Boolean(data?.can_view_all);
   const tableColumns=12+Number(Boolean(data?.can_export));
   return <main className="p-4 lg:p-6"><div className="mx-auto max-w-[1660px]">
-    <header className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="flex items-center gap-2 text-2xl font-bold"><ShoppingCart className="text-blue-600"/>采购管理</h1><p className="mt-1 text-sm text-slate-500">销售员通过PI订单提交备货需求；仓库员完善备货信息并更新备货进度。备货状态不记录库存。</p></div>{data?.can_view_documents && ["WAREHOUSE", "ADMIN"].includes(data.profile.role) ? <Link href="/stock-orders/missing-documents" className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900">待补送货单与历史来源</Link> : null}</header>
+    <header className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="flex items-center gap-2 text-2xl font-bold"><ShoppingCart className="text-blue-600"/>采购管理</h1><p className="mt-1 text-sm text-slate-500">销售员通过PI订单提交备货需求；仓库员完善备货信息并更新备货进度。备货状态不记录库存。</p></div>{pendingRemediation ? <Link href="/stock-orders/missing-documents" className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900">待补录</Link> : null}</header>
     <AppFilterBar>
       <label className="relative min-w-[260px] flex-1 xl:min-w-[360px]"><Search className="absolute left-3 top-3 text-slate-400" size={17}/><input value={q} onChange={e=>{setQ(e.target.value);setPage(1)}} placeholder="搜索客户名称、公司、PI/备货单号、电话或邮箱" className={`${appFieldClass} w-full pl-9`}/></label>
       <AppSelect value={status} onChange={e=>{setStatus(e.target.value);setPage(1)}} className={appFieldClass} aria-label="按备货状态筛选"><option value="">全部备货状态</option>{STOCK_FILTER_STATUSES.map(key=><option key={key} value={key}>{key==="DRAFT"?"备货草稿（待完善）":key==="ACTIVE"?"仓库处理中（所有在途阶段）":key==="OTHER"?"其他状态（草稿／取消／历史）":STOCK_STATUS_LABELS[key]}</option>)}</AppSelect>
