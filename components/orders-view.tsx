@@ -18,6 +18,7 @@ import { RowActionItem, RowActionMenu } from "@/components/ui/row-action-menu";
 import { StockProgressCell } from "@/components/stock-progress-cell";
 import { PI_EXECUTING_STATUSES, piOrderStatusLabel, stockProgressLabel, stockProgressTone } from "@/lib/stock-progress";
 import { CompactDateRange } from "@/components/ui/compact-date-range";
+import { MonthRangeShortcut } from "@/components/ui/month-range-shortcut";
 import type { StockProgress } from "@/lib/stock-progress";
 import { batchExportFilename, documentExportFilename } from "@/lib/export-file-name";
 type StockLink = { id: string; stock_number: string; status: string; progress: StockProgress };
@@ -256,6 +257,7 @@ export function OrdersView({ initialFilters = {} }: { initialFilters?: { status?
             <option value="">全部付款币种</option>{QUOTE_CURRENCIES.map(([code, name]) => <option key={code} value={code}>{code} · {name}</option>)}
           </AppSelect>
           <CompactDateRange label="创建日期" fromLabel="创建开始日期" toLabel="创建结束日期" from={dateFrom} to={dateTo} onFromChange={(value) => { setDateFrom(value); setPage(1); }} onToChange={(value) => { setDateTo(value); setPage(1); }}/>
+          <MonthRangeShortcut from={dateFrom} to={dateTo} onApply={({ from, to }) => { setDateFrom(from); setDateTo(to); setPage(1); }}/>
           <UserScopeSelect permission="orders.data_all" value={userId} onChange={(value) => { setUserId(value); setPage(1); }} className={`${appFieldClass} min-w-52`} filterLabel="所属销售员" custom/>
           {canFilterCreator ? <UserScopeSelect permission="orders.data_all" kind="pi_creator" value={creatorId} onChange={(value) => { setCreatorId(value); setPage(1); }} className={`${appFieldClass} min-w-52`} filterLabel="制单人" allLabel="全部制单人" custom/> : null}
           <button
