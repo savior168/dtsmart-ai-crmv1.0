@@ -15,6 +15,7 @@ const reminders = read("supabase/migrations/20261118043957_shipped_pi_document_r
 const cutover = read("supabase/migrations/20261104000000_enforce_supplier_receipt_documents.sql");
 const missingDocumentsView = read("components/missing-stock-documents-view.tsx");
 const legacySourcesView = read("components/legacy-supplier-sources-view.tsx");
+const legacySourcesApi = read("app/api/stock-orders/legacy-receipt-sources/route.ts");
 const cron = read("app/api/cron/stock-document-reminders/route.ts");
 
 assert.match(migration, /record_supplier_receipt_pending[\s\S]*public\.record_supplier_receipt\([\s\S]*number_pending = true/);
@@ -29,8 +30,15 @@ assert.doesNotMatch(stock, /!receiptDraft\.noteNumber\.trim\(\)|!line\.noteNumbe
 assert.match(stock, /纸质送货单号（选填，可后补）/);
 assert.match(stock, /recentNotes = \(data\.receipts \|\| \[\]\)\.filter\(\(receipt\) => \{[\s\S]*receipt\.remaining_quantity <= 0/, "已全额冲正的送货单不得再作为回货复用候选");
 assert.match(cutover, /legacy_quantity < 0[\s\S]*supplier_receipt_legacy_baselines[\s\S]*stock_receipt_requires_supplier_document/, "历史实收应先对齐来源基线再启用数量校验");
-assert.match(missingDocumentsView, /href="#legacy-receipt-sources"[\s\S]*<LegacySupplierSourcesView/, "仓库清单应有历史来源直达入口");
-assert.match(legacySourcesView, /id="legacy-receipt-sources"[\s\S]*已登记实收但未归属真实送货单/, "历史补录须明确不重复登记回货");
+assert.match(missingDocumentsView, /fetchAll<DocumentRow>[\s\S]*fetchAll<LegacyRow>[\s\S]*new Map<string, QueueRow>[\s\S]*<LegacySupplierSourcesView orderId=/, "仓库待补信息须按 PI 合并并在本页补录");
+assert.match(missingDocumentsView, /缺纸单号[\s\S]*缺纸单照片[\s\S]*实收来源待归属[\s\S]*SupplierDeliveryNoteFiles/, "清单须标明每项缺失并内嵌纸单补录");
+assert.match(legacySourcesView, /已登记实收但未归属真实送货单/, "历史补录须明确不重复登记回货");
+assert.match(legacySourcesView, /import \{ AppSelect \} from "@\/components\/ui\/app-select";[\s\S]*<AppSelect aria-label="历史来源供应商" required forceSearch/, "历史补录应复用系统可搜索供应商选择组件");
+assert.doesNotMatch(legacySourcesView, /<select aria-label="历史来源供应商"/, "历史补录不得退回原生供应商下拉");
+assert.match(legacySourcesView, /new Map<string, Row\[\]>\(\)[\s\S]*待补 \{orderRows\.length\} 项[\s\S]*aria-expanded=\{expandedOrder === groupOrderId\}[\s\S]*orderRows\.sort/, "相同 PI 应合并为可展开的产品清单");
+assert.match(legacySourcesApi, /const orderIds = \[\.\.\.new Set\(baselines[\s\S]*visibleOrderIds = scopedOrderIds\.slice\(\(page - 1\) \* 50, page \* 50\)/, "历史来源应按 PI 分页，避免同一 PI 被拆到两页");
+assert.match(legacySourcesApi, /const \{ supabase \} = await warehouseAccess\(\)[\s\S]*supabase\.from\("stock_orders"\)[\s\S]*orderIds\.filter\(\(id\) => byOrder\.has\(id\)\)/, "历史来源清单须限制在登录用户可查看的备货单范围");
+assert.match(read("components/warehouse-dashboard.tsx"), /order\.warehouse_reference_number \|\| "未填写订单编号"/, "仓库工作台须显示制单人填写的订单编号");
 assert.match(files, /note\.updated_at[\s\S]*补录单号/);
 assert.match(report, /number_pending[\s\S]*待补送货单号/);
 assert.match(reconciliationView, /groupAllocations\(note\.allocations\)\.slice\(0, 2\)[\s\S]*href=\{`\/orders\/\$\{group\.piId\}`\}/, "送货单行须直接显示关联 PI 编号并能打开对应订单");

@@ -15,32 +15,50 @@ async function warehouseAccess() {
 
 export async function GET(request: NextRequest) {
   try {
-    await warehouseAccess();
+    const { supabase } = await warehouseAccess();
     const page = Number(request.nextUrl.searchParams.get("page") || "1");
     if (!Number.isSafeInteger(page) || page < 1 || page > 2000) throw new Error("分页参数无效");
+    const orderId = request.nextUrl.searchParams.get("order_id") || "";
+    if (orderId && !/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(orderId)) throw new Error("备货单编号无效");
     const admin = createAdminClient();
-    const baselines = await admin.from("supplier_receipt_legacy_baselines")
-      .select("stock_order_item_id,quantity,captured_at", { count: "exact" })
-      .order("captured_at").order("stock_order_item_id")
-      .range((page - 1) * 50, page * 50 - 1);
-    if (baselines.error) throw baselines.error;
-    const itemIds = (baselines.data || []).map((row) => row.stock_order_item_id);
-    if (!itemIds.length) return NextResponse.json({ data: [], count: baselines.count || 0, page });
-    const items = await admin.from("stock_order_items")
-      .select("id,stock_order_id,line_number,item_name,brand,model,quality,quantity,received_quantity,shipped_quantity")
-      .in("id", itemIds);
-    if (items.error) throw items.error;
-    const orders = await admin.from("stock_orders")
-      .select("id,order_number,warehouse_reference_number,status,updated_at")
-      .in("id", [...new Set((items.data || []).map((item) => item.stock_order_id))]);
-    if (orders.error) throw orders.error;
-    const byItem = new Map((items.data || []).map((item) => [item.id, item]));
-    const byOrder = new Map((orders.data || []).map((order) => [order.id, order]));
-    return NextResponse.json({ data: (baselines.data || []).flatMap((baseline) => {
+    const baselines: Array<{ stock_order_item_id: string; quantity: number; captured_at: string }> = [];
+    for (let offset = 0; ; offset += 1000) {
+      const batch = await admin.from("supplier_receipt_legacy_baselines")
+        .select("stock_order_item_id,quantity,captured_at")
+        .order("captured_at").order("stock_order_item_id").range(offset, offset + 999);
+      if (batch.error) throw batch.error;
+      baselines.push(...(batch.data || []));
+      if ((batch.data || []).length < 1000) break;
+    }
+    if (!baselines.length) return NextResponse.json({ data: [], count: 0, page });
+    const itemRows: Array<{ id: string; stock_order_id: string; line_number: number; item_name: string | null; brand: string | null; model: string | null; quality: string | null; quantity: number; received_quantity: number; shipped_quantity: number }> = [];
+    for (let offset = 0; offset < baselines.length; offset += 200) {
+      const items = await admin.from("stock_order_items")
+        .select("id,stock_order_id,line_number,item_name,brand,model,quality,quantity,received_quantity,shipped_quantity")
+        .in("id", baselines.slice(offset, offset + 200).map((row) => row.stock_order_item_id));
+      if (items.error) throw items.error;
+      itemRows.push(...(items.data || []));
+    }
+    const byItem = new Map(itemRows.map((item) => [item.id, item]));
+    const orderIds = [...new Set(baselines.map((row) => byItem.get(row.stock_order_item_id)?.stock_order_id).filter((id): id is string => Boolean(id)))];
+    const authorizedOrders: Array<{ id: string; order_number: string; warehouse_reference_number: string | null; status: string; updated_at: string }> = [];
+    for (let offset = 0; offset < orderIds.length; offset += 200) {
+      const result = await supabase.from("stock_orders")
+        .select("id,order_number,warehouse_reference_number,status,updated_at")
+        .in("id", orderIds.slice(offset, offset + 200));
+      if (result.error) throw result.error;
+      authorizedOrders.push(...(result.data || []));
+    }
+    const byOrder = new Map(authorizedOrders.map((order) => [order.id, order]));
+    const scopedOrderIds = orderId ? orderIds.filter((id) => id === orderId && byOrder.has(id)) : orderIds.filter((id) => byOrder.has(id));
+    const visibleOrderIds = scopedOrderIds.slice((page - 1) * 50, page * 50);
+    if (!visibleOrderIds.length) return NextResponse.json({ data: [], count: scopedOrderIds.length, page });
+    const visible = new Set(visibleOrderIds);
+    return NextResponse.json({ data: baselines.flatMap((baseline) => {
       const item = byItem.get(baseline.stock_order_item_id);
       const order = item && byOrder.get(item.stock_order_id);
-      return item && order ? [{ ...baseline, item, order }] : [];
-    }), count: baselines.count || 0, page }, { headers: { "Cache-Control": "private, no-store" } });
+      return item && order && visible.has(order.id) ? [{ ...baseline, item, order }] : [];
+    }), count: scopedOrderIds.length, item_count: baselines.length, page }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
     const message = sqlErrorMessage(error, "历史来源待补清单加载失败");
     return NextResponse.json({ error: message }, { status: authErrorStatus(message) || 400 });
