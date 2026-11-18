@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission } from "@/lib/auth/current-user";
 import { normalizeAcquisitionCountries } from "@/lib/ai-acquisition/config";
-import { acquisitionRegions, geographyCityDisplayName, geographyRegionDisplayName } from "@/lib/ai-acquisition/geography";
+import { acquisitionRegions, geographyCityDisplayName, geographyRegionDisplayName, geographyScopeDisplayLabel, normalizeGeographyScopes } from "@/lib/ai-acquisition/geography";
+import { geographyScopeKey } from "@/lib/ai-acquisition/geography-labels-client";
 
 export async function GET(request: NextRequest) {
   try {
@@ -19,5 +20,26 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     const message = error instanceof Error ? error.message : "地域选项加载失败";
     return NextResponse.json({ error: message === "UNAUTHORIZED" ? "登录已失效" : message === "FORBIDDEN" ? "没有创建获客任务权限" : "地域选项加载失败" }, { status: message === "UNAUTHORIZED" ? 401 : message === "FORBIDDEN" ? 403 : 500 });
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    await requirePermission("ai.acquisition.create");
+    const body = await request.json();
+    const countries = normalizeAcquisitionCountries(body?.countries);
+    if (countries.length > 8) return NextResponse.json({ error: "目标国家最多选择8个" }, { status: 400 });
+    const scopes = normalizeGeographyScopes(body?.geography_scopes, countries);
+    const labels: Record<string, string> = {};
+    for (const [country, selected] of Object.entries(scopes)) {
+      for (const scope of selected || []) {
+        const label = geographyScopeDisplayLabel(country as keyof typeof scopes, scope);
+        if (label) labels[geographyScopeKey(country, scope)] = label;
+      }
+    }
+    return NextResponse.json({ labels }, { headers: { "Cache-Control": "private, no-store" } });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "地域名称加载失败";
+    return NextResponse.json({ error: message === "UNAUTHORIZED" ? "登录已失效" : message === "FORBIDDEN" ? "没有创建获客任务权限" : "地域名称加载失败" }, { status: message === "UNAUTHORIZED" ? 401 : message === "FORBIDDEN" ? 403 : 400 });
   }
 }

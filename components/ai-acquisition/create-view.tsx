@@ -16,14 +16,15 @@ import { AppDialog, DialogActions } from "@/components/ui/app-dialog";
 import { ScheduleControl } from "@/components/ai-screening/schedule-control";
 import { CountryLabel } from "@/components/country-label";
 import { GeographyPicker } from "@/components/ai-acquisition/geography-picker";
-import { geographyScopeDisplayLabel, type GeographyScopes } from "@/lib/ai-acquisition/geography";
+import type { GeographyScopes } from "@/lib/ai-acquisition/geography";
+import { selectedGeographyDisplayLabel, type GeographyDisplayLabels } from "@/lib/ai-acquisition/geography-labels-client";
 
 const COUNTRY_NAMES = new Intl.DisplayNames(["zh-CN"], { type: "region" });
-function selectedGeographyLabels(countries: string[], scopes: GeographyScopes) {
+function selectedGeographyLabels(countries: string[], scopes: GeographyScopes, labels: GeographyDisplayLabels) {
   return countries.map((country) => {
     const name = COUNTRY_NAMES.of(country) || country;
     const selected = scopes[country as keyof GeographyScopes] || [];
-    return selected.length ? `${name}：${selected.map((scope) => geographyScopeDisplayLabel(country as keyof GeographyScopes, scope) || scope.city || scope.regionCode).join("、")}` : `${name}：全国`;
+    return selected.length ? `${name}：${selected.map((scope) => selectedGeographyDisplayLabel(country, scope, labels)).join("、")}` : `${name}：全国`;
   });
 }
 const splitBulkValues = (text: string) => text.split(/[\r\n,，;；|]+/).map((item)=>item.trim()).filter(Boolean);
@@ -238,6 +239,22 @@ export function AcquisitionCreateView() {
     [showAllKeywordGroups, setShowAllKeywordGroups] = useState(false),
     [hasSavedDraft, setHasSavedDraft] = useState(false);
   const [form, setForm] = useState(emptyAcquisitionForm);
+  const [geographyLabels, setGeographyLabels] = useState<GeographyDisplayLabels>({});
+  const geographySelectionKey = JSON.stringify([form.countries, form.geography_scopes]);
+  useEffect(() => {
+    const controller = new AbortController();
+    const [countries, geography_scopes] = JSON.parse(geographySelectionKey) as [string[], GeographyScopes];
+    const selected = Object.values(geography_scopes).some((scopes) => Boolean(scopes?.length));
+    if (!selected) return;
+    void fetch("/api/ai-acquisition/geography", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ countries, geography_scopes }),
+      signal: controller.signal,
+    }).then((response) => response.ok ? response.json() : null)
+      .then((body) => { if (!controller.signal.aborted && body?.labels) setGeographyLabels(body.labels); })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [geographySelectionKey]);
   const keywordRecommendationGroups = acquisitionKeywordRecommendationGroups(form.industries);
   const keywordRecommendations = acquisitionKeywordRecommendations(form.industries);
   const visibleKeywordRecommendationGroups = showAllKeywordGroups ? keywordRecommendationGroups : keywordRecommendationGroups.slice(0, 4);
@@ -349,7 +366,7 @@ export function AcquisitionCreateView() {
             />
             <span className="mt-1 flex items-center justify-between gap-2 text-xs text-slate-400"><span>系统自动生成，您可以修改。</span>{form.name_mode === "MANUAL" ? <button type="button" onClick={()=>setForm({...form,name_mode:"AUTO",name:automaticName})} className="text-blue-700 hover:underline">恢复自动名称</button>:null}</span>
           </label>
-          <div className="min-w-0"><span className="mb-1.5 block text-sm font-medium">目标市场 <b className="text-rose-500">*</b></span><GeographyPicker countries={form.countries} value={form.geography_scopes} onCountriesChange={(countries) => setForm((current) => ({ ...current, countries, geography_scopes: Object.fromEntries(Object.entries(current.geography_scopes).filter(([country]) => countries.includes(country))) }))} onChange={(geography_scopes) => setForm((current) => ({ ...current, geography_scopes }))}/><p className="mt-1 text-xs text-slate-400">在同一棵树中选择国家、省/州与城市；不选下级地域即全国搜索。</p></div>
+          <div className="min-w-0"><span className="mb-1.5 block text-sm font-medium">目标市场 <b className="text-rose-500">*</b></span><GeographyPicker countries={form.countries} value={form.geography_scopes} labels={geographyLabels} onCountriesChange={(countries) => setForm((current) => ({ ...current, countries, geography_scopes: Object.fromEntries(Object.entries(current.geography_scopes).filter(([country]) => countries.includes(country))) }))} onChange={(geography_scopes) => setForm((current) => ({ ...current, geography_scopes }))}/><p className="mt-1 text-xs text-slate-400">在同一棵树中选择国家、省/州与城市；不选下级地域即全国搜索。</p></div>
           <div className="min-w-0"><span className="mb-1.5 block text-sm font-medium">执行时间</span><ScheduleControl scheduleType={form.schedule_type} scheduledAt={form.scheduled_at} onScheduleTypeChange={(schedule_type)=>setForm((current)=>({...current,schedule_type}))} onScheduledAtChange={(scheduled_at)=>setForm((current)=>({...current,scheduled_at}))}/></div></div>
         </section>
         <section className={`${panel} overflow-visible`}>
@@ -428,7 +445,7 @@ export function AcquisitionCreateView() {
         </section>
       <aside className="h-full rounded-[9px] border border-[#dce5f4] bg-[#f8faff] p-[14px]"><h3 className="mb-[10px] font-semibold">创建前确认</h3><dl className="text-sm">{[
         ["目标国家/地区",form.countries.length ? (form.countries.length<=2?form.countries.map((code)=>COUNTRY_NAMES.of(code)||code).join("、"):`已选 ${form.countries.length} 个`) : "尚未选择",form.countries.map((code)=>COUNTRY_NAMES.of(code)||code).join("、")],
-        ["搜索地域",form.countries.length ? selectedGeographyLabels(form.countries, form.geography_scopes).join("；") : "尚未选择",selectedGeographyLabels(form.countries, form.geography_scopes).join("；")],
+        ["搜索地域",form.countries.length ? selectedGeographyLabels(form.countries, form.geography_scopes, geographyLabels).join("；") : "尚未选择",selectedGeographyLabels(form.countries, form.geography_scopes, geographyLabels).join("；")],
         ["目标行业",form.industries.length ? (form.industries.length<=2?form.industries.join("、"):`已选 ${form.industries.length} 个`) : "尚未选择",form.industries.join("、")],
         ["搜索关键词",form.keywords.length?`已选择 ${form.keywords.length} 个`:"尚未选择",form.keywords.join("、")],
         ["执行时间",form.schedule_type==="scheduled"&&form.scheduled_at?new Date(form.scheduled_at).toLocaleString("zh-CN",{hour12:false}):"创建后立即执行",""],
@@ -476,7 +493,7 @@ export function AcquisitionCreateView() {
           <dl className="grid grid-cols-2 gap-x-5 rounded-lg border border-slate-200 bg-white px-3.5 py-1">
             {[
               ["国家/地区",form.countries.length<=2?form.countries.map((code)=>COUNTRY_NAMES.of(code)||code).join("、"):`已选 ${form.countries.length} 个`],
-              ["搜索地域",selectedGeographyLabels(form.countries, form.geography_scopes).join("；")],
+              ["搜索地域",selectedGeographyLabels(form.countries, form.geography_scopes, geographyLabels).join("；")],
               ["目标行业",`已选 ${form.industries.length} 个`],
               ["搜索关键词",`已选 ${form.keywords.length} 个`],
               ["执行时间",form.schedule_type==="scheduled"&&form.scheduled_at?new Date(form.scheduled_at).toLocaleString("zh-CN",{hour12:false}):"立即执行"],

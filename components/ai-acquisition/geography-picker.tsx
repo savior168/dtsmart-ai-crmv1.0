@@ -4,7 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown, ChevronRight, Search } from "lucide-react";
 import { CountryLabel } from "@/components/country-label";
 import { ACQUISITION_COUNTRY_GROUPS, type AcquisitionCountry } from "@/lib/ai-acquisition/config";
-import { geographyScopeDisplayLabel, type GeographyScope, type GeographyScopes } from "@/lib/ai-acquisition/geography";
+import type { GeographyScope, GeographyScopes } from "@/lib/ai-acquisition/geography";
+import { selectedGeographyDisplayLabel, type GeographyDisplayLabels } from "@/lib/ai-acquisition/geography-labels-client";
 
 type RegionOption = { code: string; name: string; displayName: string };
 type CityOption = { name: string; displayName: string };
@@ -113,9 +114,10 @@ function RegionTree({ country, scopes, totalCount, onChange }: {
   </div>;
 }
 
-export function GeographyPicker({ countries, value, onCountriesChange, onChange }: {
+export function GeographyPicker({ countries, value, labels, onCountriesChange, onChange }: {
   countries: string[];
   value: GeographyScopes;
+  labels: GeographyDisplayLabels;
   onCountriesChange: (countries: string[]) => void;
   onChange: (value: GeographyScopes) => void;
 }) {
@@ -156,7 +158,7 @@ export function GeographyPicker({ countries, value, onCountriesChange, onChange 
     <button ref={triggerRef} type="button" aria-expanded={open} aria-controls="acquisition-geography-tree" onClick={() => setOpen(!open)} className="flex min-h-10 w-full items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-sm text-slate-700 hover:border-blue-300">
       <span className="min-w-0 truncate">{countries.length ? `已选 ${countries.length} 个国家/地区 · ${totalCount ? `${totalCount} 处省市` : "全国搜索"}` : "选择国家 / 省州 / 城市"}</span><ChevronDown size={15} className={`shrink-0 text-slate-500 transition-transform ${open ? "rotate-180" : ""}`}/>
     </button>
-    {countries.length ? <div className="mt-2 flex flex-wrap gap-1.5">{countries.map((code) => <span key={code} className="rounded-md border border-blue-100 bg-white px-2 py-1 text-xs text-slate-700" title={(value[code as AcquisitionCountry] || []).map((scope) => geographyScopeDisplayLabel(code as AcquisitionCountry, scope)).join("、") || "全国搜索"}><CountryLabel value={code} className="!text-xs"/><span className="ml-1 text-blue-700">{value[code as AcquisitionCountry]?.length || "全国"}</span></span>)}</div> : null}
+    {countries.length ? <div className="mt-2 flex flex-wrap gap-1.5">{countries.map((code) => <span key={code} className="rounded-md border border-blue-100 bg-white px-2 py-1 text-xs text-slate-700" title={(value[code as AcquisitionCountry] || []).map((scope) => selectedGeographyDisplayLabel(code, scope, labels)).join("、") || "全国搜索"}><CountryLabel value={code} className="!text-xs"/><span className="ml-1 text-blue-700">{value[code as AcquisitionCountry]?.length || "全国"}</span></span>)}</div> : null}
     {open ? <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/25 p-3" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}>
       <div id="acquisition-geography-tree" role="dialog" aria-label="选择国家省州城市" aria-modal="true" onKeyDown={(event) => {
         if (event.key !== "Tab") return;
