@@ -14,7 +14,11 @@ export default async function Home() {
   }
   if (account.role === "WAREHOUSE") return <WarehouseDashboard />;
   if (account.role === "ORDER_CLERK") return <OrderClerkDashboard />;
-  if (account.role === "FINANCE") return <FinanceDashboard canViewReconciliation={hasPermission(account, "supplier.reconciliation.view")} />;
+  if (account.role === "FINANCE") return <FinanceDashboard
+    canViewReconciliation={hasPermission(account, "supplier.reconciliation.view")}
+    canViewSuppliers={hasPermission(account, "suppliers.view")}
+    canViewNotifications={hasPermission(account, "notifications.view")}
+  />;
   return <CrmDashboard
     showPerformance={["ADMIN", "SUPERVISOR", "SALES"].includes(account.role) && hasPermission(account, "reports.view")}
     canImportCustomers={hasPermission(account, "imports.create")}
