@@ -4,6 +4,7 @@ import { isPiOrderNumberConflict, sqlErrorMessage } from "@/lib/sales-flow";
 import { parsePiOrderInput, requireOwnedPiCustomer } from "@/lib/pi-order-input";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { assertPiDeliveryClassification } from "@/lib/orders/pi-delivery-classification";
+import { requireAssignedSales } from "@/lib/auth/order-clerk-scope";
 
 export async function POST(request: NextRequest) {
   try {
@@ -14,6 +15,7 @@ export async function POST(request: NextRequest) {
     const input = parsePiOrderInput(body);
     const salesUserId = account.role === "ORDER_CLERK" ? String(body.sales_user_id || "") : account.id;
     if (account.role === "ORDER_CLERK") {
+      await requireAssignedSales(account.id, salesUserId);
       const admin = createAdminClient();
       const [seller, customer] = await Promise.all([
         admin.from("users").select("id").eq("id", salesUserId).in("role", ["SALES", "SUPERVISOR"]).eq("status", "ACTIVE").maybeSingle(),

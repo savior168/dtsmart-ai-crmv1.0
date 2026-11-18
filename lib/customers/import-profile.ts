@@ -1,12 +1,10 @@
 
 import { CUSTOMER_GRADE_OPTIONS, normalizeCustomerGrade } from "@/lib/customers/customer-grade";
 
-export type ImportedCustomerStage = "CLAIMED" | "FOLLOWING" | "DEAL";
+export type ImportedCustomerStage = "CLAIMED";
 
 const stageByLabel: Record<string, ImportedCustomerStage> = {
   潜在客户: "CLAIMED",
-  意向客户: "FOLLOWING",
-  已成交客户: "DEAL",
 };
 
 function text(value: unknown) {
@@ -16,13 +14,10 @@ function text(value: unknown) {
 export function importedCustomerStage(label: unknown, destination: "PRIVATE" | "PUBLIC_POOL") {
   const selected = text(label);
   if (destination === "PUBLIC_POOL") {
-    if (selected && !Object.hasOwn(stageByLabel, selected)) {
-      throw new Error("客户阶段只能填写潜在客户、意向客户或已成交客户");
-    }
     return "UNCLAIMED" as const;
   }
   if (selected && !Object.hasOwn(stageByLabel, selected)) {
-    throw new Error("客户阶段只能填写潜在客户、意向客户或已成交客户");
+    throw new Error("批量导入仅支持潜在客户；意向或已成交客户请导入后逐个提交真实凭证完成阶段变更");
   }
   return selected ? stageByLabel[selected] : "CLAIMED";
 }

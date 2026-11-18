@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { requireAssignedSales } from "@/lib/auth/order-clerk-scope";
 import { CORE_PERMISSION_CODES, USER_ROLES, evaluatePermission, normalizeRole, normalizeStatus, permissionPageCode, type AccountStatus, type UserRole } from "@/lib/auth/permissions";
 import { isTimedLockActive } from "@/lib/auth/lockout";
 import { canViewSubordinateData, SUPERVISOR_TEAM_ALL_PERMISSIONS } from "@/lib/auth/supervisor-data-scope";
@@ -178,6 +179,7 @@ export async function requestedOwnerId(request: Request, account: CurrentAccount
       .eq("id", requested).in("role", ["SALES", "SUPERVISOR"]).eq("status", "ACTIVE").maybeSingle();
     if (error) throw error;
     if (!data) throw new Error("FORBIDDEN");
+    await requireAssignedSales(account.id, requested);
     return requested;
   }
   if (account.role !== "SUPERVISOR") {

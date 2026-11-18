@@ -199,7 +199,7 @@ const positiveMarginMigration = read("supabase/migrations/20261014072119_pi_posi
 assert.match(orderListApi, /can_create:[^\n]*account\.role === "ADMIN"[^\n]*hasPermission\(account, "orders\.create"\)/, "管理员有PI创建权限时列表必须显示创建入口");
 assert.match(createPiApi, /\["SALES", "SUPERVISOR", "ADMIN", "ORDER_CLERK"\]\.includes\(account\.role\)/, "列表允许的角色在创建API中必须一致");
 assert.match(piCustomersApi, /selectedOwner = isClerk \? request\.nextUrl\.searchParams\.get\("sales_user_id"\) \|\| "" : account\.id/, "销售员PI客户选择必须只返回本人归属客户");
-assert.match(piCustomersApi, /salespeople\?\.data\?\.some\(\(user\) => user\.id === selectedOwner\)/, "跟单员不得通过任意用户ID读取客户");
+assert.match(piCustomersApi, /allowedSalespeople\.some\(\(user\) => user\.id === selectedOwner\)/, "跟单员只能读取管理员分配的销售员客户");
 assert.match(piCustomersApi, /\.select\("id,company_name,country,contact_name/, "PI客户选择应带出与订单一致的目的国家");
 assert.match(sellerContactMigration, /p\.business_phone[\s\S]*p\.business_email/, "新PI应快照用户业务电话与业务邮箱");
 assert.match(positiveMarginMigration, /create_direct_pi_order[\s\S]*update_direct_pi_draft[\s\S]*x\.unit_price_cny<=x\.estimated_unit_cost_cny/, "历史迁移应保留原始利润校验记录");
@@ -391,8 +391,9 @@ for (const source of [detail, exportRoute]) {
   assert.doesNotMatch(source, /(?:^|[,\s])unit_price\b|total_amount|payment_account|profit|margin/, "仓库接口或导出不能读取销售价格及利润；授权仓库采购单价除外");
   assert.match(source, /estimated_unit_cost_cny,quantity,received_quantity/, "普通明细查询只读取PI成本预算及实物进度");
   assert.match(source, /createAdminClient\(\)\.from\("stock_order_items"\)[\s\S]*procurement_cost,procurement_cost_confirmed,warehouse_note/, "采购字段须通过服务端管理员客户端仅向授权角色补充读取");
-  assert.match(source, /received_quantity[,a-z_]*warehouse_supplier_code/, "仓库回货和供应商编码应可查看");
 }
+assert.match(detail, /warehouse_supplier_code/, "仓库详情需为仓库角色读取供应商编码");
+assert.doesNotMatch(exportRoute, /warehouse_supplier_code/, "备货单导出不应额外读取供应商编码");
 assert.match(read("app/api/stock-orders/[id]/progress/route.ts"), /requirePermission\("stock\.update"\)/, "实物进度更新必须验证仓库权限");
 assert.match(read("app/api/stock-orders/[id]/progress/route.ts"), /Number\.isSafeInteger\(change\.quantity\)/, "实物数量必须为安全整数");
 assert.match(quantityMigration, /shipped_quantity <= prepared_quantity[\s\S]*prepared_quantity <= received_quantity[\s\S]*received_quantity <= quantity/, "数据库必须保持发货、理货、回货和订购数的顺序");
@@ -418,7 +419,7 @@ assert.match(quantityMigration, /p_action not in \('START','RECEIVE','PREPARE','
 assert.match(statusRoute, /常规备货进度请通过产品数量及整单交接更新/, "整单状态接口只能处理异常，不得伪造实物进度");
 assert.match(stockView, /整单实物进度[\s\S]*StockProgressCell/, "仓库详情应展示互斥件数进度");
 assert.match(stockView, /采购价（人民币\/件）[\s\S]*成本差价（人民币\/件）[\s\S]*仓库备注/, "仓库明细应显示采购价、成本差价和仓库备注");
-assert.match(detail, /const canViewProcurement = hasPermission\(account, "stock\.procurement\.edit"\)/, "采购敏感字段只按独立授权加载，不受角色名硬编码限制");
+assert.match(detail, /const canViewProcurement = !\["SALES", "ORDER_CLERK"\]\.includes\(account\.role\) && hasPermission\(account, "stock\.procurement\.edit"\)/, "销售员与跟单员不得查看采购敏感字段");
 assert.match(detail, /createAdminClient\(\)\.from\("users"\)[\s\S]*scopedEvents/, "备货状态记录应在已授权事件范围内解析真实操作人");
 assert.match(stockView, /操作人：\{event\.creator\?\.name/, "备货状态流转记录必须标注操作人");
 assert.doesNotMatch(order, /stock_order_expenses|packaging_cost_cny|shipping_expenses_cny/, "销售订单详情不得返回仓库整单费用");
@@ -542,7 +543,7 @@ assert.match(read("components/order-print-preview.tsx"), /overflow-x-auto print:
 assert.match(read("components/order-print-preview.tsx"), /预计备货完成日期[\s\S]*date\(stock\.order\.expected_ready_at\)/, "备货单预览应准确说明 expected_ready_at 是预计备货完成日期");
 assert.match(read("components/order-print-preview.tsx"), /"成本单价"[\s\S]*estimated_unit_cost_cny/, "备货单成本列头不应额外添加人民币后缀");
 assert.equal([...read("components/order-print-preview.tsx").matchAll(/text-\[#986C47\]/g)].length, 2, "整单与单项理货说明应使用一致且克制的浅色字体");
-assert.match(read("components/stock-order-detail-view.tsx"), /\"供应商编码\",\s*\"累计已回货\"[\s\S]*item\.warehouse_supplier_code[\s\S]*item\.received_quantity/, "仓库详情列应将供应商编码排在累计已回货之前，并保持对应数据列同步");
+assert.match(read("components/stock-order-detail-view.tsx"), /data\.can_view_supplier_code \? \"供应商编码\" : \"回货进度\",\s*\"累计已回货\"[\s\S]*item\.warehouse_supplier_code[\s\S]*item\.received_quantity/, "仓库详情应按角色展示供应商编码或回货进度");
 assert.ok(!sheet.D13?.v, "收货信息不得再把标签和值分开放在相隔数列的单元格");
 assert.ok(sheet["!merges"].some(({ s, e }) => s.r === 12 && s.c === 0 && e.r === 12 && e.c === 5), "收货信息每行需合并为完整的单项信息单元格");
 assert.match(sheet.I18.v, /NGN/);

@@ -450,7 +450,7 @@ export function ImportView({ destination = "PRIVATE", canCreate }: { destination
           } catch (error) {
             contactValidationError = error instanceof Error ? error.message : "联系方式格式不正确";
           }
-          const invalidStage = destination === "PRIVATE" && Boolean(item.import_stage && !["潜在客户", "意向客户", "已成交客户"].includes(item.import_stage));
+          const invalidStage = destination === "PRIVATE" && Boolean(item.import_stage && item.import_stage !== "潜在客户");
           const invalidGrade = destination === "PRIVATE" && Boolean(item.manual_grade && !isCustomerGrade(item.manual_grade));
           const deliveryError = importDeliveryContactError(item as ImportRow);
           const contactError = destination === "PRIVATE" ? customerStageContactError(item.import_stage, item) : null;
@@ -462,7 +462,7 @@ export function ImportView({ destination = "PRIVATE", canCreate }: { destination
               reason: !item.contact_name || !item.country
                 ? "缺少客户名称或国家/地区无效，已跳过"
                 : contactValidationError ? contactValidationError
-                : invalidStage ? "客户阶段只能填写潜在客户、意向客户或已成交客户"
+                : invalidStage ? "批量导入仅支持潜在客户；意向或已成交客户请导入后逐个提交真实凭证完成阶段变更"
                 : invalidGrade ? `客户等级只能填写 ${CUSTOMER_GRADE_OPTIONS.join("、")}`
                 : deliveryError ? deliveryError
                 : contactError ? contactError

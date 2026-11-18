@@ -4,6 +4,7 @@ import { PERMISSION_CATALOG } from "@/lib/auth/permissions";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { activeDescendantIds } from "@/lib/auth/subordinate-scope";
 import { SUPERVISOR_TEAM_ALL_PERMISSIONS } from "@/lib/auth/supervisor-data-scope";
+import { assignedSalesIds } from "@/lib/auth/order-clerk-scope";
 
 export async function GET(request: Request) {
   try {
@@ -18,6 +19,9 @@ export async function GET(request: Request) {
       || Boolean(permission && definition?.kind === "DATA" && hasPermission(profile, permission));
     if (!canSelectOwner) return NextResponse.json({ profile, users: [], can_select_owner: false });
     if (creatorOptions && !["orders.data_all", "stock.data_all"].includes(permission)) throw new Error("FORBIDDEN");
+    const clerkSalesIds = profile.role === "ORDER_CLERK" && ["orders.data_all", "stock.data_all"].includes(permission)
+      ? await assignedSalesIds(profile.id) : null;
+    if (clerkSalesIds && !clerkSalesIds.length && !creatorOptions) return NextResponse.json({ profile, users: [], can_select_owner: false });
     const admin = createAdminClient();
     const descendantIds = profile.role === "SUPERVISOR" && (permission === "customers.data_all"
       ? profile.supervisor_can_view_customers : profile.supervisor_can_view_subordinates)
@@ -27,6 +31,7 @@ export async function GET(request: Request) {
     for (let offset = 0; ; offset += pageSize) {
       let query = admin.from("users").select("id,name,email,role,status");
       if (!creatorOptions) query = query.eq("status", "ACTIVE").in("role", ["ADMIN", "SUPERVISOR", "SALES"]);
+      if (clerkSalesIds && !creatorOptions) query = query.in("id", clerkSalesIds);
       if (profile.role === "SUPERVISOR") query = descendantIds
         ? query.in("id", descendantIds)
         : query.eq("id", profile.id);

@@ -153,6 +153,7 @@ type Payload = {
   can_update: boolean;
   can_edit_receiving: boolean;
   can_view_procurement: boolean;
+  can_view_supplier_code: boolean;
   can_edit_procurement: boolean;
   can_manage_suppliers: boolean;
   can_upload_delivery_note_files?: boolean;
@@ -897,7 +898,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
                       "成本单价（人民币）",
                       ...(canViewProcurement ? ["采购价（人民币/件）", "成本差价（人民币/件）"] : []),
                       "数量",
-                      canViewProcurement ? "回货来源（供应商 · 送货单）" : "供应商编码",
+                      canViewProcurement ? "回货来源（供应商 · 送货单）" : data.can_view_supplier_code ? "供应商编码" : "回货进度",
                       "累计已回货",
                       "已完成理货",
                       "单项进度",
@@ -955,7 +956,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
                       </> : null}
                       <td className="px-2 py-2">{item.quantity}</td>
                       <td className="px-2 py-2">
-                        {!canViewProcurement ? (item.warehouse_supplier_code || "—") : (() => {
+                        {!canViewProcurement ? (item.warehouse_supplier_code || `${item.received_quantity} / ${item.quantity} 件`) : (() => {
                           const sources = new Map<string, { label: string; quantity: number }>();
                           for (const receipt of data.receipts || []) {
                             if (receipt.stock_order_item_id !== item.id) continue;

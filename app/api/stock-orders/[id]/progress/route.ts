@@ -29,7 +29,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     if (error) throw error;
     const changedIds = changes.map((change) => change.item_id);
     const updated = changedIds.length ? await supabase.from("stock_order_items")
-      .select("id,received_quantity,prepared_quantity,shipped_quantity,preparation_status,warehouse_supplier_code")
+      .select("id,received_quantity,prepared_quantity,shipped_quantity,preparation_status")
       .in("id", changedIds).eq("stock_order_id", id) : null;
     if (updated?.error) throw updated.error;
     return NextResponse.json({ data, items: updated?.data || [] });

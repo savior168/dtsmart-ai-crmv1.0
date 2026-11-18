@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authErrorStatus, requirePermission } from "@/lib/auth/current-user";
 import { sqlErrorMessage } from "@/lib/sales-flow";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 type CorrectionChange = {
   item_id?: unknown;
@@ -24,7 +25,10 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
         || (change.revert_start !== undefined && typeof change.revert_start !== "boolean"))) {
       throw new Error("请选择有效产品并填写正确的累计回货数、理货数和供应商编码");
     }
-    const current = await supabase.from("stock_order_items")
+    const visibleOrder = await supabase.from("stock_orders").select("id").eq("id", id).maybeSingle();
+    if (visibleOrder.error) throw visibleOrder.error;
+    if (!visibleOrder.data) throw new Error("FORBIDDEN");
+    const current = await createAdminClient().from("stock_order_items")
       .select("id,received_quantity,warehouse_supplier_code")
       .eq("stock_order_id", id).in("id", changes.map((change) => String(change.item_id)));
     if (current.error) throw current.error;

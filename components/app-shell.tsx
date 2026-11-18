@@ -972,7 +972,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               <span className="text-xs text-slate-500">{operational ? "关闭仅隐藏本次弹窗，业务待办仍保留" : critical ? "确认后会保存已知晓记录" : "稍后仍可在通知中心查看"}</span>
               <div className="flex gap-2">
                 {operational || !critical ? <button type="button" disabled={announcementSaving} onClick={() => void handleAnnouncement("DISMISS")} className="rounded-lg border px-4 py-2 text-sm text-slate-600 disabled:opacity-50">{operational ? "稍后处理" : "稍后查看"}</button> : null}
-                <button type="button" disabled={announcementSaving} onClick={() => void handleAnnouncement(operational ? "DISMISS" : "ACKNOWLEDGE", operational)} className={`rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-50 ${critical ? "bg-rose-600" : "bg-blue-600"}`}>{operational ? "去处理" : "已知晓"}</button>
+                <button type="button" disabled={announcementSaving} onClick={() => void handleAnnouncement(operational ? "DISMISS" : "ACKNOWLEDGE", operational)} className={`rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-50 ${critical ? "bg-rose-600" : "bg-blue-600"}`}>{operational ? "立即处理" : "已知晓"}</button>
               </div>
             </div>
           </section>
