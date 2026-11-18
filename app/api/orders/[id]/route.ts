@@ -96,6 +96,12 @@ export async function GET(
         .order("created_at", { ascending: false }).limit(20)
       : null;
     if (priceCorrections?.error) throw priceCorrections.error;
+    const priceCorrectionUserIds = [...new Set((priceCorrections?.data || []).map((entry) => entry.user_id).filter(Boolean))];
+    const priceCorrectionUsers = priceCorrectionUserIds.length
+      ? await createAdminClient().from("users").select("id,name,email").in("id", priceCorrectionUserIds)
+      : { data: [], error: null };
+    if (priceCorrectionUsers.error) throw priceCorrectionUsers.error;
+    const priceCorrectionActorNames = new Map((priceCorrectionUsers.data || []).map((entry) => [entry.id, entry.name || entry.email || "已离职用户"]));
     let sellerCostReviewLineNumbersResult: number[] = [];
     const costReviewAccess = (order.data.prepared_by || order.data.sales_user_id) === account.id
       && ["SALES", "SUPERVISOR", "ORDER_CLERK", "ADMIN"].includes(account.role)
@@ -135,7 +141,7 @@ export async function GET(
       receiving_progress: receivingProgress,
       item_progress: stockItems?.data || [],
       amendments,
-      price_corrections: priceCorrections?.data || [],
+      price_corrections: (priceCorrections?.data || []).map((entry) => ({ ...entry, actor_name: priceCorrectionActorNames.get(entry.user_id) || "已停用用户" })),
       requirement_attachments: resolvePiRequirementAttachments(requirementAttachments?.data || [], items.data || []),
       applied_amendment_count: appliedCountResult?.count || 0,
       can_request_amendment: writable && hasPermission(account, "orders.edit")

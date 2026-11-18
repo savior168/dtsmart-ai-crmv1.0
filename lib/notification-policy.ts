@@ -21,17 +21,23 @@ export function isUrgentWarehousePiChange(notice: { type: string }, role: string
   return role === "WAREHOUSE" && notice.type === "PI_CHANGE_REQUESTED";
 }
 
+export const URGENT_STOCK_NOTICE_TITLES = [
+  "订单已取消", "PI备货单已撤回", "备货异常已更新", "PI订单销售成本待复核", "PI整单已交货代，请复核销售成本",
+] as const;
+
+export function isUrgentOperationalNotice(notice: { type: string; title?: string | null; action_status?: string | null }) {
+  if (notice.type === "PI_CHANGE_REQUESTED") return notice.action_status === "PENDING";
+  if (notice.type === "PI_CHANGE_REJECTED") return true;
+  return notice.type === "STOCK_STATUS_CHANGED" && URGENT_STOCK_NOTICE_TITLES.some(title => title === notice.title);
+}
+
 export function requiresManualNotificationDismissal(
   notice: { type: string; title?: string | null; content?: string | null },
   role: string | undefined,
 ) {
   if (isUrgentWarehousePiChange(notice, role)) return true;
   if (notice.type === "SYSTEM_ANNOUNCEMENT") return ["critical", "warning"].includes(announcementTone(notice));
-  return notice.type === "STOCK_STATUS_CHANGED" && (
-    notice.title === "订单已取消" || notice.title === "PI备货单已撤回" ||
-    notice.title === "备货异常已更新" ||
-    Boolean(notice.content?.includes("缺货异常"))
-  );
+  return isUrgentOperationalNotice(notice) || (notice.type === "STOCK_STATUS_CHANGED" && Boolean(notice.content?.includes("缺货异常")));
 }
 
 export function notificationPolicyType(notice: { type: string; title?: string | null }) {

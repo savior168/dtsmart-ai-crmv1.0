@@ -18,5 +18,21 @@ assert.match(view, /工作台返回数据格式异常/, "malformed success respo
 assert.match(view, /canImportCustomers \? <Link href="\/import\?destination=private"/, "customer import shortcut must require its configured import permission");
 assert.match(view, /canCreateAiScreening \? <Link href="\/ai-screening\/new"/, "AI screening shortcut must be gated independently");
 assert.match(readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8"), /canCreateAiScreening=\{account\.role === "ADMIN"\}/, "only system administrators may see the AI screening shortcut");
+const landing = readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8");
+const clerkApi = readFileSync(new URL("../app/api/dashboard/order-clerk/route.ts", import.meta.url), "utf8");
+const clerkView = readFileSync(new URL("../components/order-clerk-dashboard.tsx", import.meta.url), "utf8");
+const financeView = readFileSync(new URL("../components/finance-dashboard.tsx", import.meta.url), "utf8");
+const financeReport = readFileSync(new URL("../components/finance-reports-view.tsx", import.meta.url), "utf8");
+const reportRoute = readFileSync(new URL("../app/reports/page.tsx", import.meta.url), "utf8");
+const financeGrant = readFileSync(new URL("../supabase/migrations/20261118100900_finance_dashboard_entry.sql", import.meta.url), "utf8");
+assert.match(landing, /account\.role === "ORDER_CLERK"[\s\S]*OrderClerkDashboard[\s\S]*account\.role === "FINANCE"[\s\S]*FinanceDashboard/, "operations roles must not render sales customer dashboard");
+assert.match(clerkApi, /requirePermission\("dashboard\.view"\)[\s\S]*account\.role !== "ORDER_CLERK"[\s\S]*orders\.data_all/, "clerk overview must enforce role and data scope server-side");
+assert.match(clerkView, /PI 草稿[\s\S]*待仓库接单[\s\S]*备货处理中[\s\S]*已交货代/, "clerk overview must show PI workflow rather than customer pipeline");
+assert.match(financeView, /supplier-reconciliation[\s\S]*本月应付货款[\s\S]*本月送货单未付/, "finance overview must use authorized reconciliation data with explicit period labels");
+assert.match(financeGrant, /FINANCE', 'dashboard\.view', true[\s\S]*on conflict \(role_code, permission_code\) do nothing/, "finance entry must preserve existing role disables and per-user overrides");
+assert.match(financeGrant, /FINANCE', 'reports\.view', true/, "finance report entry must be separately granted without altering sales permissions");
+assert.match(reportRoute, /account\.role === "FINANCE"[\s\S]*FinanceReportsView/, "finance must not fall through to sales report");
+assert.match(financeReport, /canViewReconciliation[\s\S]*supplier-reconciliation/, "finance report must gate reconciliation data by its own permission");
+assert.match(financeReport, /document_date/, "finance report must display the database document date field");
 
 console.log("dashboard load resilience checks passed");

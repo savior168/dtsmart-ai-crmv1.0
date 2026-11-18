@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { notificationVoiceText } from "../lib/notification-voice.ts";
 import { announcementTone, notificationDisplayContent, notificationToastSessionKey, notificationToastStorageKey, notificationToastSummary, shouldShowNotificationToast } from "../lib/notification-toast.ts";
-import { defaultNotificationPolicy, isUrgentWarehousePiChange, notificationPolicyType, requiresManualNotificationDismissal } from "../lib/notification-policy.ts";
+import { defaultNotificationPolicy, isUrgentOperationalNotice, isUrgentWarehousePiChange, notificationPolicyType, requiresManualNotificationDismissal, URGENT_STOCK_NOTICE_TITLES } from "../lib/notification-policy.ts";
 
 assert.match(notificationVoiceText({ type: "FOLLOWUP_DUE", content: "Call buyer" }), /跟进提醒/);
 assert.equal(defaultNotificationPolicy("FOLLOWUP_DUE").voice_enabled, false);
@@ -16,6 +16,12 @@ assert.equal(requiresManualNotificationDismissal({ type: "PI_CHANGE_REQUESTED" }
 assert.equal(requiresManualNotificationDismissal({ type: "STOCK_STATUS_CHANGED", title: "备货异常已更新" }, "SALES"), true);
 assert.equal(requiresManualNotificationDismissal({ type: "STOCK_STATUS_CHANGED", title: "备货状态已更新", content: "缺货异常" }, "ORDER_CLERK"), true);
 assert.equal(requiresManualNotificationDismissal({ type: "STOCK_STATUS_CHANGED", title: "备货状态已更新", content: "已备齐" }, "SALES"), false);
+assert.equal(isUrgentOperationalNotice({ type: "PI_CHANGE_REQUESTED", action_status: "PENDING" }), true);
+assert.equal(isUrgentOperationalNotice({ type: "PI_CHANGE_REQUESTED", action_status: "RESOLVED" }), false, "仓库已确认或驳回后不得继续弹待办");
+assert.equal(isUrgentOperationalNotice({ type: "PI_CHANGE_REJECTED" }), true);
+assert.equal(isUrgentOperationalNotice({ type: "PI_CHANGE_APPLIED" }), false);
+for (const title of URGENT_STOCK_NOTICE_TITLES) assert.equal(isUrgentOperationalNotice({ type: "STOCK_STATUS_CHANGED", title }), true);
+assert.equal(isUrgentOperationalNotice({ type: "STOCK_STATUS_CHANGED", title: "备货进度已更新" }), false);
 for (const [title, tone, manual] of [
   ["系统维护预告｜PI订单", "information", false],
   ["系统维护中｜PI订单", "warning", true],
@@ -78,6 +84,8 @@ assert.ok(notificationToastSummary({ type: "UNKNOWN", content: "a".repeat(200), 
 const notificationPanel = readFileSync("components/notification-admin-panel.tsx", "utf8");
 const releaseSummaryApi = readFileSync("app/api/admin/notifications/release-summary/route.ts", "utf8");
 const notificationApi = readFileSync("app/api/notifications/route.ts", "utf8");
+const shell = readFileSync("components/app-shell.tsx", "utf8");
+const inbox = readFileSync("components/notifications-view.tsx", "utf8");
 const announcementApi = readFileSync("app/api/admin/notifications/announcements/route.ts", "utf8");
 const announcementListApi = readFileSync("app/api/admin/notifications/route.ts", "utf8");
 const audienceMigration = readFileSync("supabase/migrations/20261016140000_role_targeted_announcements.sql", "utf8");
@@ -106,6 +114,10 @@ assert.match(announcementListApi, /recipient_roles,recipient_count/, "公告历�
 assert.match(audienceMigration, /actor\.role <> 'ADMIN'[\s\S]*u\.status = 'ACTIVE' and \(normalized_roles is null or u\.role = any\(normalized_roles\)\)/, "数据库必须再次校验管理员并只向匹配角色的启用用户送达");
 assert.match(audienceMigration, /on conflict \(request_id\) do nothing[\s\S]*ANNOUNCEMENT_REQUEST_CONFLICT[\s\S]*NO_ACTIVE_RECIPIENTS/, "公告发布必须保证幂等及非空收件人");
 assert.match(notificationApi, /status === "modal"[\s\S]*is\("acknowledged_at", null\)\.is\("dismissed_at", null\)/, "普通已读状态不得关闭重要/紧急公告弹框，只有明确稍后或确认操作可以关闭");
+assert.match(notificationApi, /status === "modal"[\s\S]*PI_CHANGE_REQUESTED[\s\S]*URGENT_STOCK_NOTICE_TITLES/, "居中弹窗接口须纳入 PI 变更与高风险备货事件");
+assert.match(notificationApi, /notice\.type === "PI_CHANGE_REQUESTED"[\s\S]*action !== "DISMISS"[\s\S]*不能在通知中心代替业务处理/, "未完成的 PI 变更不能靠通知中心伪造已处理或归档");
+assert.match(shell, /operational \? "紧急业务待办[\s\S]*关闭仅隐藏本次弹窗，业务待办仍保留[\s\S]*稍后处理[\s\S]*去处理/, "紧急业务弹窗必须提供手动处理与稍后关闭，且不误称关闭等于办结");
+assert.match(inbox, /piChangePending[\s\S]*!piChangePending[\s\S]*标记已处理/, "仓库 PI 变更须在业务流程中完成而非手动点通知已处理");
 assert.match(notificationApi, /action === "READ_ALL"[\s\S]*metadata->>delivery_level\.eq\.NORMAL/, "全部已读不得绕过需要居中提示的重要或紧急公告");
 assert.match(audienceMigration, /revoke all on function public\.publish_system_announcement\(uuid,text,text,text\[\]\)[\s\S]*from public, anon, authenticated/, "定向公告函数不得向匿名用户开放");
 assert.match(notificationApi, /eq\("recipient_id", user\.id\)[\s\S]*enrichOperationNotices/, "通知仍须先按当前收件人隔离，再补充操作上下文");

@@ -55,6 +55,16 @@ export function SupplierReconciliationView({ canRecordPayment }: { canRecordPaym
   const [selectedPreset, setSelectedPreset] = useState<BusinessDatePreset | "">("month");
   const [supplierId, setSupplierId] = useState("");
   const [filters, setFilters] = useState({ ...initial, supplierId: "" });
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const queryFrom = params.get("from") || "";
+    const queryTo = params.get("to") || "";
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(queryFrom) || !/^\d{4}-\d{2}-\d{2}$/.test(queryTo) || queryFrom > queryTo) return;
+    setFrom(queryFrom);
+    setTo(queryTo);
+    setSelectedPreset("");
+    setFilters({ from: queryFrom, to: queryTo, supplierId: "" });
+  }, []);
   const [suppliers, setSuppliers] = useState<Array<{ id: string; system_code: string; short_name: string | null; english_short_name: string | null }>>([]);
   const [supplierError, setSupplierError] = useState("");
   const [summary, setSummary] = useState<Summary | null>(null);

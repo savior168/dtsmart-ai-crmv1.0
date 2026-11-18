@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authErrorStatus, hasPermission, requireUser } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { isUrgentOperationalNotice, URGENT_STOCK_NOTICE_TITLES } from "@/lib/notification-policy";
 
 const fields = "id,type,category,title,content,metadata,href,entity_type,entity_id,read_at,dismissed_at,acknowledged_at,archived_at,action_status,deliver_at,created_at";
+// Do not replay old informational stock events as new blocking modals at rollout.
+const OPERATIONAL_MODAL_ROLLOUT_AT = "2026-11-18T00:00:00+08:00";
 
 type NoticeRow = {
   id: string; type: string; content: string | null; metadata: Record<string, unknown> | null;
@@ -128,17 +131,34 @@ export async function GET(request: NextRequest) {
     const status = params.get("status") || (params.get("unread") === "true" ? "unread" : "active");
     if (status !== "modal" && !hasPermission(account, "notifications.view")) throw new Error("FORBIDDEN");
     const now = new Date().toISOString();
+    if (status === "modal") {
+      const base = () => supabase.from("system_notifications").select(fields)
+        .eq("recipient_id", user.id).lte("deliver_at", now)
+        .is("acknowledged_at", null).is("dismissed_at", null).is("archived_at", null);
+      const [announcements, changes, stockEvents] = await Promise.all([
+        base().eq("type", "SYSTEM_ANNOUNCEMENT").in("metadata->>delivery_level", ["IMPORTANT", "CRITICAL"]).order("deliver_at", { ascending: true }).limit(50),
+        base().in("type", ["PI_CHANGE_REQUESTED", "PI_CHANGE_REJECTED"]).order("deliver_at", { ascending: false }).limit(100),
+        base().eq("type", "STOCK_STATUS_CHANGED").in("title", [...URGENT_STOCK_NOTICE_TITLES])
+          .gte("created_at", OPERATIONAL_MODAL_ROLLOUT_AT).order("deliver_at", { ascending: false }).limit(100),
+      ]);
+      if (announcements.error || changes.error || stockEvents.error) throw announcements.error || changes.error || stockEvents.error;
+      const urgent = [...(changes.data || []), ...(stockEvents.data || [])].filter(isUrgentOperationalNotice);
+      const ordered = [...urgent, ...(announcements.data || [])].sort((left, right) => {
+        const priority = (item: typeof left) => item.type === "PI_CHANGE_REQUESTED" && item.action_status === "PENDING" ? 0
+          : item.type !== "SYSTEM_ANNOUNCEMENT" ? 1
+            : item.metadata?.delivery_level === "CRITICAL" ? 2 : 3;
+        return priority(left) - priority(right) || Date.parse(left.deliver_at) - Date.parse(right.deliver_at);
+      });
+      const pageRows = ordered.slice((page - 1) * pageSize, page * pageSize);
+      return NextResponse.json({ data: await enrichOperationNotices(pageRows as NoticeRow[]), count: ordered.length, page, page_size: pageSize, status });
+    }
     let query = supabase.from("system_notifications").select(fields, { count: "exact" })
       .eq("recipient_id", user.id).lte("deliver_at", now);
-    if (status === "modal") query = query.eq("type", "SYSTEM_ANNOUNCEMENT")
-      .in("metadata->>delivery_level", ["IMPORTANT", "CRITICAL"])
-      .is("acknowledged_at", null).is("dismissed_at", null).is("archived_at", null)
-      .order("action_status", { ascending: false }).order("deliver_at", { ascending: true });
-    else if (status === "unread") query = query.is("read_at", null).is("archived_at", null);
+    if (status === "unread") query = query.is("read_at", null).is("archived_at", null);
     else if (status === "pending") query = query.eq("action_status", "PENDING").is("archived_at", null);
     else if (status === "archived") query = query.not("archived_at", "is", null);
     else if (status !== "all") query = query.is("archived_at", null);
-    if (status !== "modal") query = query.order("deliver_at", { ascending: false });
+    query = query.order("deliver_at", { ascending: false });
     query = query.range((page - 1) * pageSize, page * pageSize - 1);
     const [rows, unreadResult, pendingResult] = await Promise.all([
       query,
@@ -174,6 +194,17 @@ export async function PATCH(request: NextRequest) {
       if (!data) return NextResponse.json({ error: "公告不存在或已确认，请刷新后重试" }, { status: 404 });
       return NextResponse.json({ ok: true });
     }
+    if (body.id && (action === "DISMISS" || action === "RESOLVE" || action === "ARCHIVE")) {
+      const { data: notice, error: noticeError } = await supabase.from("system_notifications")
+        .select("id,type,title,action_status,metadata").eq("id", body.id).eq("recipient_id", user.id).maybeSingle();
+      if (noticeError) throw noticeError;
+      if (!notice) return NextResponse.json({ error: "通知不存在" }, { status: 404 });
+      if (notice.type === "PI_CHANGE_REQUESTED" && notice.action_status === "PENDING" && action !== "DISMISS") {
+        return NextResponse.json({ error: "请在备货单中确认或驳回 PI 变更；不能在通知中心代替业务处理" }, { status: 409 });
+      }
+      if (action === "DISMISS" && !hasPermission(account, "notifications.view") && !isUrgentOperationalNotice(notice)
+        && !(notice.type === "SYSTEM_ANNOUNCEMENT" && notice.metadata?.delivery_level === "IMPORTANT")) throw new Error("FORBIDDEN");
+    }
     let query = supabase.from("system_notifications").update(
       action === "DISMISS" ? { dismissed_at: now }
         : action === "ARCHIVE" ? { archived_at: now, read_at: now }
@@ -186,7 +217,6 @@ export async function PATCH(request: NextRequest) {
     else {
       if (!body.id) return NextResponse.json({ error: "缺少通知编号" }, { status: 400 });
       query = query.eq("id", body.id);
-      if (action === "DISMISS" && !hasPermission(account, "notifications.view")) query = query.eq("type", "SYSTEM_ANNOUNCEMENT").eq("metadata->>delivery_level", "IMPORTANT");
     }
     const { error } = await query;
     if (error) throw error;
