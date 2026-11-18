@@ -28,6 +28,12 @@ assert.match(options, /clerkSalesIds[\s\S]*query\.in\("id", clerkSalesIds\)/);
 assert.match(currentUser, /await requireAssignedSales\(account\.id, requested\)/);
 assert.match(admin, /requireAdmin\(\)[\s\S]*set_order_clerk_sales_assignments/);
 assert.match(editor, /保存范围[\s\S]*|setAssigned/);
+assert.match(read("components/admin-settings-panels.tsx"), /<ClerkSalesScopeEditor key=\{payload\.user\.id\} clerkId=\{payload\.user\.id\}/,
+  "clerk scope must use the user ID confirmed by the permissions response");
+assert.match(editor, /<details className="relative mt-3[\s\S]*搜索可授权销售员[\s\S]*type="checkbox"/,
+  "seller assignments should use a compact searchable multi-select");
+assert.match(editor, /!loading && !error[\s\S]*暂无可授权销售员/,
+  "load failures must not be presented as an empty seller search result");
 
 assert.match(dealSql, /first_pi[\s\S]*confirmed_at is not null[\s\S]*status not in \('DRAFT', 'CANCELLED'\)/);
 assert.match(dealSql, /s\.status = 'SHIPPED'[\s\S]*i\.shipped_quantity is distinct from i\.quantity/);

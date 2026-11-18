@@ -176,7 +176,7 @@ function CreateUserDialog({supervisors,roles,close,saved}:{supervisors:Superviso
 }
 
 type PermissionOverride = { permission_code:string; effect:"ALLOW"|"DENY" };
-type PermissionPayload = { user:{supervisor_can_view_subordinates:boolean}; catalog:PermissionDefinition[]; role_permissions:string[]; overrides:PermissionOverride[] };
+type PermissionPayload = { user:{id:string;supervisor_can_view_subordinates:boolean}; catalog:PermissionDefinition[]; role_permissions:string[]; overrides:PermissionOverride[] };
 
 function isDataScopeFixed(role: UserRole, code: string) {
   // A DATA grant changes read scope only; record writes remain owner-checked.
@@ -221,7 +221,7 @@ function UserPermissionDialog({user,roles,close,saved}:{user:UserRow;roles:RoleD
       <div className="shrink-0 border-b bg-slate-50 px-5 py-3 text-xs leading-5 text-slate-600"><b>跟随角色</b>：使用所属角色的默认值；<b className="text-emerald-700">单独开启</b>：额外授权给该用户；<b className="text-rose-700">单独关闭</b>：即使角色默认拥有，该用户也不可使用。右侧“最终生效”是登录后实际执行结果。</div>
       <nav className="relative z-20 flex min-h-[58px] shrink-0 flex-wrap items-center gap-2 border-b bg-white px-5 py-3">{groups.map(item=><button key={item} onClick={()=>setGroup(item)} className={`shrink-0 rounded-lg px-3 py-1.5 text-sm ${group===item?"bg-blue-600 text-white":"bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>{item}</button>)}</nav>
       {error?<p className="mx-5 mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{error}</p>:null}
-      {user.role==="ORDER_CLERK"?<ClerkSalesScopeEditor clerkId={user.id}/>:null}
+      {user.role==="ORDER_CLERK"&&!loading&&payload?.user?.id?<ClerkSalesScopeEditor key={payload.user.id} clerkId={payload.user.id}/>:null}
       {user.role==="SUPERVISOR"&&!loading?<div className="mx-5 mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4"><div><b className="text-sm">查看多级下属数据</b><p className="mt-1 text-xs text-slate-500">适用于工作台、订单、报表等授权模块；“我的客户”下属客户另行授权。仅扩大读取范围，不允许修改下属单据。</p></div><button type="button" disabled={Boolean(saving)||user.status!=="ACTIVE"&&!payload?.user.supervisor_can_view_subordinates} onClick={()=>setScopeReason("")} className="rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm text-blue-700 disabled:opacity-50">{payload?.user.supervisor_can_view_subordinates?"已开启 · 关闭":"已关闭 · 开启"}</button></div>:null}
       {user.role==="SUPERVISOR"&&!loading&&(group==="全部"||group==="客户中心")?<div className="mx-5 mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4"><div><b className="text-sm text-slate-900">我的客户 · 查看下属客户</b><p className="mt-1 text-xs text-slate-600">单独授权，默认关闭；与上方多级下属数据开关互不影响。仅可只读查看本人下级及多级下级的客户，仍需有“我的客户”页面权限。</p></div><button type="button" disabled={Boolean(saving)||user.status!=="ACTIVE"} onClick={()=>void change("customers.data_all",overrideByCode.get("customers.data_all")==="ALLOW"?"DENY":"ALLOW")} className="rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm text-blue-700 disabled:opacity-50">{overrideByCode.get("customers.data_all")==="ALLOW"?"已开启 · 关闭":"已关闭 · 开启"}</button></div>:null}
       <div className="relative z-0 min-h-0 flex-1 overflow-auto p-5 [&_table]:min-w-[880px] [&_table]:table-fixed [&_th]:whitespace-nowrap [&_th:nth-child(1)]:w-[32%] [&_th:nth-child(2)]:w-[10%] [&_th:nth-child(3)]:w-[12%] [&_th:nth-child(4)]:w-[34%] [&_th:nth-child(5)]:w-[12%] [&_td:nth-child(3)]:whitespace-nowrap [&_td:nth-child(5)]:whitespace-nowrap">
