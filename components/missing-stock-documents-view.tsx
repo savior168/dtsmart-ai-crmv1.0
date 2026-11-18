@@ -99,9 +99,9 @@ export function MissingStockDocumentsView({ showLegacySources = false }: { showL
             </tr>
             {expanded === row.stock_order_id ? <tr><td colSpan={3} className="border-t bg-slate-50 p-3 sm:p-4"><div id={`remediation-${row.stock_order_id}`} className="space-y-3">
               {detailLoading ? <p>加载送货单…</p> : detailError ? <p role="alert" className="text-rose-700">{detailError}</p> : <>
-                {detail?.delivery_notes?.length ? <div><p className="mb-2 font-medium">关联送货单 · 直接补单号与照片</p><div className="grid gap-2 lg:grid-cols-2">
+                {detail?.delivery_notes?.some((note) => note.number_pending || !note.attachments.length) ? <div><p className="mb-2 font-medium">关联送货单 · 直接补单号与照片</p><div className="grid gap-2 lg:grid-cols-2">
                   {detail.delivery_notes.filter((note) => note.number_pending || !note.attachments.length).map((note) => <SupplierDeliveryNoteFiles key={note.id} note={note} canUpload={detail.can_upload_delivery_note_files} onUploaded={() => { void loadDetail(row.stock_order_id); void load(); }}/>)}
-                </div></div> : row.legacy_count > 0 ? <p className="text-amber-800">尚无关联送货单。请在下方按产品核对供应商、真实纸单号和采购价；关联后可直接上传照片。</p> : row.missing_number_count || row.missing_image_count ? <p className="text-amber-800">尚无可补录的关联送货单或历史实收来源，请打开备货单核对回货记录。</p> : null}
+                </div></div> : row.legacy_count > 0 ? <p className="text-amber-800">请在下方按产品核对供应商、真实送货单号和采购价；关联后可直接上传照片。</p> : row.missing_number_count || row.missing_image_count ? <p className="text-amber-800">尚无可补录的关联送货单或历史实收来源，请打开备货单核对回货记录。</p> : null}
               </>}
               {showLegacySources && row.legacy_count > 0 ? <LegacySupplierSourcesView orderId={row.stock_order_id} onUpdated={() => { void load(); void loadDetail(row.stock_order_id); }}/> : null}
               <Link href={`/stock-orders/${row.stock_order_id}`} className="inline-block text-xs text-blue-700 hover:underline">查看完整备货单</Link>
