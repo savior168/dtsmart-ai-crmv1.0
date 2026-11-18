@@ -307,7 +307,7 @@ for (const api of [orderListApi, stockListApi]) {
 }
 assert.match(order, /can_delete_draft:[\s\S]*!stock\.data[\s\S]*export async function DELETE[\s\S]*delete_never_submitted_pi_draft/, "只有未生成备货单的PI草稿才提供受权限控制的删除入口");
 assert.match(order, /can_view_stock: hasPermission\(account, "stock\.view"\)/, "PI详情必须把备货查看权限传给前端");
-assert.match(order, /account\.role === "ORDER_CLERK" && !order\.data\.owner && order\.data\.sales_user_id[\s\S]*?\.from\("users"\)\.select\("name,email"\)\.eq\("id", order\.data\.sales_user_id\)/, "跟单员只可为已授权PI补齐该单归属销售员名称");
+assert.match(order, /needsRelatedFallback && !order\.data\.owner && order\.data\.sales_user_id[\s\S]*?\.from\("users"\)\.select\("name,email"\)\.eq\("id", order\.data\.sales_user_id\)/, "跟单员或财务员只可为已授权PI补齐该单归属销售员名称");
 assert.match(order, /owner: clerkOwner\?\.data \|\| order\.data\.owner/, "跟单员PI详情不得把归属销售员显示为空");
 assert.match(orderDetailView, /data\.can_view_stock && data\.stock_order[\s\S]*查看备货单/, "无备货查看权限时不得显示跳转入口，且只读入口不得暗示可编辑");
 assert.doesNotMatch(orderDetailView, /查看\/完善备货单/, "PI详情不得把只读查看误写为完善备货单");

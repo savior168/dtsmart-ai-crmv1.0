@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { ChevronDown } from "lucide-react";
 import { monthRange } from "@/lib/reports/month-range";
 
 const months = Array.from({ length: 12 }, (_, index) => index + 1);
@@ -25,7 +26,7 @@ export function MonthRangeShortcut({ from, to, onApply, embedded = false }: {
   }
 
   return <details ref={details} className="relative shrink-0 text-sm">
-    <summary onClick={prepareOpen} className={`flex h-10 cursor-pointer list-none items-center px-3 font-medium text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${embedded ? "rounded-r-lg hover:bg-blue-50" : "rounded-lg border border-slate-200 bg-white hover:border-blue-300"}`}>按月选择 <span aria-hidden="true" className="ml-2 text-slate-400">⌄</span></summary>
+    <summary onClick={prepareOpen} className={`flex h-10 cursor-pointer list-none items-center gap-1 px-2.5 font-medium text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${embedded ? "rounded-r-lg hover:bg-blue-50" : "rounded-lg border border-slate-200 bg-white hover:border-blue-300"}`}>按月 <ChevronDown aria-hidden="true" size={14} className="shrink-0 text-slate-400"/></summary>
     <form onSubmit={(event) => { event.preventDefault(); onApply(monthRange(year, startMonth, endMonth)); if (details.current) details.current.open = false; }} className="absolute right-0 top-11 z-50 w-64 rounded-xl border border-slate-200 bg-white p-3 shadow-xl">
       <p className="mb-3 text-xs text-slate-500">选单月或同一年内连续多个月</p>
       <label className="block text-xs text-slate-600">年份<input type="number" min={1900} max={2100} required value={year} onChange={(event) => setYear(Number(event.target.value))} className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm"/></label>

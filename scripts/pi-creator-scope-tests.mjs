@@ -15,6 +15,21 @@ const userOptionsApi = read("app/api/users/options/route.ts");
 const userScopeSelect = read("components/user-scope-select.tsx");
 const piForm = read("components/pi-order-form.tsx");
 const priceMigration = read("supabase/migrations/20261117090100_direct_pi_price_correction_generated_amount_fix.sql");
+const financeReadMigration = read("supabase/migrations/20261118194500_finance_granted_pi_read.sql");
+const exportApi = read("app/api/orders/[id]/export/route.ts");
+
+assert.match(financeReadMigration, /sales_orders_finance_granted_pi_read[\s\S]*confirmation_method = 'DIRECT_PI'[\s\S]*current_user_role\(\) = 'FINANCE'[\s\S]*current_user_has_business_permission\('orders\.data_all'\)/,
+  "财务跨用户 PI 读取必须同时受角色、PI 类型和实际权限控制");
+assert.match(financeReadMigration, /sales_order_items_finance_granted_pi_read[\s\S]*current_user_has_business_permission\('orders\.data_all'\)[\s\S]*pi\.confirmation_method = 'DIRECT_PI'/,
+  "财务产品项不得越界读取历史非 PI 订单");
+assert.match(listApi, /\["ORDER_CLERK", "FINANCE"\]\.includes\(account\.role\)\) query = query\.eq\("confirmation_method", "DIRECT_PI"\)/,
+  "财务订单列表只展示 PI");
+assert.match(listApi, /const relatedClient = \["ORDER_CLERK", "FINANCE"\]\.includes\(account\.role\) \? createAdminClient\(\) : supabase/,
+  "已授权财务员的 PI 列表应能显示对应的备货进度摘要");
+assert.match(detailApi, /\["ORDER_CLERK", "FINANCE"\]\.includes\(account\.role\) && order\.data\.confirmation_method !== "DIRECT_PI"/,
+  "财务不得通过详情读取非 PI 订单");
+assert.match(exportApi, /\["ORDER_CLERK", "FINANCE"\]\.includes\(account\.role\) && order\.data\.confirmation_method !== "DIRECT_PI"/,
+  "财务不得通过导出读取非 PI 订单");
 
 for (const rpc of ["update_direct_pi_draft", "set_direct_pi_change_note",
   "delete_never_submitted_pi_draft", "cancel_sales_order"]) {
