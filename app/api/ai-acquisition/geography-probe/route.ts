@@ -14,6 +14,16 @@ const QUERY = "Handyreparatur in Munich, Bavaria, Germany";
 const SCOPE: GeographyScope = { regionCode: "02", city: "Munich" };
 const MAX_REQUEST_COST_USD = 0.032;
 
+export async function GET() {
+  if (process.env.VERCEL_ENV !== "preview") return NextResponse.json({ error: "Not found" }, { status: 404 });
+  try {
+    await requireAdmin();
+    return new Response('<!doctype html><html lang="zh"><meta charset="utf-8"><title>一次性地域探测</title><main style="max-width:600px;margin:60px auto;font:16px sans-serif;line-height:1.7"><h1>一次性只读地域探测</h1><p>目标：德国巴伐利亚州慕尼黑 · 手机维修。点击后最多执行一次 Google Places 请求，潜在费用上限 0.032 美元；不创建客户或任务。</p><form method="post"><button type="submit" style="padding:10px 18px">执行已授权的单次探测</button></form></main></html>', { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+  } catch {
+    return NextResponse.json({ error: "仅系统管理员可访问" }, { status: 403 });
+  }
+}
+
 export async function POST() {
   if (process.env.VERCEL_ENV !== "preview") return NextResponse.json({ error: "Not found" }, { status: 404 });
   try {

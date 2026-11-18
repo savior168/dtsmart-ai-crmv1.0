@@ -43,10 +43,13 @@ try {
   };
   process.env.VERCEL_ENV = "production";
   assert.equal((await module.exports.POST()).status, 404);
+  assert.equal((await module.exports.GET()).status, 404);
   process.env.VERCEL_ENV = "preview";
   authenticated = false;
   assert.equal((await module.exports.POST()).status, 403);
+  assert.equal((await module.exports.GET()).status, 403);
   authenticated = true;
+  assert.equal((await module.exports.GET()).status, 200);
   duplicate = true;
   assert.equal((await module.exports.POST()).status, 409);
   assert.equal(fetches, 0, "denied and repeated requests must not reach Google");
