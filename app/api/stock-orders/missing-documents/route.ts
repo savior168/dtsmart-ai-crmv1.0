@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authErrorStatus, hasPermission, requirePermission } from "@/lib/auth/current-user";
 import { sqlErrorMessage } from "@/lib/sales-flow";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function GET(request: NextRequest) {
   try {
@@ -13,7 +14,38 @@ export async function GET(request: NextRequest) {
       p_limit: 50, p_offset: (page - 1) * 50,
     });
     if (error) throw error;
-    return NextResponse.json({ data: data || [], count: Number(data?.[0]?.total_count || 0), page });
+    const rows: Array<{ stock_order_id: string; order_number: string; missing_number_count: number; missing_image_count: number; total_count: number }> = data || [];
+    if (!rows.length) return NextResponse.json({ data: rows, count: 0, page });
+    const admin = createAdminClient();
+    const items = await admin.from("stock_order_items").select("id,stock_order_id")
+      .in("stock_order_id", rows.map((row) => row.stock_order_id)).gt("shipped_quantity", 0);
+    if (items.error) throw items.error;
+    const itemIds = (items.data || []).map((item) => item.id);
+    const allocations = itemIds.length ? await admin.from("supplier_receipt_allocations")
+      .select("stock_order_item_id,delivery_note_id").in("stock_order_item_id", itemIds)
+      .gt("quantity", 0).is("correction_of", null) : { data: [], error: null };
+    if (allocations.error) throw allocations.error;
+    const noteIds = [...new Set((allocations.data || []).map((allocation) => allocation.delivery_note_id))];
+    const [notes, photos] = await Promise.all([
+      noteIds.length ? admin.from("supplier_delivery_notes").select("id,note_number,number_pending").in("id", noteIds) : Promise.resolve({ data: [], error: null }),
+      noteIds.length ? admin.from("attachments").select("supplier_delivery_note_id").in("supplier_delivery_note_id", noteIds) : Promise.resolve({ data: [], error: null }),
+    ]);
+    if (notes.error) throw notes.error;
+    if (photos.error) throw photos.error;
+    const orderByItem = new Map((items.data || []).map((item) => [item.id, item.stock_order_id]));
+    const photographed = new Set((photos.data || []).map((photo) => photo.supplier_delivery_note_id));
+    const missingNotesByOrder = new Map<string, Set<string>>();
+    const notesById = new Map((notes.data || []).map((note) => [note.id, note]));
+    for (const allocation of allocations.data || []) {
+      const orderId = orderByItem.get(allocation.stock_order_item_id);
+      const note = notesById.get(allocation.delivery_note_id);
+      if (!orderId || !note || note.number_pending || photographed.has(note.id)) continue;
+      if (!missingNotesByOrder.has(orderId)) missingNotesByOrder.set(orderId, new Set());
+      missingNotesByOrder.get(orderId)!.add(note.note_number);
+    }
+    return NextResponse.json({ data: rows.map((row) => ({ ...row,
+      missing_photo_note_numbers: [...(missingNotesByOrder.get(row.stock_order_id) || [])].sort(),
+    })), count: Number(rows[0]?.total_count || 0), page }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
     const message = sqlErrorMessage(error, "待补送货单清单加载失败");
     return NextResponse.json({ error: message }, { status: authErrorStatus(message) || 400 });

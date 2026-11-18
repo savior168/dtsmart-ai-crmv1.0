@@ -14,6 +14,8 @@ type Row = {
 };
 type Supplier = { id: string; system_code: string };
 type Draft = { row: Row; supplierId: string; noteNumber: string; date: string; quantity: string; unitPrice: string };
+type BatchDraft = { orderRows: Row[]; selectedIds: string[]; supplierId: string; noteNumber: string;
+  date: string; quantities: Record<string, string>; prices: Record<string, string>; commonPrice: string; confirmed: boolean };
 
 export function LegacySupplierSourcesView({ orderId, onUpdated }: { orderId?: string; onUpdated?: () => void } = {}) {
   const [rows, setRows] = useState<Row[]>([]);
@@ -22,6 +24,7 @@ export function LegacySupplierSourcesView({ orderId, onUpdated }: { orderId?: st
   const [page, setPage] = useState(1);
   const [expandedOrder, setExpandedOrder] = useState<string | null>(orderId || null);
   const [draft, setDraft] = useState<Draft | null>(null);
+  const [batchDraft, setBatchDraft] = useState<BatchDraft | null>(null);
   const [newNote, setNewNote] = useState<SupplierDeliveryNoteView | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -61,6 +64,14 @@ export function LegacySupplierSourcesView({ orderId, onUpdated }: { orderId?: st
     return () => { cancelled = true; };
   }, []);
 
+  async function showLinkedNote(stockOrderId: string, noteId: string) {
+    const response = await fetch(`/api/stock-orders/${stockOrderId}`, { cache: "no-store" }).catch(() => null);
+    const body = response ? await response.json().catch(() => ({})) : {};
+    const linked = response?.ok ? (body.delivery_notes as SupplierDeliveryNoteView[] | undefined)?.find((note) => note.id === noteId) : null;
+    setNewNote(linked || null);
+    setMessage(linked?.attachments?.length ? "已关联已有送货单，照片已存在，无需重复上传。" : linked ? "已关联历史回货，实收数量未增加；请在下方直接上传送货单照片。" : "关联已保存，但送货单详情未能加载；请刷新清单后再核对照片，勿重复上传。");
+  }
+
   async function submit() {
     if (!draft || busy) return;
     if (!draft.supplierId || !draft.noteNumber.trim() || !draft.date || !/^\d+$/.test(draft.quantity)
@@ -80,11 +91,46 @@ export function LegacySupplierSourcesView({ orderId, onUpdated }: { orderId?: st
     const body = response ? await response.json().catch(() => ({})) : {};
     setBusy(false);
     if (!response?.ok) { setError(body.error || "历史来源补全失败，请刷新后重试"); return; }
-    const supplierCode = suppliers.find((item) => item.id === draft.supplierId)?.system_code || "供应商";
-    setNewNote({ id: body.data.delivery_note_id, supplier_code: supplierCode,
-      note_number: draft.noteNumber.trim(), document_date: draft.date, attachments: [] });
-    setMessage(`已关联 ${draft.quantity} 件历史回货，实收及交货数量未增加；请继续上传对应纸单照片。`);
+    await showLinkedNote(draft.row.order.id, body.data.delivery_note_id);
     setDraft(null);
+    await load();
+  }
+
+  function openBatch(orderRows: Row[]) {
+    setDraft(null); setNewNote(null); setError(""); setMessage("");
+    setBatchDraft({ orderRows, selectedIds: orderRows.map((row) => row.stock_order_item_id),
+      supplierId: "", noteNumber: "", date: "",
+      quantities: Object.fromEntries(orderRows.map((row) => [row.stock_order_item_id, String(row.quantity)])),
+      prices: {}, commonPrice: "", confirmed: false });
+  }
+
+  async function submitBatch() {
+    if (!batchDraft || busy) return;
+    const selected = batchDraft.orderRows.filter((row) => batchDraft.selectedIds.includes(row.stock_order_item_id));
+    const pricePattern = /^(?:0|[1-9]\d{0,11})(?:\.\d{1,2})?$/;
+    if (!batchDraft.confirmed || !batchDraft.supplierId || !batchDraft.noteNumber.trim() || !batchDraft.date
+      || selected.length < 1 || selected.length > 50 || selected.some((row) => {
+        const quantity = batchDraft.quantities[row.stock_order_item_id];
+        return !/^\d+$/.test(quantity) || Number(quantity) < 1 || Number(quantity) > row.quantity
+          || !pricePattern.test(batchDraft.prices[row.stock_order_item_id] || "");
+      })) {
+      setError("请选产品并核对供应商、真实纸单、日期，以及每项数量和采购价后确认"); return;
+    }
+    setBusy(true); setError(""); setMessage("");
+    const response = await fetch("/api/stock-orders/legacy-receipt-sources", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ supplier_id: batchDraft.supplierId,
+        note_number: batchDraft.noteNumber.trim(), document_date: batchDraft.date,
+        expected_stock_updated_at: selected[0].order.updated_at,
+        lines: selected.map((row) => ({ stock_order_item_id: row.stock_order_item_id,
+          quantity: Number(batchDraft.quantities[row.stock_order_item_id]),
+          purchase_unit_price_cny: batchDraft.prices[row.stock_order_item_id] })) }),
+    }).catch(() => null);
+    const body = response ? await response.json().catch(() => ({})) : {};
+    setBusy(false);
+    if (!response?.ok) { setError(body.error || "批量补录失败，所有产品均未保存，请刷新后核对"); return; }
+    await showLinkedNote(selected[0].order.id, body.data.delivery_note_id);
+    setBatchDraft(null);
     await load();
   }
 
@@ -98,8 +144,27 @@ export function LegacySupplierSourcesView({ orderId, onUpdated }: { orderId?: st
     {newNote ? <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3"><SupplierDeliveryNoteFiles note={newNote} canUpload onUploaded={() => { setNewNote(null); setMessage("纸单照片已保存，可继续核对其他历史来源。"); void load(); onUpdated?.(); }}/></div> : null}
     <div className="mt-3 space-y-2">{loading ? <p className="p-5 text-center text-sm text-slate-500">加载中…</p> : error ? null : grouped.size ? [...grouped].map(([groupOrderId, orderRows]) => <div key={groupOrderId} className="rounded-lg border text-sm">
       {!orderId ? <div className="flex flex-wrap items-center justify-between gap-3 p-3"><div><Link href={`/stock-orders/${groupOrderId}`} className="font-medium text-blue-700 hover:underline">{orderRows[0].order.warehouse_reference_number || orderRows[0].order.order_number}</Link><span className="ml-3 text-slate-600">待补 {orderRows.length} 项 · {orderRows.reduce((sum, row) => sum + row.quantity, 0)} 件</span></div><button type="button" aria-expanded={expandedOrder === groupOrderId} aria-controls={`legacy-items-${groupOrderId}`} onClick={() => setExpandedOrder((current) => current === groupOrderId ? null : groupOrderId)} className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-900">{expandedOrder === groupOrderId ? "收起产品" : "展开补录产品"}</button></div> : <p className="px-3 pt-3 text-xs font-medium text-amber-900">历史实收来源 · 待补 {orderRows.length} 项 / {orderRows.reduce((sum, row) => sum + row.quantity, 0)} 件</p>}
-      {(expandedOrder === groupOrderId || Boolean(orderId)) ? <div id={`legacy-items-${groupOrderId}`} className="space-y-2 border-t bg-slate-50/60 p-3">{orderRows.sort((a, b) => a.item.line_number - b.item.line_number).map((row) => <div key={row.stock_order_item_id} className="rounded-lg border bg-white p-3">
-      <div className="flex flex-wrap items-center justify-between gap-2"><div><span className="font-medium">第 {row.item.line_number} 行 · {[row.item.item_name, row.item.brand, row.item.model, row.item.quality].filter(Boolean).join(" / ") || "产品项"}</span><small className="ml-2 text-amber-800">待归属 {row.quantity} 件 · 已实收 {row.item.received_quantity} 件</small></div><button type="button" onClick={() => { setError(""); setNewNote(null); setDraft({ row, supplierId: "", noteNumber: "", date: "", quantity: String(row.quantity), unitPrice: "" }); }} className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-900">补充真实来源</button></div>
+      {(expandedOrder === groupOrderId || Boolean(orderId)) && orderRows.length > 1 ? <div className="flex justify-end border-t px-3 pt-3"><button type="button" onClick={() => openBatch(orderRows)} className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-800">同纸单批量补录 {orderRows.length} 项</button></div> : null}
+      {(expandedOrder === groupOrderId || Boolean(orderId)) ? <div id={`legacy-items-${groupOrderId}`} className="space-y-2 border-t bg-slate-50/60 p-3">
+      {batchDraft?.orderRows[0]?.order.id === groupOrderId ? <div className="rounded-lg border border-blue-200 bg-white p-3 text-xs">
+        <p className="font-semibold text-blue-900">同一张纸单批量补录 · 任一行失败则全部不保存</p>
+        <p className="mt-1 text-slate-600">只勾选确实属于同一供应商、同一张纸单的产品；数量和采购单价逐行核对。</p>
+        <div className="mt-3 grid gap-2 sm:grid-cols-3">
+          <label>供应商代码<AppSelect aria-label="批量历史来源供应商" required forceSearch value={batchDraft.supplierId} onChange={(event) => setBatchDraft({ ...batchDraft, supplierId: event.target.value, confirmed: false })} className="mt-1 h-9 w-full" placeholderValue=""><option value="">选择已核对供应商</option>{suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.system_code}</option>)}</AppSelect></label>
+          <label>真实送货单号<input aria-label="批量历史来源送货单号" maxLength={100} value={batchDraft.noteNumber} onChange={(event) => setBatchDraft({ ...batchDraft, noteNumber: event.target.value, confirmed: false })} className="mt-1 h-9 w-full rounded border px-2"/></label>
+          <label>纸单日期<input aria-label="批量历史来源纸单日期" type="date" max={new Date().toISOString().slice(0, 10)} value={batchDraft.date} onChange={(event) => setBatchDraft({ ...batchDraft, date: event.target.value, confirmed: false })} className="mt-1 h-9 w-full rounded border px-2"/></label>
+        </div>
+        <div className="mt-3 flex flex-wrap items-end gap-2"><label>统一采购单价（可选）<input aria-label="统一采购单价" type="number" min={0} step="0.01" value={batchDraft.commonPrice} onChange={(event) => setBatchDraft({ ...batchDraft, commonPrice: event.target.value })} className="mt-1 h-9 w-36 rounded border px-2"/></label><button type="button" onClick={() => setBatchDraft({ ...batchDraft, prices: Object.fromEntries(batchDraft.selectedIds.map((id) => [id, batchDraft.commonPrice])), confirmed: false })} disabled={!/^(?:0|[1-9]\d{0,11})(?:\.\d{1,2})?$/.test(batchDraft.commonPrice)} className="h-9 rounded border border-blue-200 px-3 text-blue-700 disabled:opacity-40">应用到已选产品</button></div>
+        <div className="mt-3 space-y-1.5">{batchDraft.orderRows.map((row) => <div key={row.stock_order_item_id} className="grid items-center gap-2 rounded border p-2 sm:grid-cols-[minmax(0,1fr)_110px_130px]">
+          <label className="flex min-w-0 items-center gap-2"><input type="checkbox" checked={batchDraft.selectedIds.includes(row.stock_order_item_id)} onChange={(event) => setBatchDraft({ ...batchDraft, selectedIds: event.target.checked ? [...batchDraft.selectedIds, row.stock_order_item_id] : batchDraft.selectedIds.filter((id) => id !== row.stock_order_item_id), confirmed: false })}/><span className="min-w-0 truncate">第 {row.item.line_number} 行 · {[row.item.item_name, row.item.brand, row.item.model].filter(Boolean).join(" / ")} · 待归属 {row.quantity} 件</span></label>
+          <label>归属数量<input aria-label={`第 ${row.item.line_number} 行归属数量`} type="number" min={1} max={row.quantity} step={1} disabled={!batchDraft.selectedIds.includes(row.stock_order_item_id)} value={batchDraft.quantities[row.stock_order_item_id] || ""} onChange={(event) => setBatchDraft({ ...batchDraft, quantities: { ...batchDraft.quantities, [row.stock_order_item_id]: event.target.value }, confirmed: false })} className="mt-1 h-8 w-full rounded border px-2"/></label>
+          <label>采购单价 ¥<input aria-label={`第 ${row.item.line_number} 行采购单价`} type="number" min={0} step="0.01" disabled={!batchDraft.selectedIds.includes(row.stock_order_item_id)} value={batchDraft.prices[row.stock_order_item_id] || ""} onChange={(event) => setBatchDraft({ ...batchDraft, prices: { ...batchDraft.prices, [row.stock_order_item_id]: event.target.value }, confirmed: false })} className="mt-1 h-8 w-full rounded border px-2"/></label>
+        </div>)}</div>
+        <label className="mt-3 flex items-center gap-2 text-slate-700"><input type="checkbox" checked={batchDraft.confirmed} onChange={(event) => setBatchDraft({ ...batchDraft, confirmed: event.target.checked })}/>我已按纸质送货单核对所选产品、数量和采购单价</label>
+        <div className="mt-3 flex gap-2"><button type="button" disabled={busy || !suppliers.length} onClick={() => void submitBatch()} className="rounded-lg bg-blue-600 px-4 py-2 font-medium text-white disabled:opacity-50">{busy ? "保存中…" : "批量确认关联"}</button><button type="button" disabled={busy} onClick={() => setBatchDraft(null)} className="rounded-lg border px-4 py-2">取消</button></div>
+      </div> : null}
+      {orderRows.sort((a, b) => a.item.line_number - b.item.line_number).map((row) => <div key={row.stock_order_item_id} className="rounded-lg border bg-white p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2"><div><span className="font-medium">第 {row.item.line_number} 行 · {[row.item.item_name, row.item.brand, row.item.model, row.item.quality].filter(Boolean).join(" / ") || "产品项"}</span><small className="ml-2 text-amber-800">待归属 {row.quantity} 件 · 已实收 {row.item.received_quantity} 件</small></div><button type="button" onClick={() => { setError(""); setNewNote(null); setBatchDraft(null); setDraft({ row, supplierId: "", noteNumber: "", date: "", quantity: String(row.quantity), unitPrice: "" }); }} className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-900">单项补充</button></div>
       {draft?.row.stock_order_item_id === row.stock_order_item_id ? <div className="mt-3 grid gap-2 border-t pt-3 sm:grid-cols-2 xl:grid-cols-5">
         <label className="text-xs">供应商代码<AppSelect aria-label="历史来源供应商" required forceSearch value={draft.supplierId} onChange={(event) => setDraft({ ...draft, supplierId: event.target.value })} className="mt-1 h-9 w-full" placeholderValue=""><option value="">选择已核对供应商</option>{suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.system_code}</option>)}</AppSelect></label>
         <label className="text-xs">真实送货单号<input aria-label="历史来源送货单号" required maxLength={100} value={draft.noteNumber} onChange={(event) => setDraft({ ...draft, noteNumber: event.target.value })} className="mt-1 h-9 w-full rounded border px-2"/></label>

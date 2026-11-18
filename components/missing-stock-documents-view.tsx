@@ -1,12 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { LegacySupplierSourcesView } from "@/components/legacy-supplier-sources-view";
 import { SupplierDeliveryNoteFiles, type SupplierDeliveryNoteView } from "@/components/supplier-delivery-note-files";
 
-type DocumentRow = { stock_order_id: string; order_number: string; missing_number_count: number; missing_image_count: number };
-type LegacyRow = { order: { id: string; order_number: string }; stock_order_item_id: string };
+type DocumentRow = { stock_order_id: string; order_number: string; missing_number_count: number; missing_image_count: number; missing_photo_note_numbers?: string[] };
+type LegacyRow = { order: { id: string; order_number: string; warehouse_reference_number: string | null }; stock_order_item_id: string };
 type QueueRow = DocumentRow & { legacy_count: number };
 type OrderDetail = { delivery_notes?: SupplierDeliveryNoteView[]; can_upload_delivery_note_files?: boolean };
 
@@ -29,6 +29,7 @@ export function MissingStockDocumentsView({ showLegacySources = false }: { showL
   const [detail, setDetail] = useState<OrderDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState("");
+  const detailRequest = useRef(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -44,19 +45,22 @@ export function MissingStockDocumentsView({ showLegacySources = false }: { showL
       for (const row of legacy) {
         const existing = byOrder.get(row.order.id);
         if (existing) existing.legacy_count += 1;
-        else byOrder.set(row.order.id, { stock_order_id: row.order.id, order_number: row.order.order_number,
+        else byOrder.set(row.order.id, { stock_order_id: row.order.id, order_number: row.order.warehouse_reference_number || row.order.order_number,
           missing_number_count: 0, missing_image_count: 0, legacy_count: 1 });
       }
       setRows([...byOrder.values()].sort((a, b) => a.order_number.localeCompare(b.order_number, "zh-CN")));
+      setPage((current) => Math.max(1, Math.min(current, Math.ceil(byOrder.size / 50))));
       setError("");
     } catch (cause) { setError(cause instanceof Error ? cause.message : "补录清单加载失败"); }
     finally { setLoading(false); }
   }, [showLegacySources]);
 
   const loadDetail = useCallback(async (id: string) => {
+    const request = ++detailRequest.current;
     setDetailLoading(true); setDetailError("");
     const response = await fetch(`/api/stock-orders/${id}`, { cache: "no-store" }).catch(() => null);
     const body = response ? await response.json().catch(() => ({})) : {};
+    if (request !== detailRequest.current) return;
     if (!response?.ok) { setDetail(null); setDetailError(body.error || "送货单详情加载失败"); }
     else setDetail(body);
     setDetailLoading(false);
@@ -64,12 +68,53 @@ export function MissingStockDocumentsView({ showLegacySources = false }: { showL
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { if (expanded) void loadDetail(expanded); }, [expanded, loadDetail]);
+  useEffect(() => { if (expanded && !loading && !rows.some((row) => row.stock_order_id === expanded)) setExpanded(null); }, [expanded, loading, rows]);
   const visible = rows.slice((page - 1) * 50, page * 50);
 
   return <main className="mx-auto max-w-7xl p-6">
-    <div className="flex flex-wrap items-start justify-between gap-3"><div><h1 className="text-2xl font-semibold">待补录清单</h1><p className="mt-1 text-sm text-slate-600">每张 PI 合并一行；展开后直接补送货单号、纸单照片及历史实收来源。历史来源关联不重复增加回货数量。</p></div><div className="flex gap-2"><button type="button" onClick={() => void load()} className="rounded-lg border px-3 py-2 text-sm text-blue-700">刷新清单</button><Link href="/stock-orders" className="rounded-lg border px-3 py-2 text-sm text-blue-700">返回备货单</Link></div></div>
+    <div className="flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <h1 className="text-2xl font-semibold">待补录清单</h1>
+        <p className="mt-1 text-sm text-slate-600">每张 PI 合并一行；展开后直接补送货单号、送货单照片及历史实收来源。历史来源关联不重复增加回货数量。</p>
+      </div>
+      <div className="flex gap-2">
+        <button type="button" onClick={() => void load()} className="rounded-lg border px-3 py-2 text-sm text-blue-700">刷新清单</button>
+        <Link href="/stock-orders" className="rounded-lg border px-3 py-2 text-sm text-blue-700">返回备货单</Link>
+      </div>
+    </div>
     {error ? <p role="alert" className="mt-5 rounded-lg bg-rose-50 p-3 text-rose-700">{error}</p> : null}
-    <div className="mt-5 overflow-x-auto rounded-xl border bg-white"><table className="w-full min-w-[650px] text-left text-sm"><thead className="bg-slate-50 text-slate-600"><tr><th className="p-3">PI / 备货单号</th><th>待补事项</th><th className="w-36">操作</th></tr></thead><tbody>{loading ? <tr><td colSpan={3} className="p-8 text-center">加载中…</td></tr> : visible.length ? visible.map((row) => <tr key={row.stock_order_id} className="border-t align-top"><td className="p-3 font-medium">{row.order_number}</td><td className="py-3"><div className="flex flex-wrap gap-1.5">{row.missing_number_count > 0 ? <span className="rounded bg-amber-50 px-2 py-1 text-amber-900">缺纸单号 {row.missing_number_count}</span> : null}{row.missing_image_count > 0 ? <span className="rounded bg-amber-50 px-2 py-1 text-amber-900">缺纸单照片 {row.missing_image_count}</span> : null}{row.legacy_count > 0 ? <span className="rounded bg-rose-50 px-2 py-1 text-rose-800">实收来源待归属 {row.legacy_count} 项</span> : null}</div>{expanded === row.stock_order_id ? <div className="mt-3 space-y-3 rounded-lg border bg-slate-50 p-3">{detailLoading ? <p>加载送货单…</p> : detailError ? <p role="alert" className="text-rose-700">{detailError}</p> : <>{detail?.delivery_notes?.length ? <div><p className="mb-2 font-medium">关联送货单 · 直接补单号与照片</p><div className="grid gap-2 lg:grid-cols-2">{detail.delivery_notes.filter((note) => note.number_pending || !note.attachments.length).map((note) => <SupplierDeliveryNoteFiles key={note.id} note={note} canUpload={detail.can_upload_delivery_note_files} onUploaded={() => { void loadDetail(row.stock_order_id); void load(); }}/>)}</div></div> : row.missing_number_count || row.missing_image_count ? <p className="text-amber-800">此 PI 暂无可补录的关联送货单，请核对备货单回货记录。</p> : null}</>}{showLegacySources && row.legacy_count > 0 ? <LegacySupplierSourcesView orderId={row.stock_order_id} onUpdated={() => { void load(); void loadDetail(row.stock_order_id); }}/> : null}<Link href={`/stock-orders/${row.stock_order_id}`} className="inline-block text-xs text-blue-700 hover:underline">查看完整备货单</Link></div> : null}</td><td className="py-3"><button type="button" aria-expanded={expanded === row.stock_order_id} onClick={() => { setDetail(null); setExpanded((value) => value === row.stock_order_id ? null : row.stock_order_id); }} className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-blue-800">{expanded === row.stock_order_id ? "收起" : "展开补录"}</button></td></tr>) : <tr><td colSpan={3} className="p-8 text-center text-emerald-700">当前没有待补录事项</td></tr>}</tbody></table></div>
-    <div className="mt-3 flex items-center justify-end gap-3 text-sm"><span>共 {rows.length} 张 PI</span><button type="button" disabled={page <= 1 || loading} onClick={() => { setExpanded(null); setPage(page - 1); }} className="rounded border px-3 py-1 disabled:opacity-40">上一页</button><span>{page}</span><button type="button" disabled={page * 50 >= rows.length || loading} onClick={() => { setExpanded(null); setPage(page + 1); }} className="rounded border px-3 py-1 disabled:opacity-40">下一页</button></div>
+    <div className="mt-5 overflow-x-auto rounded-xl border bg-white">
+      <table className="w-full min-w-[650px] text-left text-sm">
+        <thead className="bg-slate-50 text-slate-600"><tr><th className="p-3">PI / 备货单号</th><th>待补事项</th><th className="w-36">操作</th></tr></thead>
+        <tbody>
+          {loading ? <tr><td colSpan={3} className="p-8 text-center">加载中…</td></tr> : visible.length ? visible.map((row) => <Fragment key={row.stock_order_id}>
+            <tr className="border-t">
+              <td className="p-3 font-medium">{row.order_number}</td>
+              <td className="py-3"><div className="flex flex-wrap gap-1.5">
+                {row.missing_number_count > 0 ? <span className="rounded bg-amber-50 px-2 py-1 text-amber-900">送货单号待补 {row.missing_number_count} 项</span> : null}
+                {row.missing_image_count > 0 ? <span className="rounded bg-amber-50 px-2 py-1 text-amber-900">{row.missing_photo_note_numbers?.length ? `送货单 ${row.missing_photo_note_numbers.join("、")} 缺照片` : `送货单照片待补 ${row.missing_image_count} 项`}</span> : null}
+                {row.legacy_count > 0 ? <span className="rounded bg-rose-50 px-2 py-1 text-rose-800">供应商及历史回货来源待核 {row.legacy_count} 项</span> : null}
+              </div></td>
+              <td className="py-3"><button type="button" aria-expanded={expanded === row.stock_order_id} aria-controls={`remediation-${row.stock_order_id}`} onClick={() => { setDetail(null); setExpanded((value) => value === row.stock_order_id ? null : row.stock_order_id); }} className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-blue-800">{expanded === row.stock_order_id ? "收起" : "展开补录"}</button></td>
+            </tr>
+            {expanded === row.stock_order_id ? <tr><td colSpan={3} className="border-t bg-slate-50 p-3 sm:p-4"><div id={`remediation-${row.stock_order_id}`} className="space-y-3">
+              {detailLoading ? <p>加载送货单…</p> : detailError ? <p role="alert" className="text-rose-700">{detailError}</p> : <>
+                {detail?.delivery_notes?.length ? <div><p className="mb-2 font-medium">关联送货单 · 直接补单号与照片</p><div className="grid gap-2 lg:grid-cols-2">
+                  {detail.delivery_notes.filter((note) => note.number_pending || !note.attachments.length).map((note) => <SupplierDeliveryNoteFiles key={note.id} note={note} canUpload={detail.can_upload_delivery_note_files} onUploaded={() => { void loadDetail(row.stock_order_id); void load(); }}/>)}
+                </div></div> : row.legacy_count > 0 ? <p className="text-amber-800">尚无关联送货单。请在下方按产品核对供应商、真实纸单号和采购价；关联后可直接上传照片。</p> : row.missing_number_count || row.missing_image_count ? <p className="text-amber-800">尚无可补录的关联送货单或历史实收来源，请打开备货单核对回货记录。</p> : null}
+              </>}
+              {showLegacySources && row.legacy_count > 0 ? <LegacySupplierSourcesView orderId={row.stock_order_id} onUpdated={() => { void load(); void loadDetail(row.stock_order_id); }}/> : null}
+              <Link href={`/stock-orders/${row.stock_order_id}`} className="inline-block text-xs text-blue-700 hover:underline">查看完整备货单</Link>
+            </div></td></tr> : null}
+          </Fragment>) : <tr><td colSpan={3} className="p-8 text-center text-emerald-700">当前没有待补录事项</td></tr>}
+        </tbody>
+      </table>
+    </div>
+    <div className="mt-3 flex items-center justify-end gap-3 text-sm">
+      <span>共 {rows.length} 张 PI</span>
+      <button type="button" disabled={page <= 1 || loading} onClick={() => { setExpanded(null); setPage(page - 1); }} className="rounded border px-3 py-1 disabled:opacity-40">上一页</button>
+      <span>{page}</span>
+      <button type="button" disabled={page * 50 >= rows.length || loading} onClick={() => { setExpanded(null); setPage(page + 1); }} className="rounded border px-3 py-1 disabled:opacity-40">下一页</button>
+    </div>
   </main>;
 }
