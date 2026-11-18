@@ -5,8 +5,8 @@ import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { LegacySupplierSourcesView } from "@/components/legacy-supplier-sources-view";
 import { SupplierDeliveryNoteFiles, type SupplierDeliveryNoteView } from "@/components/supplier-delivery-note-files";
 
-type DocumentRow = { stock_order_id: string; order_number: string; missing_number_count: number; missing_image_count: number; missing_photo_note_numbers?: string[]; pending_note_number_count?: number; pending_note_photo_count?: number; unlinked_shipped_item_count?: number };
-type LegacyRow = { order: { id: string; order_number: string; warehouse_reference_number: string | null }; stock_order_item_id: string };
+type DocumentRow = { stock_order_id: string; order_number: string; stock_number?: string | null; missing_number_count: number; missing_image_count: number; missing_photo_note_numbers?: string[]; delivery_note_numbers?: string[]; pending_note_number_count?: number; pending_note_photo_count?: number; unlinked_shipped_item_count?: number };
+type LegacyRow = { order: { id: string; order_number: string; stock_number: string; warehouse_reference_number: string | null }; stock_order_item_id: string };
 type QueueRow = DocumentRow & { legacy_count: number };
 type OrderDetail = { delivery_notes?: SupplierDeliveryNoteView[]; can_upload_delivery_note_files?: boolean };
 
@@ -25,6 +25,8 @@ async function fetchAll<T>(path: string): Promise<T[]> {
 export function MissingStockDocumentsView({ showLegacySources = false }: { showLegacySources?: boolean }) {
   const [rows, setRows] = useState<QueueRow[]>([]);
   const [page, setPage] = useState(1);
+  const [search, setSearch] = useState("");
+  const [missingType, setMissingType] = useState("all");
   const [expanded, setExpanded] = useState<string | null>(null);
   const [detail, setDetail] = useState<OrderDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -45,7 +47,7 @@ export function MissingStockDocumentsView({ showLegacySources = false }: { showL
       for (const row of legacy) {
         const existing = byOrder.get(row.order.id);
         if (existing) existing.legacy_count += 1;
-        else byOrder.set(row.order.id, { stock_order_id: row.order.id, order_number: row.order.warehouse_reference_number || row.order.order_number,
+        else byOrder.set(row.order.id, { stock_order_id: row.order.id, order_number: row.order.warehouse_reference_number || row.order.order_number, stock_number: row.order.stock_number,
           missing_number_count: 0, missing_image_count: 0, legacy_count: 1 });
       }
       setRows([...byOrder.values()].sort((a, b) => a.order_number.localeCompare(b.order_number, "zh-CN")));
@@ -69,7 +71,18 @@ export function MissingStockDocumentsView({ showLegacySources = false }: { showL
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { if (expanded) void loadDetail(expanded); }, [expanded, loadDetail]);
   useEffect(() => { if (expanded && !loading && !rows.some((row) => row.stock_order_id === expanded)) setExpanded(null); }, [expanded, loading, rows]);
-  const visible = rows.slice((page - 1) * 50, page * 50);
+  const query = search.trim().toLocaleLowerCase();
+  const filtered = rows.filter((row) => {
+    const matchesText = !query || row.order_number.toLocaleLowerCase().includes(query)
+      || row.stock_number?.toLocaleLowerCase().includes(query)
+      || row.delivery_note_numbers?.some((number) => number.toLocaleLowerCase().includes(query));
+    const matchesType = missingType === "all"
+      || (missingType === "number" && Boolean(row.pending_note_number_count || row.missing_number_count))
+      || (missingType === "photo" && Boolean(row.pending_note_photo_count || row.missing_image_count || row.missing_photo_note_numbers?.length))
+      || (missingType === "source" && Boolean(row.legacy_count || row.unlinked_shipped_item_count));
+    return matchesText && matchesType;
+  });
+  const visible = filtered.slice((page - 1) * 50, page * 50);
 
   return <main className="mx-auto max-w-7xl p-6">
     <div className="flex flex-wrap items-start justify-between gap-3">
@@ -83,7 +96,12 @@ export function MissingStockDocumentsView({ showLegacySources = false }: { showL
       </div>
     </div>
     {error ? <p role="alert" className="mt-5 rounded-lg bg-rose-50 p-3 text-rose-700">{error}</p> : null}
-    <div className="mt-5 overflow-x-auto rounded-xl border bg-white">
+    <div className="mt-5 flex flex-wrap items-center gap-2 rounded-xl border bg-white p-3">
+      <input type="search" aria-label="搜索 PI、备货单或送货单号" placeholder="搜索 PI / 备货单号 / 送货单号" value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); setExpanded(null); }} className="h-10 min-w-56 flex-1 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-500"/>
+      <select aria-label="按待补事项筛选" value={missingType} onChange={(event) => { setMissingType(event.target.value); setPage(1); setExpanded(null); }} className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm"><option value="all">全部待补事项</option><option value="number">缺送货单号</option><option value="photo">缺送货单照片</option><option value="source">历史回货来源待核</option></select>
+      {(search || missingType !== "all") ? <button type="button" onClick={() => { setSearch(""); setMissingType("all"); setPage(1); }} className="h-10 rounded-lg border px-3 text-sm text-slate-600 hover:bg-slate-50">清除筛选</button> : null}
+    </div>
+    <div className="mt-3 overflow-x-auto rounded-xl border bg-white">
       <table className="w-full min-w-[650px] text-left text-sm">
         <thead className="bg-slate-50 text-slate-600"><tr><th className="p-3">PI / 备货单号</th><th>待补事项</th><th className="w-36">操作</th></tr></thead>
         <tbody>
@@ -107,15 +125,15 @@ export function MissingStockDocumentsView({ showLegacySources = false }: { showL
               {showLegacySources && row.legacy_count > 0 ? <LegacySupplierSourcesView orderId={row.stock_order_id} onUpdated={() => { void load(); void loadDetail(row.stock_order_id); }}/> : null}
               <Link href={`/stock-orders/${row.stock_order_id}`} target="_blank" rel="noopener noreferrer" className="inline-block text-xs text-blue-700 hover:underline">查看完整备货单</Link>
             </div></td></tr> : null}
-          </Fragment>) : <tr><td colSpan={3} className="p-8 text-center text-emerald-700">当前没有待补录事项</td></tr>}
+          </Fragment>) : <tr><td colSpan={3} className="p-8 text-center text-slate-600">{rows.length ? "没有符合筛选条件的待补录事项" : "当前没有待补录事项"}</td></tr>}
         </tbody>
       </table>
     </div>
     <div className="mt-3 flex items-center justify-end gap-3 text-sm">
-      <span>共 {rows.length} 张 PI</span>
+      <span>共 {filtered.length} 张 PI{filtered.length !== rows.length ? `（清单总数 ${rows.length}）` : ""}</span>
       <button type="button" disabled={page <= 1 || loading} onClick={() => { setExpanded(null); setPage(page - 1); }} className="rounded border px-3 py-1 disabled:opacity-40">上一页</button>
       <span>{page}</span>
-      <button type="button" disabled={page * 50 >= rows.length || loading} onClick={() => { setExpanded(null); setPage(page + 1); }} className="rounded border px-3 py-1 disabled:opacity-40">下一页</button>
+      <button type="button" disabled={page * 50 >= filtered.length || loading} onClick={() => { setExpanded(null); setPage(page + 1); }} className="rounded border px-3 py-1 disabled:opacity-40">下一页</button>
     </div>
   </main>;
 }

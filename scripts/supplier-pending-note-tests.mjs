@@ -53,6 +53,8 @@ assert.match(read("components/warehouse-dashboard.tsx"), /order\.warehouse_refer
 assert.match(read("components/stock-orders-view.tsx"), /results\.some\(count=>count>0\)[\s\S]*pendingRemediation \? <Link href="\/stock-orders\/missing-documents"[^>]*>待补录备货单<\/Link>/, "备货单列表仅在存在待补录项目时显示清晰入口");
 assert.match(read("components/missing-stock-documents-view.tsx"), /href=\{`\/stock-orders\/\$\{row\.stock_order_id\}`\} target="_blank" rel="noopener noreferrer"/, "待补录清单中的 PI 编号须安全地在新页签打开对应备货单");
 assert.match(read("components/missing-stock-documents-view.tsx"), /href=\{`\/stock-orders\/\$\{row\.stock_order_id\}`\} target="_blank" rel="noopener noreferrer"[^>]*>查看完整备货单<\/Link>/, "展开区底部查看完整备货单也须在新页签打开");
+assert.match(read("app/api/stock-orders/missing-documents/route.ts"), /noteNumbersByOrder[\s\S]*delivery_note_numbers/, "待补录清单须提供已关联送货单号供完整搜索");
+assert.match(read("components/missing-stock-documents-view.tsx"), /delivery_note_numbers\?\.some[\s\S]*filtered\.slice\(\(page - 1\) \* 50, page \* 50\)/, "搜索应覆盖送货单号并在分页前筛选");
 assert.match(files, /note\.updated_at[\s\S]*补录单号/);
 assert.match(report, /number_pending[\s\S]*待补送货单号/);
 assert.match(reconciliationView, /groupAllocations\(note\.allocations\)\.slice\(0, 2\)[\s\S]*href=\{`\/orders\/\$\{group\.piId\}`\}/, "送货单行须直接显示关联 PI 编号并能打开对应订单");
