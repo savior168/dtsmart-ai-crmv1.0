@@ -78,6 +78,8 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
   const currencyRateRequest = useRef(0);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [salespeople, setSalespeople] = useState<Salesperson[]>([]);
+  const [salespeopleLoading, setSalespeopleLoading] = useState(initialIsClerk);
+  const [salespeopleError, setSalespeopleError] = useState("");
   const [isClerk, setIsClerk] = useState(initialIsClerk);
   const [salesScopeReady, setSalesScopeReady] = useState(!initialIsClerk);
   const [salesUserId, setSalesUserId] = useState("");
@@ -235,14 +237,28 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
   useEffect(() => {
     void (async () => {
       try {
-      const [customersResponse, accountsResponse, ratesResponse, draftResponse, importResponse] = await Promise.all([
-        fetch("/api/orders/pi-customers", { cache: "no-store" }),
+      const customerRequest = fetch("/api/orders/pi-customers", { cache: "no-store" }).then(async (response) => {
+        const body = await response.json().catch(() => ({}));
+        if (initialIsClerk) {
+          if (response.ok) { setSalespeople(body.salespeople || []); setSalespeopleError(""); }
+          else setSalespeopleError(body.error || "销售员列表加载失败");
+          setSalespeopleLoading(false);
+        }
+        return { response, body };
+      }).catch((cause) => {
+        if (initialIsClerk) { setSalespeopleError(cause instanceof Error ? cause.message : "销售员列表加载失败"); setSalespeopleLoading(false); }
+        throw cause;
+      });
+      const [customerResult, accountsResponse, ratesResponse, draftResponse, importResponse] = await Promise.all([
+        customerRequest,
         fetch("/api/pi-payment-accounts", { cache: "no-store" }),
         fetch("/api/pi-exchange-rates", { cache: "no-store" }),
         draftOrderId ? fetch(`/api/orders/${draftOrderId}`, { cache: "no-store" }) : Promise.resolve(null),
         importDraftId ? fetch(`/api/orders/import-drafts/${importDraftId}`, { cache: "no-store" }) : Promise.resolve(null),
       ]);
-      const [customerBody, accountBody, ratesBody, draftBody, importBody] = await Promise.all([customersResponse.json().catch(() => ({})), accountsResponse.json().catch(() => ({})), ratesResponse.json().catch(() => ({})), draftResponse?.json().catch(() => ({})) || Promise.resolve(null), importResponse?.json().catch(() => ({})) || Promise.resolve(null)]);
+      const customersResponse = customerResult.response;
+      const customerBody = customerResult.body;
+      const [accountBody, ratesBody, draftBody, importBody] = await Promise.all([accountsResponse.json().catch(() => ({})), ratesResponse.json().catch(() => ({})), draftResponse?.json().catch(() => ({})) || Promise.resolve(null), importResponse?.json().catch(() => ({})) || Promise.resolve(null)]);
       if (!customersResponse.ok || !accountsResponse.ok || (draftResponse && !draftResponse.ok) || (importResponse && !importResponse.ok)) {
         setError(customerBody.error || accountBody.error || draftBody?.error || importBody?.error || "PI基础资料加载失败");
         setLoadingDraft(false);
@@ -370,7 +386,7 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
         setLoadingDraft(false);
       }
     })();
-  }, [initialCustomerId, draftOrderId, importDraftId]);
+  }, [initialCustomerId, draftOrderId, importDraftId, initialIsClerk]);
 
   function chooseCustomer(id: string) {
     if (id !== customerId) markUnsaved();
@@ -733,7 +749,7 @@ export function PiOrderForm({ initialCustomerId = "", draftOrderId, importDraftI
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
       <header className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-4"><div><h1 className="text-xl font-bold">{importDraftId ? "核对并补全导入PI" : draftOrderId ? "编辑PI草稿" : "创建PI订单"}</h1><p className="mt-1 text-sm text-slate-500">{importDraftId ? "请关联本人客户，补齐人民币售价与成本、汇率及收款账户；先生成PI草稿，核对后再提交仓库。" : "客户与价格只录入一次；保存草稿后核对，确认后生成仓库备货单。"}</p></div><Link href={importDraftId ? "/orders/import" : draftOrderId ? `/orders/${draftOrderId}` : "/orders"} className="inline-flex h-9 items-center rounded-lg border bg-white px-3 text-sm hover:bg-slate-50">返回</Link></header>
     {error ? <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}{savedDraftId ? <> · {savedRevision > 0 ? <><button type="button" disabled={busy} onClick={() => void retrySavedDraft()} className="font-semibold underline disabled:opacity-50">重试上传并继续</button> · </> : null}<Link className="font-semibold underline" href={`/orders/${savedDraftId}`}>查看已保存PI</Link></> : null}</div> : null}
-    {isClerk ? <section className="border-b border-slate-100 p-5"><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3"><label className="text-sm">为哪位销售员创建PI<Required /><AppSelect className={field} aria-label="选择PI归属销售员（含主管）" value={salesUserId} disabled={Boolean(draftOrderId)} placeholderValue="" onChange={(event) => void chooseSalesperson(event.target.value)}><option value="">请选择销售员（含主管）</option>{salespeople.map((person) => <option key={person.id} value={person.id}>{person.name || person.id}</option>)}</AppSelect></label></div><p className="mt-2 text-xs text-slate-500">请先选择本单归属的销售员；客户、产品与费用信息将在其客户范围加载完成后开放填写。</p></section> : null}
+    {isClerk ? <section className="border-b border-slate-100 p-5"><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3"><label className="text-sm">为哪位销售员创建PI<Required /><AppSelect className={field} aria-label="选择PI归属销售员（含主管）" value={salesUserId} disabled={Boolean(draftOrderId) || salespeopleLoading || Boolean(salespeopleError) || salespeople.length === 0} placeholderValue="" onChange={(event) => void chooseSalesperson(event.target.value)}><option value="">{salespeopleLoading ? "正在加载销售员…" : salespeopleError ? "销售员加载失败，请重试" : salespeople.length ? "请选择销售员（含主管）" : "暂无可选销售员"}</option>{salespeople.map((person) => <option key={person.id} value={person.id}>{person.name || person.id}</option>)}</AppSelect></label></div>{salespeopleError ? <button type="button" onClick={() => { setSalespeopleLoading(true); setSalespeopleError(""); void fetch("/api/orders/pi-customers", { cache: "no-store" }).then(async response => { const body = await response.json().catch(() => ({})); if (!response.ok) throw new Error(body.error || "销售员列表加载失败"); setSalespeople(body.salespeople || []); }).catch(cause => setSalespeopleError(cause instanceof Error ? cause.message : "销售员列表加载失败")).finally(() => setSalespeopleLoading(false)); }} className="mt-2 text-xs font-medium text-blue-700 underline">重试加载销售员</button> : null}<p className="mt-2 text-xs text-slate-500">请先选择本单归属的销售员；客户、产品与费用信息将在其客户范围加载完成后开放填写。</p></section> : null}
     <fieldset disabled={isClerk && !salesScopeReady} aria-disabled={isClerk && !salesScopeReady} className={`min-w-0 border-0 p-0 ${isClerk && !salesScopeReady ? "pointer-events-none opacity-50" : ""}`}>
     {importSource ? <div className="mx-5 mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
       {importSource.source_kind === "SYSTEM_TEMPLATE"

@@ -13,6 +13,8 @@ const listView = read("components/orders-view.tsx");
 const stockListView = read("components/stock-orders-view.tsx");
 const userOptionsApi = read("app/api/users/options/route.ts");
 const userScopeSelect = read("components/user-scope-select.tsx");
+const piForm = read("components/pi-order-form.tsx");
+const priceMigration = read("supabase/migrations/20261117090100_direct_pi_price_correction_generated_amount_fix.sql");
 
 for (const rpc of ["update_direct_pi_draft", "set_direct_pi_change_note",
   "delete_never_submitted_pi_draft", "cancel_sales_order"]) {
@@ -83,4 +85,12 @@ assert.doesNotMatch(userOptionsApi, /creatorOptions\s*&&\s*!\["ADMIN",\s*"ORDER_
   "制单人选项接口不能在数据权限之外再按角色拒绝仓库员");
 assert.match(userScopeSelect, /setCanSelectAll\(Boolean\(body\.can_select_all\)\)/,
   "全员选项应与服务端授权范围一致");
+assert.match(piForm, /const customerRequest = fetch\("\/api\/orders\/pi-customers"[\s\S]*setSalespeople\(body\.salespeople \|\| \[\]\)[\s\S]*Promise\.all/,
+  "跟单员销售员选项应在独立请求完成后立即显示，不等待收款账户和汇率");
+assert.match(piForm, /salespeopleLoading \? "正在加载销售员…"[\s\S]*重试加载销售员/,
+  "销售员选项加载和失败状态必须明确可见并可重试");
+assert.match(priceMigration, /insert into public\.audit_logs\(user_id,action,target_type,target_id,content\)[\s\S]*'PI_LINE_PRICE_CORRECTED'/,
+  "每次PI售价或成本更正均需留存操作者和修改前后值");
+assert.match(detailView, /价格更正记录[\s\S]*entry\.actor_name[\s\S]*entry\.content\.reason/,
+  "PI详情应显示价格更正操作者和原因");
 console.log("PI creator-only scope contracts passed.");
