@@ -5,7 +5,7 @@ import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { LegacySupplierSourcesView } from "@/components/legacy-supplier-sources-view";
 import { SupplierDeliveryNoteFiles, type SupplierDeliveryNoteView } from "@/components/supplier-delivery-note-files";
 
-type DocumentRow = { stock_order_id: string; order_number: string; missing_number_count: number; missing_image_count: number; missing_photo_note_numbers?: string[] };
+type DocumentRow = { stock_order_id: string; order_number: string; missing_number_count: number; missing_image_count: number; missing_photo_note_numbers?: string[]; pending_note_number_count?: number; pending_note_photo_count?: number; unlinked_shipped_item_count?: number };
 type LegacyRow = { order: { id: string; order_number: string; warehouse_reference_number: string | null }; stock_order_item_id: string };
 type QueueRow = DocumentRow & { legacy_count: number };
 type OrderDetail = { delivery_notes?: SupplierDeliveryNoteView[]; can_upload_delivery_note_files?: boolean };
@@ -91,9 +91,10 @@ export function MissingStockDocumentsView({ showLegacySources = false }: { showL
             <tr className="border-t">
               <td className="p-3 font-medium">{row.order_number}</td>
               <td className="py-3"><div className="flex flex-wrap gap-1.5">
-                {row.missing_number_count > 0 ? <span className="rounded bg-amber-50 px-2 py-1 text-amber-900">送货单号待补 {row.missing_number_count} 项</span> : null}
-                {row.missing_image_count > 0 ? <span className="rounded bg-amber-50 px-2 py-1 text-amber-900">{row.missing_photo_note_numbers?.length ? `送货单 ${row.missing_photo_note_numbers.join("、")} 缺照片` : `送货单照片待补 ${row.missing_image_count} 项`}</span> : null}
-                {row.legacy_count > 0 ? <span className="rounded bg-rose-50 px-2 py-1 text-rose-800">供应商及历史回货来源待核 {row.legacy_count} 项</span> : null}
+                {row.pending_note_number_count ? <span className="rounded bg-amber-50 px-2 py-1 text-amber-900">送货单号待补 {row.pending_note_number_count} 张</span> : null}
+                {row.pending_note_photo_count ? <span className="rounded bg-amber-50 px-2 py-1 text-amber-900">待补单号的送货单缺照片 {row.pending_note_photo_count} 张</span> : null}
+                {row.legacy_count > 0 ? <span className="rounded bg-rose-50 px-2 py-1 text-rose-800">历史回货来源待归属 {row.legacy_count} 项</span> : row.unlinked_shipped_item_count ? <span className="rounded bg-amber-50 px-2 py-1 text-amber-900">待核送货单来源 {row.unlinked_shipped_item_count} 项</span> : null}
+                {row.missing_photo_note_numbers?.length ? <span className="rounded bg-amber-50 px-2 py-1 text-amber-900">送货单 {row.missing_photo_note_numbers.join("、")} 缺照片</span> : null}
               </div></td>
               <td className="py-3"><button type="button" aria-expanded={expanded === row.stock_order_id} aria-controls={`remediation-${row.stock_order_id}`} onClick={() => { setDetail(null); setExpanded((value) => value === row.stock_order_id ? null : row.stock_order_id); }} className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-blue-800">{expanded === row.stock_order_id ? "收起" : "展开补录"}</button></td>
             </tr>

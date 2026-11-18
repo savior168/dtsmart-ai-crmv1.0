@@ -2,6 +2,7 @@
 
 import { CalendarRange } from "lucide-react";
 import { AppSelect } from "@/components/ui/app-select";
+import { MonthRangeShortcut } from "@/components/ui/month-range-shortcut";
 
 export function CompactDateRange({
   from,
@@ -15,6 +16,7 @@ export function CompactDateRange({
   presets,
   selectedPreset = "",
   onPresetChange,
+  onMonthRangeApply,
 }: {
   from: string;
   to: string;
@@ -27,10 +29,11 @@ export function CompactDateRange({
   presets?: ReadonlyArray<{ value: string; label: string; title?: string }>;
   selectedPreset?: string;
   onPresetChange?: (value: string) => void;
+  onMonthRangeApply?: (range: { from: string; to: string }) => void;
 }) {
   return (
     <fieldset
-      className={`flex h-10 min-w-0 shrink-0 items-center overflow-hidden rounded-lg border border-slate-200 bg-white text-sm text-slate-700 transition focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-100 ${className}`}
+      className={`flex h-10 min-w-0 shrink-0 items-center rounded-lg border border-slate-200 bg-white text-sm text-slate-700 transition focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-100 ${className}`}
       title={label}
     >
       <legend className="sr-only">{label}</legend>
@@ -60,6 +63,7 @@ export function CompactDateRange({
           {presets.map((preset) => <option key={preset.value} value={preset.value} title={preset.title}>{preset.label}</option>)}
         </AppSelect>
       </> : null}
+      {onMonthRangeApply ? <><span aria-hidden="true" className="h-5 w-px shrink-0 bg-slate-200"/><MonthRangeShortcut from={from} to={to} onApply={onMonthRangeApply} embedded/></> : null}
     </fieldset>
   );
 }

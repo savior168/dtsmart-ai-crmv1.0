@@ -31,10 +31,10 @@ export async function GET(request: NextRequest) {
       if ((batch.data || []).length < 1000) break;
     }
     if (!baselines.length) return NextResponse.json({ data: [], count: 0, page });
-    const itemRows: Array<{ id: string; stock_order_id: string; line_number: number; item_name: string | null; brand: string | null; model: string | null; quality: string | null; quantity: number; received_quantity: number; shipped_quantity: number }> = [];
+    const itemRows: Array<{ id: string; stock_order_id: string; line_number: number; item_name: string | null; brand: string | null; model: string | null; quality: string | null; quantity: number; received_quantity: number; shipped_quantity: number; warehouse_supplier_code: string | null; procurement_cost: number; procurement_cost_confirmed: boolean }> = [];
     for (let offset = 0; offset < baselines.length; offset += 200) {
       const items = await admin.from("stock_order_items")
-        .select("id,stock_order_id,line_number,item_name,brand,model,quality,quantity,received_quantity,shipped_quantity")
+        .select("id,stock_order_id,line_number,item_name,brand,model,quality,quantity,received_quantity,shipped_quantity,warehouse_supplier_code,procurement_cost,procurement_cost_confirmed")
         .in("id", baselines.slice(offset, offset + 200).map((row) => row.stock_order_item_id));
       if (items.error) throw items.error;
       itemRows.push(...(items.data || []));
