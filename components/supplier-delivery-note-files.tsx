@@ -67,7 +67,7 @@ export function SupplierDeliveryNoteFiles({ note, canUpload = false, onUploaded,
 
   return <div className={`min-w-0 ${compact ? "" : "rounded-lg border bg-white p-3"}`}>
     <div className="flex flex-wrap items-center justify-between gap-2">
-      <div className="min-w-0"><b className="break-all">{note.supplier_code} · {note.note_number}</b><span className="ml-2 text-xs text-slate-500">{note.document_date}</span></div>
+      {!compact ? <div className="min-w-0"><b className="break-all">{note.supplier_code} · {note.note_number}</b><span className="ml-2 text-xs text-slate-500">{note.document_date}</span></div> : null}
       {canUpload ? <>
         <input ref={input} type="file" accept="image/jpeg,image/png,image/webp" multiple className="sr-only" aria-label="选择送货单照片" onChange={(event) => void upload(event.target.files)}/>
         <button type="button" disabled={busy || note.attachments.length >= 10} onClick={() => input.current?.click()} className="inline-flex h-8 items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-2.5 text-xs font-medium text-blue-800 disabled:opacity-50">
@@ -79,8 +79,8 @@ export function SupplierDeliveryNoteFiles({ note, canUpload = false, onUploaded,
       <p>回货已登记，纸质送货单号待补；补录前不可核对纸单金额或登记付款。</p>
       <div className="mt-2 flex flex-wrap gap-2"><input aria-label="补录纸质送货单号" maxLength={100} value={numberDraft} onChange={(event) => setNumberDraft(event.target.value)} className="h-8 min-w-40 flex-1 rounded border border-amber-300 bg-white px-2" placeholder="输入真实纸单号"/><button type="button" disabled={busy || !numberDraft.trim()} onClick={() => void completeNumber()} className="rounded bg-amber-800 px-3 text-white disabled:opacity-40">补录单号</button></div>
     </div> : null}
-    {note.attachments.length ? <div className="mt-2 flex flex-wrap gap-2">{note.attachments.map((file) => <button key={file.id} type="button" onClick={() => setPreview(file)} className="group flex items-center gap-2 rounded-md border bg-slate-50 px-2 py-1.5 text-left text-xs hover:border-blue-300 hover:bg-blue-50">
-      <FileImage size={15} className="shrink-0 text-blue-600"/><span className="max-w-52 truncate" title={file.filename}>{file.filename}</span><span className="text-slate-400">预览</span>
+    {note.attachments.length ? <div className={`${compact ? "" : "mt-2"} flex min-w-0 flex-wrap gap-2`}>{note.attachments.map((file) => <button key={file.id} type="button" onClick={() => setPreview(file)} className="group flex min-w-0 max-w-full items-center gap-2 rounded-md border bg-slate-50 px-2 py-1.5 text-left text-xs hover:border-blue-300 hover:bg-blue-50">
+      <FileImage size={15} className="shrink-0 text-blue-600"/><span className="min-w-0 max-w-52 truncate" title={file.filename}>{file.filename}</span><span className="shrink-0 text-slate-400">预览</span>
     </button>)}</div> : <p className="mt-2 text-xs text-amber-700">尚未上传纸质送货单照片</p>}
     {error ? <p role="alert" className="mt-2 text-xs text-rose-700">{error}</p> : null}
     {preview ? <div className="fixed inset-0 z-[120] grid place-items-center bg-slate-950/70 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) setPreview(null); }}>

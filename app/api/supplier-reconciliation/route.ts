@@ -13,18 +13,21 @@ export async function GET(request: NextRequest) {
     const from = params.get("from") || "";
     const to = params.get("to") || "";
     const supplierId = params.get("supplier_id") || null;
+    const search = (params.get("search") || "").trim();
     const page = Number(params.get("page") || 1);
     const pageSize = Number(params.get("page_size") || 50);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)
       || from > to || !Number.isSafeInteger(page) || page < 1 || page > 100000
       || ![10, 20, 50, 100].includes(pageSize)
       || supplierId && !/^[0-9a-f]{8}-[0-9a-f-]{27,}$/.test(supplierId)
+      || search.length > 80
       || params.has("format")) {
-      throw new Error("请选择有效日期范围及供应商");
+      throw new Error("请选择有效日期范围、供应商和搜索词");
     }
-    const { data, error } = await supabase.rpc("supplier_reconciliation_report", {
+    const { data, error } = await supabase.rpc(search ? "supplier_reconciliation_report_search" : "supplier_reconciliation_report", {
       p_date_from: from, p_date_to: to, p_supplier_id: supplierId,
       p_limit: pageSize, p_offset: (page - 1) * pageSize,
+      ...(search ? { p_search: search } : {}),
     });
     if (error) throw error;
     const notes = Array.isArray(data?.notes) ? data.notes as Array<{ id: string }> : [];
