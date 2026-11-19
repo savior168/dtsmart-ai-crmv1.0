@@ -17,7 +17,7 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
       && hasPermission(account, "stock.update") && canViewProcurement;
     const [{ data: order, error }, { data: items, error: itemError }, { data: events, count: eventCount, error: eventError }] = await Promise.all([
       supabase.from("stock_orders").select("id,quote_id,sales_order_id,quote_number,order_number,warehouse_reference_number,stock_number,sales_user_id,customer_short_name,destination_country,delivery_recipient,delivery_address,status,stocking_requirements,expected_ready_at,ready_at,created_at,updated_at,sales:users!stock_orders_sales_user_id_fkey(name,email)").eq("id", id).maybeSingle(),
-      supabase.from("stock_order_items").select("id,line_number,product_type_snapshot,product_specifications_snapshot,product_color_snapshot,item_name,brand,model,quality,description,description_zh,estimated_unit_cost_cny,quantity,received_quantity,prepared_quantity,shipped_quantity,preparation_requirement,internal_note,preparation_status,pi_amendment_cancelled_at").eq("stock_order_id", id).order("line_number"),
+      supabase.from("stock_order_items").select("id,line_number,product_type_snapshot,product_specifications_snapshot,product_color_snapshot,item_name,brand,model,quality,description,description_zh,estimated_unit_cost_cny,warehouse_actual_unit_cost_cny,warehouse_actual_cost_updated_at,quantity,received_quantity,prepared_quantity,shipped_quantity,preparation_requirement,internal_note,preparation_status,pi_amendment_cancelled_at").eq("stock_order_id", id).order("line_number"),
       supabase.from("stock_order_events").select("id,from_status,to_status,created_by,created_at", { count: "exact" }).eq("stock_order_id", id).order("created_at", { ascending: false }).order("id", { ascending: false }).range(0, 9),
     ]);
     if (error) throw error;
@@ -66,6 +66,9 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
     const redactWarehouseNote = account.role === "SALES" || account.role === "ORDER_CLERK";
     let visibleItems = (items || []).filter((item) => !item.pi_amendment_cancelled_at)
       .map((item) => redactWarehouseNote ? { ...item, internal_note: null } : item);
+    const canEditActualCost = ["WAREHOUSE", "ADMIN"].includes(account.role)
+      && hasPermission(account, "stock.actual_cost.edit") && !["DRAFT", "CANCELLED"].includes(order.status);
+    visibleItems = visibleItems.map((item) => ({ ...item, can_edit_actual_cost: canEditActualCost }));
     if (!hideSupplierCode) {
       const codes = await createAdminClient().from("stock_order_items")
         .select("id,warehouse_supplier_code").eq("stock_order_id", id);

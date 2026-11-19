@@ -95,13 +95,14 @@ type Payload = {
   }>;
   stock_order: { id: string; stock_number: string; status: string; progress: StockProgress } | null;
   receiving_progress: { total_items: number; received_items: number; ordered_units: number; received_units: number } | null;
-  item_progress: Array<{ line_number: number; quantity: number; received_quantity: number; prepared_quantity: number; shipped_quantity: number; preparation_status: string }>;
+  item_progress: Array<{ line_number: number; quantity: number; received_quantity: number; prepared_quantity: number; shipped_quantity: number; preparation_status: string; warehouse_actual_unit_cost_cny: number | null; warehouse_actual_cost_updated_at: string | null }>;
   stock_events: Array<{ id: string; created_at: string; label: string; actor_name: string }>;
   amendments: PiAmendmentRecord[];
   price_corrections?: Array<{ id: string; user_id: string; actor_name?: string; created_at: string; content: {
     line_number?: number; previous_sale_cny?: number; revised_sale_cny?: number;
     previous_cost_cny?: number; revised_cost_cny?: number; reason?: string;
   } }>;
+  warehouse_cost_changes?: Array<{ id: string; actor_name?: string; created_at: string; content: { line_number?: number; before_cny?: number; after_cny?: number; reason?: string } }>;
   requirement_attachments: PiRequirementAttachment[];
   stocking_requirements: string;
   applied_amendment_count: number;
@@ -111,8 +112,6 @@ type Payload = {
   can_delete_draft: boolean;
   can_submit: boolean;
   can_recall: boolean;
-  can_review_seller_cost: boolean;
-  seller_cost_review_line_numbers: number[];
   can_edit: boolean;
   can_cancel: boolean;
   can_export: boolean;
@@ -211,7 +210,6 @@ export function OrderDetailView({ id }: { id: string }) {
   const [recallOpen, setRecallOpen] = useState(false);
   const [recallReason, setRecallReason] = useState("");
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [costReview, setCostReview] = useState<{ itemId: string; lineNumber: number; expected: number; revised: string; reason: string } | null>(null);
   const [priceCorrection, setPriceCorrection] = useState<{ itemId: string; lineNumber: number;
     expectedSale: number; expectedCost: number; revisedSale: string; revisedCost: string; reason: string } | null>(null);
   const load = useCallback(async () => {
@@ -264,21 +262,6 @@ export function OrderDetailView({ id }: { id: string }) {
     router.push("/orders");
     router.refresh();
   }
-  async function submitCostReview() {
-    if (!costReview) return;
-    setBusy(true);
-    const response = await fetch(`/api/orders/${id}/cost-review`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ item_id: costReview.itemId,
-        expected_unit_cost_cny: costReview.expected,
-        revised_unit_cost_cny: costReview.revised, reason: costReview.reason }),
-    });
-    const body = await response.json().catch(() => ({}));
-    setBusy(false);
-    if (!response.ok) { setError(body.error || "销售成本复核失败"); return; }
-    setCostReview(null);
-    await load();
-  }
   async function submitPriceCorrection() {
     if (!priceCorrection || !data) return;
     const revisedSale = Number(priceCorrection.revisedSale);
@@ -315,8 +298,11 @@ export function OrderDetailView({ id }: { id: string }) {
   const totalFx = Number(o.fx_rate_cny_to_payment);
   const totalCny = typeof o.total_cny === "number" && Number.isFinite(o.total_cny)
     ? o.total_cny : totalFx > 0 ? Number(o.total_amount) / totalFx : null;
-  const productSalesCny = data.items.reduce((sum, item) => sum + Number(item.unit_price_cny || 0) * Number(item.quantity || 0), 0);
-  const productCostCny = data.items.reduce((sum, item) => sum + Number(item.estimated_unit_cost_cny || 0) * Number(item.quantity || 0), 0);
+  const stockCostByLine = new Map(data.item_progress.map((row) => [row.line_number, row]));
+  const activeItems = data.items.filter((item) => !item.pi_amendment_cancelled_at);
+  const productSalesCny = activeItems.reduce((sum, item) => sum + Number(item.unit_price_cny || 0) * Number(item.quantity || 0), 0);
+  const productCostCny = activeItems.reduce((sum, item) => sum + Number(stockCostByLine.get(item.line_number)?.warehouse_actual_unit_cost_cny ?? item.estimated_unit_cost_cny ?? 0) * Number(item.quantity || 0), 0);
+  const costIsProvisional = activeItems.some((item) => stockCostByLine.get(item.line_number)?.warehouse_actual_unit_cost_cny == null);
   const productProfitCny = productSalesCny - productCostCny;
   return (
     <main className="p-4 lg:p-6">
@@ -374,7 +360,7 @@ export function OrderDetailView({ id }: { id: string }) {
             <div className="grid gap-3 px-5 py-3 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-3"><p className="text-xs text-slate-500">客户名称（本单快照）</p><p className="mt-1 text-lg font-semibold text-slate-900">{o.customer_name_snapshot?.trim() || "历史未留存"}</p><p className="text-sm text-slate-600">公司名称：{o.customer_short_name}</p><p className="break-words text-sm text-slate-600">客户税号（本单）：{o.customer_tax_number_snapshot?.trim() || "历史未留存"}</p><div className="text-sm text-slate-600"><CountryLabel value={o.destination_country}/></div></div>
               <div className="rounded-lg border border-blue-200 bg-blue-50 p-3"><p className="text-xs text-blue-700">客户应付总额 · 含各项费用</p><p className="mt-1 flex flex-wrap items-baseline gap-x-2 text-xl font-bold tabular-nums text-blue-800"><span>{totalCny === null ? "RMB —" : `¥${Number(totalCny).toFixed(2)}`}</span>{o.currency !== "CNY" ? <span className="text-base">{o.currency} {Number(o.total_amount).toFixed(2)}</span> : null}</p></div>
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3"><p className="text-xs text-slate-500">产品销售额 / 销售口径毛利 · 人民币</p><p className="mt-1 font-semibold tabular-nums">¥{productSalesCny.toFixed(2)} <span className="text-slate-400">/</span> <span className={productProfitCny < 0 ? "text-rose-700" : "text-emerald-700"}>¥{productProfitCny.toFixed(2)}</span></p><p className="mt-1 text-xs text-slate-500">毛利率 {productSalesCny > 0 ? (productProfitCny / productSalesCny * 100).toFixed(2) : "0.00"}% · 按销售成本估计/复核值计算，不含仓库费用</p></div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3"><p className="text-xs text-slate-500">产品销售额 / {costIsProvisional ? "暂估毛利" : "核实毛利"} · CNY</p><p className="mt-1 font-semibold tabular-nums">¥{productSalesCny.toFixed(2)} <span className="text-slate-400">/</span> <span className={productProfitCny < 0 ? "text-rose-700" : "text-emerald-700"}>¥{productProfitCny.toFixed(2)}</span></p><p className="mt-1 text-xs text-slate-500">毛利率 {productSalesCny > 0 ? (productProfitCny / productSalesCny * 100).toFixed(2) : "0.00"}% · {costIsProvisional ? "未核实行暂沿用销售成本价" : "按仓库核实实际成本价计算"}，不含整单费用</p></div>
             </div>
             <PiInfoCards order={o} />
             {data.stock_order && o.status !== "DRAFT" ? <div className="border-t px-5 py-3 text-sm"><div className="flex flex-wrap items-center gap-x-5 gap-y-1"><b>整单进度</b><span>订购 {data.stock_order.progress.ordered_units} 件</span><span>回货 {data.stock_order.progress.received_units} 件</span><span>理货 {data.stock_order.progress.prepared_units} 件</span><span>交货代 {data.stock_order.progress.shipped_units} 件</span></div></div> : null}
@@ -382,10 +368,6 @@ export function OrderDetailView({ id }: { id: string }) {
           {directPi && data.stock_order && o.status === "DRAFT" ? <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-amber-50 px-5 py-3 text-sm text-amber-800"><span>原备货单已撤回（历史），当前不作为仓库待办。修改 PI 草稿并重新提交后，仓库才会收到更新后的备货单。</span>{data.can_view_stock ? <Link href={`/stock-orders/${data.stock_order.id}`} className="font-medium text-blue-700 underline underline-offset-2">查看原备货记录</Link> : null}</div> : null}
           {directPi ? <section className="border-t px-5 py-3 text-sm"><h2 className="font-semibold">整单理货要求</h2><p className="mt-1 whitespace-pre-wrap break-words text-slate-700">{data.stocking_requirements || "常规理货"}</p><PiRequirementAttachments attachments={data.requirement_attachments || []} lineNumber={null} className="mt-2"/></section> : null}
           {directPi ? <div className="px-5 pb-3"><ArchivedPiRequirementAttachments attachments={data.requirement_attachments || []}/></div> : null}
-          {directPi && data.seller_cost_review_line_numbers.length > 0 ? <div role="status" className="mx-5 mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-            <span className="font-semibold">成本待复核</span>
-            <span>第 {data.seller_cost_review_line_numbers.join("、")} 项的采购均价高于销售成本，请在对应产品行复核。</span>
-          </div> : null}
           {directPi && amendmentHighlights.size ? <p className="px-5 py-2 text-xs text-slate-600" aria-label="最近一次已生效PI变更标记">
             最近一次已生效变更：<span className="ml-2 text-emerald-700">绿色 · 新增</span><span className="ml-3 text-amber-700">琥珀色 · 调整</span><span className="ml-3 text-rose-700">红色 · 删除（历史行）</span>
           </p> : null}
@@ -402,12 +384,12 @@ export function OrderDetailView({ id }: { id: string }) {
                     directPi ? "产品描述" : "客户描述",
                     "数量",
                     ...(directPi ? ["备货 / 交货进度"] : []),
-                    ...(directPi ? ["销售单价（CNY）", "销售成本（CNY）", "销售毛利率"] : []),
+                    ...(directPi ? ["销售单价（CNY）", "销售成本（CNY）", "实际成本（CNY）", "销售毛利率"] : []),
                     directPi ? `单价（${o.currency}）` : "单价",
                     directPi ? `金额（${o.currency}）` : "金额",
                     ...(directPi ? ["理货要求", "销售备注"] : []),
                   ].map((x) => (
-                    <th key={x} title={x === "销售成本（CNY）" ? "销售成本：预估值或复核值" : undefined} className={`whitespace-nowrap px-3 py-3 font-medium ${["销售单价（CNY）", "销售成本（CNY）", "销售毛利率", `单价（${o.currency}）`, `金额（${o.currency}）`].includes(x) ? "min-w-[120px]" : ""}`}>
+                    <th key={x} title={x === "销售成本（CNY）" ? "销售制单时采用的报价" : x === "实际成本（CNY）" ? "仓库核实价；未核实则默认沿用销售成本价" : undefined} className={`whitespace-nowrap px-3 py-3 font-medium ${["销售单价（CNY）", "销售成本（CNY）", "实际成本（CNY）", "销售毛利率", `单价（${o.currency}）`, `金额（${o.currency}）`].includes(x) ? "min-w-[120px]" : ""}`}>
                       {x}
                     </th>
                   ))}
@@ -416,22 +398,28 @@ export function OrderDetailView({ id }: { id: string }) {
               <tbody>
                 {data.items.map((i) => {
                   const change = amendmentHighlights.get(i.id);
-                  const canCorrectLine = directPi && data.can_correct_price && !i.pi_amendment_cancelled_at
-                    && Number(data.item_progress.find((row) => row.line_number === i.line_number)?.shipped_quantity || 0) === 0;
-                  const costReviewRequired = directPi && data.can_review_seller_cost
-                    && data.seller_cost_review_line_numbers.includes(i.line_number)
-                    && !i.pi_amendment_cancelled_at;
+                  const canCorrectLine = directPi && data.can_correct_price && !i.pi_amendment_cancelled_at;
                   return (
-                  <tr key={i.id} className={`border-t ${i.pi_amendment_cancelled_at ? "bg-rose-50 text-rose-700 line-through" : change === "ADDED" ? "bg-emerald-50/80" : change === "CHANGED" || costReviewRequired ? "bg-amber-50/80" : ""}`}>
+                  <tr key={i.id} className={`border-t ${i.pi_amendment_cancelled_at ? "bg-rose-50 text-rose-700 line-through" : change === "ADDED" ? "bg-emerald-50/80" : change === "CHANGED" ? "bg-amber-50/80" : ""}`}>
                     <td className="px-3 py-3">{i.line_number}</td>
-                    <td className="px-3 py-3 font-medium">{i.item_name}{i.pi_amendment_cancelled_at ? <span className="ml-2 rounded bg-rose-100 px-1 text-xs no-underline">已删除</span> : change === "ADDED" ? <span className="ml-2 rounded bg-emerald-100 px-1 text-xs text-emerald-800">本次新增</span> : change === "CHANGED" ? <span className="ml-2 rounded bg-amber-100 px-1 text-xs text-amber-800">本次调整</span> : null}{costReviewRequired ? <span className="ml-2 inline-flex whitespace-nowrap rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">成本待复核</span> : null}</td>
+                    <td className="px-3 py-3 font-medium">{i.item_name}{i.pi_amendment_cancelled_at ? <span className="ml-2 rounded bg-rose-100 px-1 text-xs no-underline">已删除</span> : change === "ADDED" ? <span className="ml-2 rounded bg-emerald-100 px-1 text-xs text-emerald-800">本次新增</span> : change === "CHANGED" ? <span className="ml-2 rounded bg-amber-100 px-1 text-xs text-amber-800">本次调整</span> : null}</td>
                     <td className="px-3 py-3">{i.brand || "-"}</td>
                     <td className="px-3 py-3">{i.model || "-"}</td>
                     <td className="px-3 py-3">{i.quality || "-"}</td>
                     <td className="px-3 py-3">{i.description || "-"}</td>
                     <td className="px-3 py-3">{i.quantity}</td>
                     {directPi ? <td className="min-w-[145px] px-3 py-3">{(() => { const progress = data.item_progress.find((row) => row.line_number === i.line_number); if (i.pi_amendment_cancelled_at) return "已删除"; if (!progress) return "待仓库接单"; const stage = stockItemProgress(progress); return <><span className={`rounded px-1.5 py-0.5 text-xs font-medium ${stage.tone}`}>{stage.label}</span><span className="mt-1 block whitespace-nowrap text-xs text-slate-500">交货代 {progress.shipped_quantity}/{progress.quantity} · 回货 {progress.received_quantity} · 理货 {progress.prepared_quantity}</span></>; })()}</td> : null}
-                    {directPi ? <><td className="whitespace-nowrap px-3 py-3">¥{Number(i.unit_price_cny).toFixed(2)}</td><td className="whitespace-nowrap px-3 py-3">¥{Number(i.estimated_unit_cost_cny).toFixed(2)}{costReviewRequired && i.estimated_unit_cost_cny !== null ? <button type="button" disabled={busy} onClick={() => { setError(""); setCostReview({ itemId: i.id, lineNumber: i.line_number, expected: Number(i.estimated_unit_cost_cny), revised: Number(i.estimated_unit_cost_cny).toFixed(2), reason: "" }); }} className="ml-2 whitespace-nowrap text-xs text-blue-700 hover:underline disabled:opacity-40">复核成本</button> : null}</td><td className="whitespace-nowrap px-3 py-3">{i.pi_amendment_cancelled_at ? "不计入" : Number(i.unit_price_cny) > 0 ? `${((Number(i.unit_price_cny) - Number(i.estimated_unit_cost_cny)) / Number(i.unit_price_cny) * 100).toFixed(2)}%` : "—"}{canCorrectLine ? <button type="button" onClick={() => { setError(""); setPriceCorrection({ itemId: i.id, lineNumber: i.line_number, expectedSale: Number(i.unit_price_cny), expectedCost: Number(i.estimated_unit_cost_cny), revisedSale: Number(i.unit_price_cny).toFixed(2), revisedCost: Number(i.estimated_unit_cost_cny).toFixed(2), reason: "" }); }} className="mt-1 block whitespace-nowrap text-xs text-blue-700 hover:underline">更正价格</button> : null}</td></> : null}
+                    {directPi ? <>
+                      <td className="whitespace-nowrap px-3 py-3">¥{Number(i.unit_price_cny).toFixed(2)}</td>
+                      <td className="whitespace-nowrap px-3 py-3">¥{Number(i.estimated_unit_cost_cny).toFixed(2)}</td>
+                      <td className="whitespace-nowrap px-3 py-3">{(() => {
+                        const verified = stockCostByLine.get(i.line_number)?.warehouse_actual_unit_cost_cny;
+                        const effective = verified ?? i.estimated_unit_cost_cny;
+                        const delta = verified === null || verified === undefined ? 0 : Number(verified) - Number(i.estimated_unit_cost_cny);
+                        return <><span className={delta > 0 ? "font-semibold text-amber-800" : delta < 0 ? "font-medium text-emerald-700" : ""}>{effective === null ? "—" : `¥${Number(effective).toFixed(2)}`}</span><small className="mt-1 block text-slate-500">{verified == null ? "沿用销售报价" : delta === 0 ? "仓库已核 · 一致" : `仓库已核 · ${delta > 0 ? "上涨" : "下降"} ¥${Math.abs(delta).toFixed(2)}`}</small></>;
+                      })()}</td>
+                      <td className="whitespace-nowrap px-3 py-3">{i.pi_amendment_cancelled_at ? "不计入" : Number(i.unit_price_cny) > 0 ? `${((Number(i.unit_price_cny) - Number(stockCostByLine.get(i.line_number)?.warehouse_actual_unit_cost_cny ?? i.estimated_unit_cost_cny)) / Number(i.unit_price_cny) * 100).toFixed(2)}%` : "—"}{canCorrectLine ? <button type="button" onClick={() => { setError(""); setPriceCorrection({ itemId: i.id, lineNumber: i.line_number, expectedSale: Number(i.unit_price_cny), expectedCost: Number(i.estimated_unit_cost_cny), revisedSale: Number(i.unit_price_cny).toFixed(2), revisedCost: Number(i.estimated_unit_cost_cny).toFixed(2), reason: "" }); }} className="mt-1 block whitespace-nowrap text-xs text-blue-700 hover:underline">更正价格</button> : null}</td>
+                    </> : null}
                     <td className="whitespace-nowrap px-3 py-3">
                       {o.currency} {Number(i.unit_price).toFixed(2)}
                     </td>
@@ -457,6 +445,7 @@ export function OrderDetailView({ id }: { id: string }) {
           </div>
           {directPi ? <div className="border-b p-5 text-sm"><b>订单变更说明</b><p className="mt-2 whitespace-pre-wrap text-slate-700">{o.confirmation_note ? numberedPiChangeNote(o.confirmation_note) : "暂无变更"}</p></div> : null}
           {directPi && data.price_corrections?.length ? <details className="border-b px-5 py-3 text-sm"><summary className="cursor-pointer font-medium text-blue-700">价格更正记录 · 最近 {data.price_corrections.length} 条{data.price_corrections.length === 20 ? "（完整记录保存在操作日志）" : ""}</summary><div className="mt-2 space-y-2">{data.price_corrections.map((entry) => <div key={entry.id} className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-slate-800">第 {entry.content.line_number ?? "—"} 项 · {entry.actor_name || "已停用用户"} · {new Date(entry.created_at).toLocaleString("zh-CN")} · 售价 ¥{Number(entry.content.previous_sale_cny).toFixed(2)} → ¥{Number(entry.content.revised_sale_cny).toFixed(2)} · 成本 ¥{Number(entry.content.previous_cost_cny).toFixed(2)} → ¥{Number(entry.content.revised_cost_cny).toFixed(2)}<span className="ml-2">原因：{entry.content.reason || "—"}</span></div>)}</div></details> : null}
+          {directPi && data.warehouse_cost_changes?.length ? <details className="border-b px-5 py-3 text-sm"><summary className="cursor-pointer font-medium text-blue-700">仓库实际成本价核实 · 最近 {data.warehouse_cost_changes.length} 条</summary><div className="mt-2 space-y-2">{data.warehouse_cost_changes.map((entry) => <div key={entry.id} className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-slate-800">第 {entry.content.line_number ?? "—"} 项 · {entry.actor_name || "已离职用户"} · {new Date(entry.created_at).toLocaleString("zh-CN")} · {entry.content.before_cny == null ? "原价未留存" : `¥${Number(entry.content.before_cny).toFixed(2)}`} → ¥{Number(entry.content.after_cny).toFixed(2)} · 原因：{entry.content.reason || "—"}</div>)}</div></details> : null}
           {directPi && data.stock_order ? <details className="border-b px-5 py-3 text-sm"><summary className="cursor-pointer font-medium text-blue-700">备货关键进度 · 最近 {data.stock_events?.length || 0} 条</summary><div className="mt-2 space-y-2">{data.stock_events?.length ? data.stock_events.map((event) => <div key={event.id} className="flex flex-wrap gap-x-3 gap-y-1 rounded-lg border bg-slate-50 px-3 py-2 text-xs text-slate-700"><time>{new Date(event.created_at).toLocaleString("zh-CN")}</time><b>{event.label}</b><span>操作人：{event.actor_name}</span></div>) : <p className="text-xs text-slate-500">暂无关键状态变更</p>}<p className="text-xs text-slate-500">仅显示业务进度；供应商、采购与仓库内部备注不在此展示。</p></div></details> : null}
           {directPi && o.status !== "DRAFT" ? <PiAmendmentSalesPanel orderId={id} revision={o.pi_revision}
             currency={o.currency} fxRate={Number(o.fx_rate_cny_to_payment || 0)}
@@ -527,7 +516,7 @@ export function OrderDetailView({ id }: { id: string }) {
             </footer>
           )}
         </section>
-        <AppDialog open={priceCorrection !== null} title="更正产品售价与销售成本" description="仅未交货代产品可更正；提交后立即同步PI金额、报价快照与备货成本，不需仓库确认，也不占产品变更次数。原值及原因永久留痕。" onClose={() => { if (!busy) setPriceCorrection(null); }} width="max-w-md">
+        <AppDialog open={priceCorrection !== null} title="更正产品售价与销售成本" description="已交货代产品也可更正；提交后同步PI金额、报价快照与销售成本基准，不改采购价、仓库已核实际成本或交货记录。已发出的PI需另行告知客户使用新版，原值及原因永久留痕。" onClose={() => { if (!busy) setPriceCorrection(null); }} width="max-w-md">
           {priceCorrection ? <form onSubmit={(event) => { event.preventDefault(); void submitPriceCorrection(); }} className="space-y-3 text-sm">
             <p className="font-medium">第 {priceCorrection.lineNumber} 项 · 只需修改有变化的一项，另一项保持原值</p>
             <div className="grid gap-3 sm:grid-cols-2"><label className="block">销售单价 ¥/件<small className="mt-1 block text-slate-500">原值 ¥{priceCorrection.expectedSale.toFixed(2)}</small><input required type="number" min="0" max="999999999999.99" step="0.01" value={priceCorrection.revisedSale} onChange={(event) => setPriceCorrection((current) => current && { ...current, revisedSale: event.target.value })} className="mt-1 h-10 w-full rounded-lg border px-3" /></label>
@@ -536,15 +525,6 @@ export function OrderDetailView({ id }: { id: string }) {
             <label className="block">更正原因（必填）<textarea required maxLength={500} value={priceCorrection.reason} onChange={(event) => setPriceCorrection((current) => current && { ...current, reason: event.target.value })} className="mt-1 min-h-20 w-full rounded-lg border px-3 py-2" /></label>
             {error ? <p role="alert" className="rounded-lg bg-rose-50 p-3 text-rose-700">{error}</p> : null}
             <DialogActions busy={busy} onCancel={() => setPriceCorrection(null)} confirmLabel="确认更正并留痕" />
-          </form> : null}
-        </AppDialog>
-        <AppDialog open={costReview !== null} title="复核销售预估成本" description="整单交货代后可更正您录入的成本估计；不修改已发货 PI 产品、供应商采购价或送货单，也不计入订单变更次数。主管另按实际采购记录核算实际毛利。" onClose={() => { if (!busy) setCostReview(null); }} width="max-w-md">
-          {costReview ? <form onSubmit={(event) => { event.preventDefault(); void submitCostReview(); }} className="space-y-3 text-sm">
-            <p>第 {costReview.lineNumber} 项 · 原成本 ¥{costReview.expected.toFixed(2)}/件</p>
-            <label className="block">复核后成本 ¥/件<input required type="number" min="0" max="999999999999.99" step="0.01" value={costReview.revised} onChange={(event) => setCostReview((current) => current && { ...current, revised: event.target.value })} className="mt-1 h-10 w-full rounded-lg border px-3" /></label>
-            <label className="block">复核原因（必填）<textarea required maxLength={500} value={costReview.reason} onChange={(event) => setCostReview((current) => current && { ...current, reason: event.target.value })} className="mt-1 min-h-20 w-full rounded-lg border px-3 py-2" /></label>
-            {error ? <p role="alert" className="rounded-lg bg-rose-50 p-3 text-rose-700">{error}</p> : null}
-            <DialogActions busy={busy} onCancel={() => setCostReview(null)} confirmLabel="确认更新预估成本" />
           </form> : null}
         </AppDialog>
         <AppDialog open={deleteOpen} title="删除未提交的PI草稿" description="仅从未提交过、也未生成备货单的草稿可删除；删除后无法恢复。" onClose={() => setDeleteOpen(false)} width="max-w-md">

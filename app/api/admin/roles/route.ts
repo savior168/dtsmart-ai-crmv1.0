@@ -92,7 +92,7 @@ export async function PATCH(request: NextRequest) {
     const admin = createAdminClient();
     if (!await resolveConfigurableRole(admin, role)) return NextResponse.json({ error: "角色无效或已停用" }, { status: 400 });
     if (role === "ADMIN") return NextResponse.json({ error: "系统管理员核心权限不可关闭" }, { status: 400 });
-    if (enabled && supplierGrantForbidden(role, permission)) return NextResponse.json({ error: "销售员和跟单员不得查看供应商档案、对账及送货单凭证" }, { status: 400 });
+    if (enabled && supplierGrantForbidden(role, permission)) return NextResponse.json({ error: "销售员和跟单员不得获授供应商敏感资料或采购口径纯利权限" }, { status: 400 });
     if (CORE_PERMISSION_CODES.has(permission) || CORE_PERMISSION_CODES.has(permissionPageCode(permission))) return NextResponse.json({ error: "系统核心权限不能下放给非系统管理员" }, { status: 400 });
     const now = new Date().toISOString();
     const changes = rolePermissionChanges(permission, enabled);

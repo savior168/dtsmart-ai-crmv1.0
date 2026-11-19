@@ -53,7 +53,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     if (targetError) throw targetError;
     if (!target) return NextResponse.json({ error: "用户不存在" }, { status: 404 });
     if (normalizeRole(target.role) === "ADMIN") return NextResponse.json({ error: "系统管理员固定拥有全部权限" }, { status: 400 });
-    if (effect === "ALLOW" && supplierGrantForbidden(target.role, permission)) return NextResponse.json({ error: "销售员和跟单员不得查看供应商档案、对账及送货单凭证" }, { status: 400 });
+    if (effect === "ALLOW" && supplierGrantForbidden(target.role, permission)) return NextResponse.json({ error: "销售员和跟单员不得获授供应商敏感资料或采购口径纯利权限" }, { status: 400 });
     const changes = userPermissionChanges(permission, effect);
     if (effect === "INHERIT") {
       const { error } = await admin.from("user_permission_overrides").delete().eq("user_id", id).in("permission_code", changes.map((item) => item.permission_code));

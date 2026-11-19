@@ -55,18 +55,18 @@ assert.equal(result.totals.product_margin, null, "overall margin must not disgui
 const cnyPi = summarizePiPerformance([{
   id: "cny-pi-cost", order_number: "PI-CNY", customer_id: "customer-c", customer_name: "Gamma",
   sales_user_id: "seller-a", currency: "CNY", total_amount: 27000, confirmed_at: "2026-10-29T12:00:00Z",
-  items: [{ item_name: "Screen", brand: "C", model: "S1", quantity: 20, amount: 27000, unit_price_cny: 1350, estimated_unit_cost_cny: 1130, procurement_unit_cost_cny: 1500 }],
+  items: [{ item_name: "Screen", brand: "C", model: "S1", quantity: 20, amount: 27000, unit_price_cny: 1350, estimated_unit_cost_cny: 1130, warehouse_actual_unit_cost_cny: 1200, procurement_unit_cost_cny: 1500 }],
 }], [{
   id: "cny-pi-cost", total_cny: 27000, fx_rate_cny_to_payment: 1, usd_cny_rate_snapshot: null,
   usd_rate_source_snapshot: null, usd_rate_reference_date_snapshot: null, usd_rate_synced_at_snapshot: null,
   archived_at: null, status: "WAITING_STOCK",
 }], null);
-assert.equal(cnyPi.orders[0].cost_cny, 22600, "PI cost total is entered unit cost × quantity");
-assert.equal(cnyPi.orders[0].product_profit_cny, 4400, "PI gross profit is product revenue minus PI cost total");
-assert.equal(cnyPi.orders[0].product_margin, 4400 / 27000 * 100, "PI margin is gross profit divided by product revenue");
-assert.ok(Math.abs(cnyPi.orders[0].product_profit_usd - 4400 / 6.61) < 1e-9, "legacy USD profit uses the approved 6.61 fixed rate");
+assert.equal(cnyPi.orders[0].cost_cny, 24000, "毛利以仓库核实实际成本价计算，不使用采购价");
+assert.equal(cnyPi.orders[0].product_profit_cny, 3000, "毛利为销售额扣除仓库核实成本");
+assert.equal(cnyPi.orders[0].product_margin, 3000 / 27000 * 100, "毛利率按核实成本计算");
+assert.ok(Math.abs(cnyPi.orders[0].product_profit_usd - 3000 / 6.61) < 1e-9, "legacy USD profit uses the approved 6.61 fixed rate");
 assert.equal(cnyPi.orders[0].usd_rate_source_snapshot, "HISTORICAL_STANDARD_6_61", "fallback conversion is identified as policy, not a market quote");
-assert.equal(cnyPi.totals.product_margin, 4400 / 27000 * 100);
+assert.equal(cnyPi.totals.product_margin, 3000 / 27000 * 100);
 assert.equal(result.orders.find((order) => order.id === "usd-native").cost_cny, 400, "sales margin uses PI-entered unit cost × quantity, not later warehouse procurement cost");
 assert.equal(result.orders.find((order) => order.id === "usd-native").product_profit_usd, 80 - (400 / usdRate));
 assert.equal(result.customers.find((customer) => customer.id === "customer-a").order_count, 2);

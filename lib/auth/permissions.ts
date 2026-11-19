@@ -117,6 +117,7 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   { code: "stock.data_all", label: "查看全部备货单", group: "采购管理", description: "按归属人查看全部采购备货进度", kind: "DATA" },
   { code: "stock.update", label: "更新备货状态", group: "采购管理", description: "采购备货人员更新备货状态与备注", kind: "ACTION" },
   { code: "stock.procurement.edit", label: "确认实际采购价", group: "采购管理", description: "指定采购人员核实并维护备货单实际采购单价；可与备货状态权限分别授权", kind: "ACTION" },
+  { code: "stock.actual_cost.edit", label: "核实仓库实际成本价", group: "采购管理", description: "仓库按最新报价核实成本价；与真实采购价分离，销售只读", kind: "ACTION" },
   { code: "supplier.documents.view", label: "送货单凭证与待补清单", group: "采购管理", description: "查看关联送货单号与纸单影像；销售员和制单员始终禁止", kind: "PAGE" },
   { code: "supplier.documents.manage", label: "补录供应商送货单凭证", group: "采购管理", description: "仓库登记后补录真实纸单号与上传影像；须同时有查看凭证权限", kind: "ACTION" },
   { code: "stock.prepare", label: "完善备货信息", group: "采购管理", description: "仓库员完善历史报价产生的备货草稿；PI明细由销售在PI订单中修改", kind: "ACTION" },
@@ -131,9 +132,9 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   { code: "reports.view", label: "查看报表中心", group: "报表中心", description: "进入报表中心查看统计数据", kind: "PAGE" },
   { code: "sales.performance.view", label: "业绩分析", group: "销售管理", description: "进入业绩分析查看已确认 PI 的销售走势、客户与产品表现", kind: "PAGE" },
   { code: "sales.performance.data_all", label: "查看团队业绩", group: "销售管理", description: "在业务授权范围内切换归属人并查看团队业绩", kind: "DATA" },
-  { code: "sales.performance.actual_profit.view", label: "查看业绩实际利润", group: "销售管理", description: "查看实际采购成本口径的毛利与纯利，仍受订单数据范围限制", kind: "DATA" },
+  { code: "sales.performance.actual_profit.view", label: "查看业绩纯利", group: "销售管理", description: "查看真实采购成本和整单费用口径的纯利；销售员和跟单员不可获授", kind: "DATA" },
   { code: "reports.data_all", label: "查看全部报表数据", group: "报表中心", description: "可按归属人查看全部销售报表", kind: "DATA" },
-  { code: "reports.actual_profit.view", label: "查看实际毛利和纯利", group: "报表中心", description: "查看按真实回货采购价及整单三项费用计算的实际毛利、纯利及利润率；不改变可查看的订单范围", kind: "DATA" },
+  { code: "reports.actual_profit.view", label: "查看采购口径纯利", group: "报表中心", description: "查看按真实回货采购价及整单三项费用计算的纯利；销售员和跟单员不可获授", kind: "DATA" },
   { code: "reports.export", label: "导出报表", group: "报表中心", description: "导出允许范围内的报表", kind: "ACTION" },
 
   { code: "costs.view", label: "费用中心", group: "系统管理", description: "查看全部第三方API费用及明细；默认仅管理员开启", kind: "PAGE" },
@@ -206,8 +207,10 @@ export function permissionPageCode(code: string) {
 }
 
 export function supplierGrantForbidden(role: string, permission: string) {
+  if (permission === "stock.actual_cost.edit" && role !== "WAREHOUSE" && role !== "ADMIN") return true;
   return (role === "SALES" || role === "ORDER_CLERK")
-    && (permission.startsWith("supplier.") || permission.startsWith("suppliers."));
+    && (permission.startsWith("supplier.") || permission.startsWith("suppliers.")
+      || permission === "sales.performance.actual_profit.view" || permission === "reports.actual_profit.view");
 }
 
 export type PermissionAccount = {

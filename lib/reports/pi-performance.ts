@@ -3,7 +3,7 @@ const LEGACY_USD_CNY_RATE = 6.61;
 export type PiOrderRow = {
   id: string; order_number: string; customer_id: string | null; customer_name: string;
   sales_user_id: string; currency: string; total_amount: number; confirmed_at: string;
-  items: Array<{ item_name: string; brand: string; model: string; quantity: number; amount: number; unit_price_cny: number | null; estimated_unit_cost_cny: number | null; procurement_unit_cost_cny?: number | null; line_number?: number }>;
+  items: Array<{ item_name: string; brand: string; model: string; quantity: number; amount: number; unit_price_cny: number | null; estimated_unit_cost_cny: number | null; warehouse_actual_unit_cost_cny?: number | null; line_number?: number }>;
 };
 
 export type PiOrderMetadata = {
@@ -43,11 +43,12 @@ export function summarizePiPerformance(rows: PiOrderRow[], metadata: PiOrderMeta
       const amount = Number(item.amount || 0);
       const salesCny = item.unit_price_cny == null ? currency === "CNY" ? amount : null : Number(item.unit_price_cny) * quantity;
       const salesUsd = currency === "USD" ? amount : salesCny != null && usdRate ? salesCny / usdRate : null;
-      // Sales performance uses the cost the seller entered on the PI (unit cost × quantity).
-      // Later warehouse procurement prices are a separate operational measure and must not rewrite PI margin.
+      // Sales gross margin uses the warehouse-verified quote cost when present.
+      // The supplier's real purchase price is separate and never enters this calculation.
       const piUnitCost = item.estimated_unit_cost_cny == null ? null : positiveOrZero(item.estimated_unit_cost_cny);
-      const unitCost = piUnitCost;
-      const costBasis = piUnitCost != null ? "ESTIMATED" : "MISSING";
+      const warehouseCost = item.warehouse_actual_unit_cost_cny == null ? null : positiveOrZero(item.warehouse_actual_unit_cost_cny);
+      const unitCost = warehouseCost ?? piUnitCost;
+      const costBasis = warehouseCost != null ? "ACTUAL" : piUnitCost != null ? "ESTIMATED" : "MISSING";
       const costCny = unitCost == null ? null : unitCost * quantity;
       return { ...item, quantity, amount, sales_cny: salesCny, sales_usd: salesUsd, cost_cny: costCny, cost_basis: costBasis,
         profit_cny: salesCny != null && costCny != null ? salesCny - costCny : null,

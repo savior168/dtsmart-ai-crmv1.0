@@ -75,7 +75,14 @@ const cases = [
   ["管理员默认可查看业绩实际纯利", account("ADMIN", []), "sales.performance.actual_profit.view", true],
   ["管理员默认可查看报表实际纯利", account("ADMIN", []), "reports.actual_profit.view", true],
   ["销售员未获纯利授权不能查看", account("SALES", ["sales.performance.view"]), "sales.performance.actual_profit.view", false],
-  ["用户单独获纯利授权后可以查看", account("SALES", ["sales.performance.view", "sales.performance.actual_profit.view"]), "sales.performance.actual_profit.view", true],
+  ["销售员即使单独授权也不可查看纯利", account("SALES", ["sales.performance.view", "sales.performance.actual_profit.view"]), "sales.performance.actual_profit.view", false],
+  ["跟单员即使单独授权也不可查看纯利", account("ORDER_CLERK", ["sales.performance.view", "sales.performance.actual_profit.view"]), "sales.performance.actual_profit.view", false],
+  ["销售员即使单独授权也不可查看报表纯利", account("SALES", ["reports.view", "reports.actual_profit.view"]), "reports.actual_profit.view", false],
+  ["跟单员即使单独授权也不可查看报表纯利", account("ORDER_CLERK", ["reports.view", "reports.actual_profit.view"]), "reports.actual_profit.view", false],
+  ["销售员不能修改仓库实际成本价", account("SALES", ["stock.view", "stock.actual_cost.edit"]), "stock.actual_cost.edit", false],
+  ["跟单员不能修改仓库实际成本价", account("ORDER_CLERK", ["stock.view", "stock.actual_cost.edit"]), "stock.actual_cost.edit", false],
+  ["主管不能修改仓库实际成本价", account("SUPERVISOR", ["stock.view", "stock.actual_cost.edit"]), "stock.actual_cost.edit", false],
+  ["仓库获授权可修改实际成本价", account("WAREHOUSE", ["stock.view", "stock.actual_cost.edit"]), "stock.actual_cost.edit", true],
   ["仅授纯利权限不能绕过业绩页面", account("SALES", ["sales.performance.actual_profit.view"]), "sales.performance.actual_profit.view", false],
 ];
 for (const [label, user, permission, expected] of cases) {

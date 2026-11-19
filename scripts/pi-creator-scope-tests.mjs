@@ -44,10 +44,7 @@ assert.match(migration, /create function public\.review_shipped_pi_seller_cost[\
   "post-shipment seller cost review must be creator-only");
 assert.match(detailApi, /confirmation_method === "DIRECT_PI"[\s\S]*\(order\.data\.prepared_by \|\| order\.data\.sales_user_id\) === account\.id/,
   "PI detail actions must use creator scope");
-assert.match(detailApi, /const costReviewAccess = \(order\.data\.prepared_by \|\| order\.data\.sales_user_id\) === account\.id/,
-  "seller cost review access must retain the PI creator scope");
-assert.match(detailApi, /can_review_seller_cost: costReviewAccess/,
-  "seller cost review button must follow the server-side creator access decision");
+assert.doesNotMatch(detailApi, /can_review_seller_cost/, "retired purchase-price review cannot be exposed to PI users");
 assert.match(detailApi, /can_cancel:\s*writable &&\s*hasPermission\(account, "orders\.cancel"\)/,
   "the cancel button must obey the configured grant and creator scope rather than a role ban");
 assert.match(migration, /PI cancel clerk guard changed; manual review required/,
@@ -85,8 +82,8 @@ assert.match(passwordRoute, /登录状态已失效，请重新登录后再修改
   "密码修改遇到失效会话时应给出可执行的中文提示");
 assert.match(passwordRoute, /status: authErrorStatus\(rawMessage\)/,
   "密码修改接口应返回与认证状态匹配的HTTP状态码");
-assert.match(reviewApi, /requirePermission\("orders\.cost_review"\)/,
-  "cost review API must check the configured operation permission");
+assert.match(reviewApi, /status: 410/,
+  "retired purchase-price review API must reject older browser calls");
 const creatorScope = currentUser.match(/export async function requestedPiCreatorId[\s\S]*?\r?\n}\r?\n/)?.[0] || "";
 assert.match(creatorScope, /hasPermission\(account, dataPermission\)/,
   "PI creator filter must require the configured data grant");

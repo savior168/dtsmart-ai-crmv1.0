@@ -105,18 +105,18 @@ export async function GET(request: NextRequest) {
       if (error) throw error;
       for (const stock of data || []) if (!stockByOrder.has(stock.sales_order_id)) stockByOrder.set(stock.sales_order_id, stock.id);
     }
-    const stockItemByLine = new Map<string, { id: string; shipped_quantity: number }>();
+    const stockItemByLine = new Map<string, { id: string; shipped_quantity: number; warehouse_actual_unit_cost_cny: number | null }>();
     const stockIds = [...new Set(stockByOrder.values())];
     for (let index = 0; index < stockIds.length; index += 50) {
       const batch = stockIds.slice(index, index + 50);
       for (let offset = 0; ; offset += 1000) {
         const { data, error } = await admin.from("stock_order_items")
-          .select("id,stock_order_id,line_number,shipped_quantity")
+          .select("id,stock_order_id,line_number,shipped_quantity,warehouse_actual_unit_cost_cny")
           .in("stock_order_id", batch).is("pi_amendment_cancelled_at", null).range(offset, offset + 999);
         if (error) throw error;
         for (const item of data || []) {
           stockItemByLine.set(String(item.stock_order_id) + ":" + String(item.line_number),
-            { id: String(item.id), shipped_quantity: Number(item.shipped_quantity || 0) });
+            { id: String(item.id), shipped_quantity: Number(item.shipped_quantity || 0), warehouse_actual_unit_cost_cny: item.warehouse_actual_unit_cost_cny == null ? null : Number(item.warehouse_actual_unit_cost_cny) });
         }
         if (!data || data.length < 1000) break;
       }
@@ -127,7 +127,8 @@ export async function GET(request: NextRequest) {
       customer_name: resolvePiCustomerName(order.customer_name_snapshot,
         order.customer_id ? customerNames.get(order.customer_id) || null : null, order.customer_short_name),
       sales_user_id: order.sales_user_id, currency: order.currency, total_amount: Number(order.total_amount || 0),
-      confirmed_at: order.confirmed_at, items: itemsByOrder.get(order.id) || [],
+      confirmed_at: order.confirmed_at, items: (itemsByOrder.get(order.id) || []).map((item) => ({ ...item,
+        warehouse_actual_unit_cost_cny: stockItemByLine.get((stockByOrder.get(order.id) || "") + ":" + String(item.line_number))?.warehouse_actual_unit_cost_cny ?? null })),
     }));
     const summary = summarizePiPerformance(orders, scopedOrders, teamScopeRequested ? null : selectedOwner);
     const actualByOrder = new Map<string, NonNullable<ReturnType<typeof actualOrderProfit>>>();

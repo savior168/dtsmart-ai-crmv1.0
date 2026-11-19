@@ -1,0 +1,25 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+
+const read = (path) => readFileSync(path, "utf8");
+const migration = read("supabase/migrations/20261119101255_stock_warehouse_actual_cost.sql");
+const shipped = read("supabase/migrations/20261119113000_allow_shipped_pi_price_correction.sql");
+const retired = read("supabase/migrations/20261119114000_retire_purchase_price_cost_review.sql");
+const stockRoute = read("app/api/stock-orders/[id]/actual-cost/route.ts");
+const orderRoute = read("app/api/orders/[id]/route.ts");
+const orderView = read("components/order-detail-view.tsx");
+
+assert.match(migration, /warehouse_actual_unit_cost_cny numeric\(14,2\)/);
+assert.match(migration, /stock_order_id = stock\.id/);
+assert.match(migration, /p_expected_cost_cny is distinct from prior_cost/);
+assert.match(migration, /actor\.role not in \('WAREHOUSE', 'ADMIN'\)/);
+assert.match(migration, /p_new_cost_cny > seller_cost/);
+assert.match(migration, /else\s+update public\.system_notifications set action_status = 'RESOLVED'/);
+assert.doesNotMatch(migration, /purchase_unit_price_cny|procurement_cost/);
+assert.match(stockRoute, /requirePermission\("stock\.actual_cost\.edit"\)/);
+assert.match(shipped, /or stock_line\.shipped_quantity>0/);
+assert.match(retired, /drop trigger if exists pi_seller_cost_review_after_handoff/);
+assert.match(orderRoute, /!\["DRAFT", "CANCELLED"\]\.includes\(order\.data\.status\)/);
+assert.match(orderView, /仓库已核 · \$\{delta > 0 \? "上涨" : "下降"\}/);
+assert.doesNotMatch(orderRoute, /supplier_receipt_allocations/);
+console.log("Warehouse actual cost and shipped PI correction contracts passed.");

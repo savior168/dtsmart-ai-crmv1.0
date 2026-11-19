@@ -40,8 +40,11 @@ assert.match(migration, /仅当产品完整回货后的数量加权采购单价�
 assert.match(migration, /supplier_receipt_allocations/, "comparison is based on supplier purchase-price ledger only");
 
 const detailRoute = readFileSync("app/api/orders/[id]/route.ts", "utf8");
-assert.match(detailRoute, /sellerCostReviewLineNumbers\(/, "detail API computes reviewable line numbers");
+assert.doesNotMatch(detailRoute, /supplier_receipt_allocations/, "PI detail must not read supplier purchase allocations for seller review");
 const component = readFileSync("components/order-detail-view.tsx", "utf8");
-assert.match(component, /seller_cost_review_line_numbers\.includes\(i\.line_number\)/, "review action is only shown for eligible lines");
+assert.doesNotMatch(component, /seller_cost_review_line_numbers/, "obsolete purchase-price review prompt is hidden");
+const retirement = readFileSync("supabase/migrations/20261119114000_retire_purchase_price_cost_review.sql", "utf8");
+assert.match(retirement, /drop trigger if exists pi_seller_cost_review_after_handoff/, "obsolete purchase-price notification trigger is retired");
+assert.match(retirement, /revoke execute on function public\.review_shipped_pi_seller_cost/, "obsolete review RPC is no longer callable");
 
 console.log("Seller cost review eligibility checks passed.");

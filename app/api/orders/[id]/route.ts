@@ -9,7 +9,6 @@ import { summarizeStockProgress } from "@/lib/stock-progress";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { loadOrderCustomerNames } from "@/lib/order-customer-name";
 import { resolvePiRequirementAttachments } from "@/lib/orders/pi-requirement-attachment-view";
-import { sellerCostReviewLineNumbers } from "@/lib/orders/seller-cost-review";
 import { summarizePiStockEvents } from "@/lib/orders/pi-stock-event-summary";
 
 export async function GET(
@@ -51,7 +50,7 @@ export async function GET(
     if (stock.error) throw stock.error;
     if (quote.error) throw quote.error;
     const stockItems = stock.data ? await relatedClient.from("stock_order_items")
-      .select("line_number,quantity,received_quantity,prepared_quantity,shipped_quantity,preparation_status").eq("stock_order_id", stock.data.id).is("pi_amendment_cancelled_at", null) : null;
+      .select("line_number,quantity,received_quantity,prepared_quantity,shipped_quantity,preparation_status,warehouse_actual_unit_cost_cny,warehouse_actual_cost_updated_at").eq("stock_order_id", stock.data.id).is("pi_amendment_cancelled_at", null) : null;
     if (stockItems?.error) throw stockItems.error;
     const stockEventsResult = stock.data && order.data.confirmation_method === "DIRECT_PI"
       ? await createAdminClient().from("stock_order_events")
@@ -113,40 +112,25 @@ export async function GET(
         .order("created_at", { ascending: false }).limit(20)
       : null;
     if (priceCorrections?.error) throw priceCorrections.error;
+    const warehouseCostChanges = stock.data && order.data.confirmation_method === "DIRECT_PI"
+      ? await createAdminClient().from("audit_logs")
+        .select("id,user_id,created_at,content").eq("target_type", "stock_order")
+        .eq("target_id", stock.data.id).eq("action", "STOCK_WAREHOUSE_ACTUAL_COST_UPDATE")
+        .order("created_at", { ascending: false }).limit(20)
+      : null;
+    if (warehouseCostChanges?.error) throw warehouseCostChanges.error;
     const priceCorrectionUserIds = [...new Set((priceCorrections?.data || []).map((entry) => entry.user_id).filter(Boolean))];
     const priceCorrectionUsers = priceCorrectionUserIds.length
       ? await createAdminClient().from("users").select("id,name,email").in("id", priceCorrectionUserIds)
       : { data: [], error: null };
     if (priceCorrectionUsers.error) throw priceCorrectionUsers.error;
     const priceCorrectionActorNames = new Map((priceCorrectionUsers.data || []).map((entry) => [entry.id, entry.name || entry.email || "已离职用户"]));
-    let sellerCostReviewLineNumbersResult: number[] = [];
-    const costReviewAccess = (order.data.prepared_by || order.data.sales_user_id) === account.id
-      && ["SALES", "SUPERVISOR", "ORDER_CLERK", "ADMIN"].includes(account.role)
-      && hasPermission(account, "orders.cost_review")
-      && order.data.confirmation_method === "DIRECT_PI"
-      && order.data.status === "SHIPPED" && stock.data?.status === "SHIPPED"
-      && Boolean(stockItems?.data?.length)
-      && (stockItems?.data || []).every((item) => Number(item.shipped_quantity) === Number(item.quantity));
-    if (costReviewAccess && stock.data) {
-      const admin = createAdminClient();
-      const stockLinesResult = await admin.from("stock_order_items")
-        .select("id,line_number,quantity,pi_amendment_cancelled_at")
-        .eq("stock_order_id", stock.data.id).is("pi_amendment_cancelled_at", null);
-      if (stockLinesResult.error) throw stockLinesResult.error;
-      const stockLines = stockLinesResult.data || [];
-      const stockLineIds = stockLines.map((item) => item.id);
-      const receiptResult = stockLineIds.length
-        ? await admin.from("supplier_receipt_allocations")
-          .select("stock_order_item_id,quantity,purchase_unit_price_cny")
-          .in("stock_order_item_id", stockLineIds)
-        : { data: [], error: null };
-      if (receiptResult.error) throw receiptResult.error;
-      sellerCostReviewLineNumbersResult = sellerCostReviewLineNumbers(
-        stockLines,
-        items.data || [],
-        receiptResult.data || [],
-      );
-    }
+    const warehouseCostActorIds = [...new Set((warehouseCostChanges?.data || []).map((entry) => entry.user_id).filter(Boolean))];
+    const warehouseCostActors = warehouseCostActorIds.length
+      ? await createAdminClient().from("users").select("id,name,email").in("id", warehouseCostActorIds)
+      : { data: [], error: null };
+    if (warehouseCostActors.error) throw warehouseCostActors.error;
+    const warehouseCostActorNames = new Map((warehouseCostActors.data || []).map((entry) => [entry.id, entry.name || entry.email || "已离职用户"]));
     return NextResponse.json({
       order: { ...order.data, owner: clerkOwner?.data || order.data.owner,
         preparer: preparer?.data || null, customer: {
@@ -163,6 +147,7 @@ export async function GET(
       })),
       amendments,
       price_corrections: (priceCorrections?.data || []).map((entry) => ({ ...entry, actor_name: priceCorrectionActorNames.get(entry.user_id) || "已停用用户" })),
+      warehouse_cost_changes: (warehouseCostChanges?.data || []).map((entry) => ({ ...entry, actor_name: warehouseCostActorNames.get(entry.user_id) || "已离职用户" })),
       requirement_attachments: resolvePiRequirementAttachments(requirementAttachments?.data || [], items.data || []),
       applied_amendment_count: appliedCountResult?.count || 0,
       can_request_amendment: writable && hasPermission(account, "orders.edit")
@@ -172,8 +157,8 @@ export async function GET(
         && (appliedCountResult?.count || 0) < 3,
       can_correct_price: writable && hasPermission(account, "orders.edit")
         && order.data.confirmation_method === "DIRECT_PI" && Boolean(stock.data)
-        && !["DRAFT", "CANCELLED", "SHIPPED"].includes(order.data.status)
-        && !["DRAFT", "CANCELLED", "SHIPPED"].includes(stock.data?.status || "")
+        && !["DRAFT", "CANCELLED"].includes(order.data.status)
+        && !["DRAFT", "CANCELLED"].includes(stock.data?.status || "")
         && !amendments.some((item) => item.status === "PENDING"),
       stocking_requirements: quote.data?.stocking_requirements || "",
       can_edit_draft: writable && hasPermission(account, "orders.edit") && order.data.confirmation_method === "DIRECT_PI" && order.data.status === "DRAFT",
@@ -182,8 +167,6 @@ export async function GET(
         order.data.status === "DRAFT" && order.data.confirmed_at === null && !stock.data,
       can_submit: writable && hasPermission(account, "orders.create") && order.data.confirmation_method === "DIRECT_PI" && order.data.status === "DRAFT",
       can_recall: writable && hasPermission(account, "orders.edit") && order.data.confirmation_method === "DIRECT_PI" && order.data.status === "WAITING_STOCK" && stock.data?.status === "WAITING",
-      can_review_seller_cost: costReviewAccess && sellerCostReviewLineNumbersResult.length > 0,
-      seller_cost_review_line_numbers: sellerCostReviewLineNumbersResult,
       can_edit:
         account.role !== "ORDER_CLERK" && writable &&
         hasPermission(account, "orders.edit") &&

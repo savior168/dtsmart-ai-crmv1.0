@@ -13,7 +13,7 @@ const stockDetailView = read("components/stock-order-detail-view.tsx");
 assert.match(piDetailView, /销售单价（CNY）.*销售成本（CNY）.*销售毛利率/, "PI 人民币金额列应使用统一币种代码");
 assert.match(piDetailView, /`单价（\$\{o\.currency\}）`[\s\S]*`金额（\$\{o\.currency\}）`/, "PI 外币金额列应标出订单付款币种");
 assert.match(piDetailView, /whitespace-nowrap px-3 py-3 font-medium/, "PI 金额表头不应换行");
-assert.match(stockDetailView, /成本单价（CNY）[\s\S]*采购价（CNY\/件）/, "备货单金额列应使用统一币种代码");
+assert.match(stockDetailView, /销售成本价（CNY\/件）[\s\S]*实际成本价（CNY\/件）[\s\S]*采购价（CNY\/件）/, "备货单成本与采购价应区分并使用统一币种代码");
 assert.match(stockDetailView, /x === "操作" \? "sticky right-0 z-20/, "备货表格操作表头应固定在右侧");
 assert.match(stockDetailView, /canExecute \? <td className=\{`sticky right-0 z-10/, "备货表格操作按钮应随横向滚动保持可见");
 const migration = read("supabase/migrations/20261013090000_stock_receiving_workflow.sql");
@@ -110,7 +110,7 @@ const orderDetailView = read("components/order-detail-view.tsx");
 assert.match(orderDetailView, /<header className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-4">/, "PI标题与状态标签应垂直居中对齐且保持紧凑");
 assert.match(orderDetailView, /客户税号（本单）：\{o\.customer_tax_number_snapshot\?\.trim\(\) \|\| "历史未留存"\}/, "PI详情应显示本单客户税号快照，历史空值不得回填现值");
 assert.match(orderDetailView, /grid gap-2 border-t px-5 py-2 xl:grid-cols-2[\s\S]*<details className=\{detailClass\}[\s\S]*收货信息[\s\S]*付款与费用明细[\s\S]*费用项目及金额/, "PI下方信息区应以紧凑可折叠双列呈现收货及费用信息");
-assert.match(orderDetailView, /grid gap-3 px-5 py-3 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3[\s\S]*客户应付总额[\s\S]*产品销售额 \/ 销售口径毛利/, "PI顶部摘要仅保留客户、应付金额、销售额/销售口径毛利三项");
+assert.match(orderDetailView, /grid gap-3 px-5 py-3 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3[\s\S]*客户应付总额[\s\S]*产品销售额 \/ \{costIsProvisional \? "暂估毛利" : "核实毛利"\}/, "PI顶部摘要仅保留客户、应付金额、销售额/毛利三项");
 assert.doesNotMatch(orderDetailView, /StockProgressCell/, "PI详情顶部不重复显示备货进度卡片，进度统一在备货单页面查看");
 assert.match(orderDetailView, /费用项目[\s\S]*RMB[\s\S]*\{o\.currency !== "CNY" \?[\s\S]*row\.cny[\s\S]*row\.payment\.toFixed/, "PI费用明细应先显示人民币，再显示付款币种，CNY订单避免重复列");
 assert.doesNotMatch(orderDetailView, /查看费用明细 ↓/, "PI费用明细已在下排卡片显示，不应出现多余的锚点入口");
@@ -397,7 +397,7 @@ assert.match(read("components/order-print-preview.tsx"), /"UNPAID BALANCE:"/, "P
 
 for (const source of [detail, exportRoute]) {
   assert.doesNotMatch(source, /(?:^|[,\s])unit_price\b|total_amount|payment_account|profit|margin/, "仓库接口或导出不能读取销售价格及利润；授权仓库采购单价除外");
-  assert.match(source, /estimated_unit_cost_cny,quantity,received_quantity/, "普通明细查询只读取PI成本预算及实物进度");
+  assert.match(source, /estimated_unit_cost_cny,(?:warehouse_actual_unit_cost_cny,warehouse_actual_cost_updated_at,)?quantity,received_quantity/, "普通明细查询只读取销售成本、仓库实际成本及实物进度");
   assert.match(source, /createAdminClient\(\)\.from\("stock_order_items"\)[\s\S]*procurement_cost,procurement_cost_confirmed,warehouse_note/, "采购字段须通过服务端管理员客户端仅向授权角色补充读取");
 }
 assert.match(detail, /warehouse_supplier_code/, "仓库详情需为仓库角色读取供应商编码");
