@@ -2,7 +2,7 @@
 
 import { Paperclip, ZoomIn } from "lucide-react";
 import Image from "next/image";
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { AppDialog } from "@/components/ui/app-dialog";
 
 export type PiRequirementAttachment = {
@@ -20,14 +20,35 @@ export type PiRequirementAttachment = {
 
 function RequirementAttachmentImage({ item, archived = false }: { item: PiRequirementAttachment; archived?: boolean }) {
   const [open, setOpen] = useState(false);
-  const src = `/api/attachments/${item.id}?preview=1`;
+  const [src, setSrc] = useState<string | null>(null);
+  const [error, setError] = useState("");
+  const [retry, setRetry] = useState(0);
+  const load = useCallback(async (signal: AbortSignal) => {
+    try {
+      const response = await fetch(`/api/attachments/${item.id}?preview=1`, { cache: "no-store", signal });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const blob = await response.blob();
+      if (!blob.type.startsWith("image/") || !blob.size) throw new Error("INVALID_IMAGE");
+      const objectUrl = URL.createObjectURL(blob);
+      if (signal.aborted) URL.revokeObjectURL(objectUrl);
+      else { setSrc(objectUrl); setError(""); }
+    } catch (cause) {
+      if (!signal.aborted) setError(cause instanceof Error && cause.message === "HTTP 403" ? "没有附件查看权限" : "图片加载失败，请重试");
+    }
+  }, [item.id]);
+  useEffect(() => {
+    const controller = new AbortController();
+    void load(controller.signal);
+    return () => controller.abort();
+  }, [load, retry]);
+  useEffect(() => () => { if (src) URL.revokeObjectURL(src); }, [src]);
   return <>
     <button type="button" onClick={() => setOpen(true)} aria-label={`放大预览理货图片：${item.filename}`}
       title={`${item.filename} · 点击放大预览`}
       className={`group inline-flex flex-col overflow-hidden rounded-md border bg-white text-left text-xs text-blue-700 shadow-sm transition hover:shadow print:pointer-events-none ${archived ? "border-amber-300" : "border-blue-200 hover:border-blue-400"}`}>
       <span className={`${archived ? "h-20 w-[120px]" : "h-16 w-24"} grid place-items-center bg-slate-50`}>
-        <Image src={src} alt={item.filename} width={archived ? 120 : 96} height={archived ? 80 : 64} unoptimized loading="eager"
-          className="h-full w-full object-contain" />
+        {src && !error ? <Image src={src} alt={item.filename} width={archived ? 120 : 96} height={archived ? 80 : 64} unoptimized loading="eager" onError={() => setError("图片格式无法显示，请下载原文件")}
+          className="h-full w-full object-contain" /> : <span className="px-1 text-center text-[10px] text-slate-500">{error || "加载图片…"}</span>}
       </span>
       <span className={`flex min-h-6 items-center gap-1 px-1.5 py-1 ${archived ? "max-w-[120px]" : "w-24"}`}>
         <Paperclip size={12} className="shrink-0"/><span className="truncate" title={item.filename}>{item.filename}</span>
@@ -37,8 +58,8 @@ function RequirementAttachmentImage({ item, archived = false }: { item: PiRequir
     <AppDialog open={open} title={item.filename} description={archived ? "历史产品项的理货图片" : "理货要求图片预览"}
       onClose={() => setOpen(false)} width="max-w-5xl">
       <div className="grid min-h-48 place-items-center rounded-lg bg-slate-50 p-2 sm:p-4">
-        <Image src={src} alt={item.filename} width={1600} height={1200} unoptimized loading="eager"
-          className="h-auto max-h-[76vh] w-auto max-w-full object-contain" />
+        {src && !error ? <Image src={src} alt={item.filename} width={1600} height={1200} unoptimized loading="eager" onError={() => setError("图片格式无法显示，请下载原文件")}
+          className="h-auto max-h-[76vh] w-auto max-w-full object-contain" /> : <div className="space-y-3 text-center text-sm text-amber-800"><p>{error || "正在加载图片…"}</p><button type="button" onClick={() => { setError(""); setRetry((value) => value + 1); }} className="rounded-lg border border-amber-300 px-3 py-1.5">重试预览</button><a href={`/api/attachments/${item.id}`} className="ml-2 text-blue-700 underline">下载原文件</a></div>}
       </div>
     </AppDialog>
   </>;
