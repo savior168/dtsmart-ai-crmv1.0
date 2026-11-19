@@ -907,8 +907,8 @@ export function StockOrderDetailView({ id }: { id: string }) {
                       "产品质量",
                       "产品描述",
                       "中文质量/描述（仓库）",
-                      "成本单价（人民币）",
-                      ...(canViewProcurement ? ["采购价（人民币/件）", "成本差价（人民币/件）"] : []),
+                      "成本单价（CNY）",
+                      ...(canViewProcurement ? ["采购价（CNY/件）", "成本差价（CNY/件）"] : []),
                       "数量",
                       canViewProcurement ? "回货来源（供应商 · 送货单）" : data.can_view_supplier_code ? "供应商编码" : "回货进度",
                       "累计已回货",
@@ -963,7 +963,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
                       </td>
                       <td className="px-2 py-2">{item.estimated_unit_cost_cny === null ? "—" : Number(item.estimated_unit_cost_cny).toFixed(2)}</td>
                       {canViewProcurement ? <>
-                        <td className="px-2 py-2">{canEditProcurement ? <input inputMode="decimal" value={procurementDraft[item.id]?.cost || ""} onChange={(event) => setProcurementDraft((current) => ({ ...current, [item.id]: { cost: event.target.value, note: current[item.id]?.note || "" } }))} placeholder="未录入" aria-label={`第 ${item.line_number} 项采购价（人民币/件）`} className="h-9 w-full min-w-0 rounded border px-2 text-right tabular-nums" /> : item.procurement_cost_confirmed ? Number(item.procurement_cost).toFixed(2) : <span className="text-slate-400">未录入</span>}</td>
+                        <td className="px-2 py-2">{canEditProcurement ? <input inputMode="decimal" value={procurementDraft[item.id]?.cost || ""} onChange={(event) => setProcurementDraft((current) => ({ ...current, [item.id]: { cost: event.target.value, note: current[item.id]?.note || "" } }))} placeholder="未录入" aria-label={`第 ${item.line_number} 项采购价（CNY/件）`} className="h-9 w-full min-w-0 rounded border px-2 text-right tabular-nums" /> : item.procurement_cost_confirmed ? Number(item.procurement_cost).toFixed(2) : <span className="text-slate-400">未录入</span>}</td>
                         <td className={`px-2 py-2 text-right tabular-nums ${procurementRows[index]?.difference !== null && (procurementRows[index]?.difference ?? 0) < 0 ? "text-rose-700" : "text-emerald-700"}`}>{procurementRows[index]?.difference === null ? "—" : Number(procurementRows[index]?.difference).toFixed(2)}</td>
                       </> : null}
                       <td className="px-2 py-2">{item.quantity}</td>

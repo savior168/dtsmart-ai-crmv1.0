@@ -8,6 +8,12 @@ import { validPiMoney, validPiQuantity, validPiSellingPrice } from "../lib/pi-li
 import { batchExportFilename, customerExportFilename, dataExportFilename, documentExportFilename } from "../lib/export-file-name.ts";
 
 const read = (path) => readFileSync(path, "utf8");
+const piDetailView = read("components/order-detail-view.tsx");
+const stockDetailView = read("components/stock-order-detail-view.tsx");
+assert.match(piDetailView, /销售单价（CNY）.*销售成本（CNY）.*销售毛利率/, "PI 人民币金额列应使用统一币种代码");
+assert.match(piDetailView, /`单价（\$\{o\.currency\}）`[\s\S]*`金额（\$\{o\.currency\}）`/, "PI 外币金额列应标出订单付款币种");
+assert.match(piDetailView, /whitespace-nowrap px-3 py-3 font-medium/, "PI 金额表头不应换行");
+assert.match(stockDetailView, /成本单价（CNY）[\s\S]*采购价（CNY\/件）/, "备货单金额列应使用统一币种代码");
 const migration = read("supabase/migrations/20261013090000_stock_receiving_workflow.sql");
 const quantityMigration = read("supabase/migrations/20261015180000_stock_quantity_progress.sql");
 const batchMigration = read("supabase/migrations/20261015201000_stock_bulk_physical_progress.sql");
@@ -418,7 +424,7 @@ assert.match(migration, /create table public\.stock_order_expenses[\s\S]*?enable
 assert.match(quantityMigration, /p_action not in \('START','RECEIVE','PREPARE','SHIP'\)/, "常规进度只允许采购、回货、理货和整单发货动作");
 assert.match(statusRoute, /常规备货进度请通过产品数量及整单交接更新/, "整单状态接口只能处理异常，不得伪造实物进度");
 assert.match(stockView, /整单实物进度[\s\S]*StockProgressCell/, "仓库详情应展示互斥件数进度");
-assert.match(stockView, /采购价（人民币\/件）[\s\S]*成本差价（人民币\/件）[\s\S]*仓库备注/, "仓库明细应显示采购价、成本差价和仓库备注");
+assert.match(stockView, /采购价（CNY\/件）[\s\S]*成本差价（CNY\/件）[\s\S]*仓库备注/, "仓库明细应显示采购价、成本差价和仓库备注");
 assert.match(detail, /const canViewProcurement = !\["SALES", "ORDER_CLERK"\]\.includes\(account\.role\) && hasPermission\(account, "stock\.procurement\.edit"\)/, "销售员与跟单员不得查看采购敏感字段");
 assert.match(detail, /createAdminClient\(\)\.from\("users"\)[\s\S]*scopedEvents/, "备货状态记录应在已授权事件范围内解析真实操作人");
 assert.match(stockView, /操作人：\{event\.creator\?\.name/, "备货状态流转记录必须标注操作人");

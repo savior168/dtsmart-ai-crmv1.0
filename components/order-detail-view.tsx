@@ -402,12 +402,12 @@ export function OrderDetailView({ id }: { id: string }) {
                     directPi ? "产品描述" : "客户描述",
                     "数量",
                     ...(directPi ? ["备货 / 交货进度"] : []),
-                    ...(directPi ? ["销售单价（人民币）", "销售成本（预估/复核）", "销售毛利率"] : []),
-                    "单价",
-                    "金额",
+                    ...(directPi ? ["销售单价（CNY）", "销售成本（CNY）", "销售毛利率"] : []),
+                    directPi ? `单价（${o.currency}）` : "单价",
+                    directPi ? `金额（${o.currency}）` : "金额",
                     ...(directPi ? ["理货要求", "销售备注"] : []),
                   ].map((x) => (
-                    <th key={x} className="px-3 py-3 font-medium">
+                    <th key={x} title={x === "销售成本（CNY）" ? "销售成本：预估值或复核值" : undefined} className={`whitespace-nowrap px-3 py-3 font-medium ${["销售单价（CNY）", "销售成本（CNY）", "销售毛利率", `单价（${o.currency}）`, `金额（${o.currency}）`].includes(x) ? "min-w-[120px]" : ""}`}>
                       {x}
                     </th>
                   ))}
@@ -431,11 +431,11 @@ export function OrderDetailView({ id }: { id: string }) {
                     <td className="px-3 py-3">{i.description || "-"}</td>
                     <td className="px-3 py-3">{i.quantity}</td>
                     {directPi ? <td className="min-w-[145px] px-3 py-3">{(() => { const progress = data.item_progress.find((row) => row.line_number === i.line_number); if (i.pi_amendment_cancelled_at) return "已删除"; if (!progress) return "待仓库接单"; const stage = stockItemProgress(progress); return <><span className={`rounded px-1.5 py-0.5 text-xs font-medium ${stage.tone}`}>{stage.label}</span><span className="mt-1 block whitespace-nowrap text-xs text-slate-500">交货代 {progress.shipped_quantity}/{progress.quantity} · 回货 {progress.received_quantity} · 理货 {progress.prepared_quantity}</span></>; })()}</td> : null}
-                    {directPi ? <><td className="px-3 py-3">¥{Number(i.unit_price_cny).toFixed(2)}</td><td className="px-3 py-3">¥{Number(i.estimated_unit_cost_cny).toFixed(2)}{costReviewRequired && i.estimated_unit_cost_cny !== null ? <button type="button" disabled={busy} onClick={() => { setError(""); setCostReview({ itemId: i.id, lineNumber: i.line_number, expected: Number(i.estimated_unit_cost_cny), revised: Number(i.estimated_unit_cost_cny).toFixed(2), reason: "" }); }} className="ml-2 whitespace-nowrap text-xs text-blue-700 hover:underline disabled:opacity-40">复核成本</button> : null}</td><td className="px-3 py-3">{i.pi_amendment_cancelled_at ? "不计入" : Number(i.unit_price_cny) > 0 ? `${((Number(i.unit_price_cny) - Number(i.estimated_unit_cost_cny)) / Number(i.unit_price_cny) * 100).toFixed(2)}%` : "—"}{canCorrectLine ? <button type="button" onClick={() => { setError(""); setPriceCorrection({ itemId: i.id, lineNumber: i.line_number, expectedSale: Number(i.unit_price_cny), expectedCost: Number(i.estimated_unit_cost_cny), revisedSale: Number(i.unit_price_cny).toFixed(2), revisedCost: Number(i.estimated_unit_cost_cny).toFixed(2), reason: "" }); }} className="mt-1 block whitespace-nowrap text-xs text-blue-700 hover:underline">更正价格</button> : null}</td></> : null}
-                    <td className="px-3 py-3">
+                    {directPi ? <><td className="whitespace-nowrap px-3 py-3">¥{Number(i.unit_price_cny).toFixed(2)}</td><td className="whitespace-nowrap px-3 py-3">¥{Number(i.estimated_unit_cost_cny).toFixed(2)}{costReviewRequired && i.estimated_unit_cost_cny !== null ? <button type="button" disabled={busy} onClick={() => { setError(""); setCostReview({ itemId: i.id, lineNumber: i.line_number, expected: Number(i.estimated_unit_cost_cny), revised: Number(i.estimated_unit_cost_cny).toFixed(2), reason: "" }); }} className="ml-2 whitespace-nowrap text-xs text-blue-700 hover:underline disabled:opacity-40">复核成本</button> : null}</td><td className="whitespace-nowrap px-3 py-3">{i.pi_amendment_cancelled_at ? "不计入" : Number(i.unit_price_cny) > 0 ? `${((Number(i.unit_price_cny) - Number(i.estimated_unit_cost_cny)) / Number(i.unit_price_cny) * 100).toFixed(2)}%` : "—"}{canCorrectLine ? <button type="button" onClick={() => { setError(""); setPriceCorrection({ itemId: i.id, lineNumber: i.line_number, expectedSale: Number(i.unit_price_cny), expectedCost: Number(i.estimated_unit_cost_cny), revisedSale: Number(i.unit_price_cny).toFixed(2), revisedCost: Number(i.estimated_unit_cost_cny).toFixed(2), reason: "" }); }} className="mt-1 block whitespace-nowrap text-xs text-blue-700 hover:underline">更正价格</button> : null}</td></> : null}
+                    <td className="whitespace-nowrap px-3 py-3">
                       {o.currency} {Number(i.unit_price).toFixed(2)}
                     </td>
-                    <td className="px-3 py-3 font-semibold">
+                    <td className="whitespace-nowrap px-3 py-3 font-semibold">
                       {o.currency} {Number(i.amount).toFixed(2)}
                     </td>
                     {directPi ? <><PiInternalTextCell text={i.preparation_requirement} fallback="常规理货" label="理货要求" lineNumber={i.line_number} attachments={data.requirement_attachments || []}/><PiInternalTextCell text={i.internal_note} fallback="—" label="销售备注" lineNumber={i.line_number}/></> : null}
