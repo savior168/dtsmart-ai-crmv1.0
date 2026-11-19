@@ -14,5 +14,5 @@ export default async function AiUsagePage({ searchParams }:{ searchParams:Promis
   const initialModule = requested === "acquisition" && canViewAcquisition
     ? "acquisition"
     : canViewScreening ? "screening" : "acquisition";
-  return <AiUsageCenter canViewScreening={canViewScreening} canViewAcquisition={canViewAcquisition} canViewCostCenter={canViewCostCenter} initialModule={initialModule}/>;
+  return <AiUsageCenter canViewScreening={canViewScreening} canViewAcquisition={canViewAcquisition} canViewCostCenter={canViewCostCenter} canFilterScreeningOwner={hasPermission(account,"ai.usage.view_all")} canFilterAcquisitionOwner={hasPermission(account,"ai.acquisition.data_all")} initialModule={initialModule}/>;
 }

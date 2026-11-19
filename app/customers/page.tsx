@@ -4,5 +4,5 @@ import { hasPermission } from "@/lib/auth/current-user";
 
 export default async function CustomersPage() {
   const { account } = await protectPage("customers.mine.view");
-  return <CustomersView canCreate={hasPermission(account, "customers.create")} canImport={hasPermission(account, "imports.create")} />;
+  return <CustomersView canCreate={hasPermission(account, "customers.create")} canImport={hasPermission(account, "imports.create")} canFilterOwner={hasPermission(account, "customers.data_all")} />;
 }

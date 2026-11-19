@@ -8,10 +8,12 @@ import { PageHeader, button, input } from "@/components/ai-screening/ui";
 
 type UsageModule = "screening" | "acquisition";
 
-export function AiUsageCenter({ canViewScreening, canViewAcquisition, canViewCostCenter, initialModule }:{
+export function AiUsageCenter({ canViewScreening, canViewAcquisition, canViewCostCenter, canFilterScreeningOwner, canFilterAcquisitionOwner, initialModule }:{
   canViewScreening:boolean;
   canViewAcquisition:boolean;
   canViewCostCenter:boolean;
+  canFilterScreeningOwner:boolean;
+  canFilterAcquisitionOwner:boolean;
   initialModule:UsageModule;
 }) {
   const router = useRouter();
@@ -30,7 +32,7 @@ export function AiUsageCenter({ canViewScreening, canViewAcquisition, canViewCos
         description="在同一报表中按业务类型查询AI筛选与AI获客用量；两类业务独立核算、互不重复，调用与费用均可追溯到具体任务。"
         actions={<div className="flex flex-wrap justify-end gap-2">{canViewCostCenter?<Link href="/settings/costs" className={button}>费用中心</Link>:null}<Link href={active==="acquisition"?"/ai-acquisition":"/ai-screening"} className={button}>返回{active==="acquisition"?"AI获客":"AI筛选"}任务中心</Link></div>}
       />
-      {active==="acquisition" ? <AcquisitionUsageView embedded businessTypeControl={businessTypeControl}/> : <UsageView embedded businessTypeControl={businessTypeControl}/>}
+      {active==="acquisition" ? <AcquisitionUsageView embedded businessTypeControl={businessTypeControl} initialShowOwner={canFilterAcquisitionOwner}/> : <UsageView embedded businessTypeControl={businessTypeControl} initialShowOwner={canFilterScreeningOwner}/>}
     </div>
   </main>;
 }

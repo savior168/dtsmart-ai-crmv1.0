@@ -111,7 +111,7 @@ function releaseNotice(status: CustomerStatus) {
 }
 function releaseNeedsAcknowledgement(status: CustomerStatus) { return status === "FOLLOWING" || status === "QUOTE"; }
 
-export function CustomersView({ canCreate, canImport }: { canCreate: boolean; canImport: boolean }) {
+export function CustomersView({ canCreate, canImport, canFilterOwner = false }: { canCreate: boolean; canImport: boolean; canFilterOwner?: boolean }) {
   const router = useRouter();
   const [workspace, setWorkspace] = useState<CustomerWorkspace>("list");
   const [protectionCount, setProtectionCount] = useState<number | null>(null);
@@ -1211,8 +1211,8 @@ export function CustomersView({ canCreate, canImport }: { canCreate: boolean; ca
           </aside>
         )}
         </> : workspace === "protection"
-          ? <CustomerProtectionPanel onCount={setProtectionCount} scopeUserId={scopeUserId} onScopeUserIdChange={setScopeUserId} canExport={canExport} dashboardFilter={dashboardProtection ? { from: fromDate, to: toDate, country: countries[0] || "" } : undefined} onClearDashboardFilter={() => { setDashboardProtection(false); const url = new URL(window.location.href); url.searchParams.delete("dashboard"); window.history.replaceState(null, "", url); }} />
-          : <CustomerConflictsPanel onCount={setConflictCount} scopeUserId={scopeUserId} onScopeUserIdChange={setScopeUserId} canExport={canExport} />}
+          ? <CustomerProtectionPanel onCount={setProtectionCount} scopeUserId={scopeUserId} onScopeUserIdChange={setScopeUserId} canExport={canExport} canFilterOwner={canFilterOwner} dashboardFilter={dashboardProtection ? { from: fromDate, to: toDate, country: countries[0] || "" } : undefined} onClearDashboardFilter={() => { setDashboardProtection(false); const url = new URL(window.location.href); url.searchParams.delete("dashboard"); window.history.replaceState(null, "", url); }} />
+          : <CustomerConflictsPanel onCount={setConflictCount} scopeUserId={scopeUserId} onScopeUserIdChange={setScopeUserId} canExport={canExport} canFilterOwner={canFilterOwner} />}
         {releaseTarget ? <AppDialog title="释放客户到公海" description={`${releaseTarget.company_name} · ${stageLabels[releaseTarget.status]}`} onClose={()=>{setReleaseTarget(null);setReleaseReason("");setReleaseAcknowledged(false)}} width="max-w-md"><form onSubmit={event=>{event.preventDefault();if(releaseReason.trim() && (!releaseNeedsAcknowledgement(releaseTarget.status) || releaseAcknowledged))void releaseCustomer(releaseTarget,releaseReason.trim())}}><p className={`rounded-lg p-3 text-xs leading-5 ${releaseNeedsAcknowledgement(releaseTarget.status)?"bg-amber-50 text-amber-800":"bg-slate-50 text-slate-700"}`}>{releaseNotice(releaseTarget.status)}</p><label className="mt-4 block text-sm font-medium text-slate-700">释放原因（必填）<textarea autoFocus required minLength={5} maxLength={300} value={releaseReason} onChange={event=>setReleaseReason(event.target.value)} rows={4} placeholder="请客观说明释放原因，系统将保留审计记录" className="mt-2 w-full rounded-lg border border-slate-200 p-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"/></label>{releaseNeedsAcknowledgement(releaseTarget.status)?<label className="mt-3 flex cursor-pointer items-start gap-2 text-xs leading-5 text-slate-600"><input required type="checkbox" checked={releaseAcknowledged} onChange={event=>setReleaseAcknowledged(event.target.checked)} className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600"/><span>我已确认上述业务影响，并已完成必要的客户沟通或业务单据处理。</span></label>:null}<DialogActions onCancel={()=>{setReleaseTarget(null);setReleaseReason("");setReleaseAcknowledged(false)}} confirmLabel="确认释放" tone="danger"/></form></AppDialog> : null}
       </div>
     </main>
