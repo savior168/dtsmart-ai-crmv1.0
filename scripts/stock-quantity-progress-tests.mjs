@@ -41,6 +41,8 @@ assert.equal(stockItemProgressKey({ quantity: 10, received_quantity: 4, prepared
 assert.equal(stockItemProgressKey({ quantity: 10, received_quantity: 10, prepared_quantity: 0 }), "RECEIVED");
 assert.equal(stockItemProgressKey({ quantity: 10, received_quantity: 10, prepared_quantity: 4 }), "SORTING");
 assert.equal(stockItemProgressKey({ quantity: 10, received_quantity: 10, prepared_quantity: 10 }), "READY_TO_SHIP");
+assert.equal(stockItemProgressKey({ quantity: 10, received_quantity: 10, prepared_quantity: 10, shipped_quantity: 3 }), "PARTIAL_SHIPPED");
+assert.equal(stockItemProgressKey({ quantity: 10, received_quantity: 6, prepared_quantity: 6, shipped_quantity: 3 }), "PARTIAL_SHIPPED");
 assert.equal(stockItemProgressKey({ quantity: 10, received_quantity: 10, prepared_quantity: 10, shipped_quantity: 10 }), "SHIPPED");
 
 const scenario = physicalStockBuckets([

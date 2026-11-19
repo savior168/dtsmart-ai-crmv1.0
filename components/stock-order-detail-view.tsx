@@ -67,7 +67,7 @@ type CorrectionDraft = {
   revertStart: boolean;
 };
 type ShipmentDraft = {
-  itemIds: string[];
+  lines: Array<{ itemId: string; quantity: string }>;
   note: string;
   packaging: string;
   procurement: string;
@@ -142,7 +142,7 @@ type Payload = {
   requirement_attachments: PiRequirementAttachment[];
   event_count: number;
   expenses?: { packaging_cost_cny: number; procurement_expenses_cny: number; shipping_expenses_cny: number; updated_at: string } | null;
-  shipments?: Array<{ id: string; item_ids: string[]; packaging_cost_cny: number; procurement_expenses_cny: number; shipping_expenses_cny: number; handoff_note: string; created_at: string }>;
+  shipments?: Array<{ id: string; item_ids: string[]; shipment_lines: Array<{ item_id: string; quantity: number }> | null; packaging_cost_cny: number; procurement_expenses_cny: number; shipping_expenses_cny: number; handoff_note: string; created_at: string }>;
   shipment_feature_ready?: boolean;
   can_prepare: boolean;
   recalled_pi: boolean;
@@ -452,13 +452,14 @@ export function StockOrderDetailView({ id }: { id: string }) {
   }
   function openShipment(chosen: Item[]) {
     if (hasUnsavedQuantity) { setError("还有未保存的数量或供应商编码，请等待自动保存后重试"); return; }
-    if (!chosen.length || chosen.some((item) => item.received_quantity !== item.quantity
-      || item.prepared_quantity !== item.quantity || item.shipped_quantity !== 0)) {
-      setError("只能选择已整行回齐、完成理货且尚未交货代的产品");
+    if (!chosen.length || chosen.some((item) => item.prepared_quantity <= item.shipped_quantity)) {
+      setError("只能选择仍有已理货、未交货数量的产品");
       return;
     }
     setError("");
-    setShipmentDraft({ itemIds: chosen.map((item) => item.id), note: "", packaging: "", procurement: "", shipping: "" });
+    setShipmentDraft({ lines: chosen.map((item) => ({ itemId: item.id,
+      quantity: String(item.prepared_quantity - item.shipped_quantity) })),
+      note: "", packaging: "", procurement: "", shipping: "" });
   }
   async function confirmShipment() {
     if (!shipmentDraft || busy) return;
@@ -470,8 +471,18 @@ export function StockOrderDetailView({ id }: { id: string }) {
       setError("请填写交接信息和三项人民币费用；无费用填0，金额最多两位小数");
       return;
     }
+    if (shipmentDraft.lines.some((line) => {
+      const item = items.find((row) => row.id === line.itemId);
+      const quantity = Number(line.quantity);
+      return !item || !/^[1-9]\d*$/.test(line.quantity) || !Number.isSafeInteger(quantity)
+        || quantity > item.prepared_quantity - item.shipped_quantity;
+    })) {
+      setError("本次交货数量须为正整数，且不能超过对应产品已理货未交货数量");
+      return;
+    }
     const success = await request(`/api/stock-orders/${id}/ship`, "PATCH", {
-      item_ids: shipmentDraft.itemIds, expected_updated_at: orderVersion.current,
+      lines: shipmentDraft.lines.map((line) => ({ item_id: line.itemId, quantity: Number(line.quantity) })),
+      expected_updated_at: orderVersion.current,
       note: shipmentDraft.note.trim(), packaging_cost_cny: shipmentDraft.packaging,
       procurement_expenses_cny: shipmentDraft.procurement,
       shipping_expenses_cny: shipmentDraft.shipping,
@@ -479,7 +490,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
     if (success) setShipmentDraft(null);
   }
   async function openReceipt(item: Item) {
-    if (busy || item.shipped_quantity > 0 || item.received_quantity >= item.quantity) return;
+    if (busy || item.received_quantity >= item.quantity) return;
     setError("");
     try {
       const options = await loadActiveSuppliers();
@@ -507,7 +518,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
     return options;
   }
   async function openBatchReceipt() {
-    const eligible = selectedItems.filter((item) => item.shipped_quantity === 0 && item.received_quantity < item.quantity);
+    const eligible = selectedItems.filter((item) => item.received_quantity < item.quantity);
     if (busy || !eligible.length || hasUnsavedQuantity) {
       setError(hasUnsavedQuantity ? "请等待数量自动保存后再开始批量登记" : "请先勾选尚未交货代且仍有未回货数量的产品项");
       return;
@@ -764,11 +775,11 @@ export function StockOrderDetailView({ id }: { id: string }) {
   const costDifferenceTotal = completeCostDifference
     ? Math.round(procurementRows.reduce((sum, row) => sum + Number(row.difference) * Number(row.item.quantity || 0), 0) * 100) / 100
     : null;
-  const unshippedItems = items.filter((item) => item.shipped_quantity === 0);
+  const unshippedItems = items.filter((item) => item.shipped_quantity < item.quantity);
   const canShip = canExecute && data.shipment_feature_ready !== false && unshippedItems.length > 0 && unshippedItems.every((item) =>
     item.received_quantity === item.quantity && item.prepared_quantity === item.quantity);
   const selectedShippable = selectedItems.length > 0 && selectedItems.every((item) =>
-    item.received_quantity === item.quantity && item.prepared_quantity === item.quantity && item.shipped_quantity === 0);
+    item.prepared_quantity > item.shipped_quantity);
   return (
     <main className="p-4 lg:p-6">
       <div className="mx-auto max-w-[1660px]">
@@ -973,7 +984,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
                       </td>
                       <td className="px-2 py-2">
                         <div className="space-y-1"><span>{item.received_quantity}</span>
-                          {canExecute && canViewProcurement && item.shipped_quantity === 0 && item.received_quantity < item.quantity
+                          {canExecute && canViewProcurement && item.received_quantity < item.quantity
                             ? <button type="button" disabled={busy} onClick={() => void openReceipt(item)} className="block whitespace-nowrap rounded border border-cyan-300 px-2 py-1 text-xs text-cyan-800 disabled:opacity-40">登记回货</button> : null}
                         </div>
                       </td>
@@ -1045,15 +1056,15 @@ export function StockOrderDetailView({ id }: { id: string }) {
             <p className="mt-1 text-slate-600">回货须逐项登记供应商代码和本次数量；送货单号可后补，补齐前不可核对纸单金额或登记付款。理货进度可自动保存。</p>
             <div className="mt-3 flex flex-wrap items-center gap-3">
               <input value={progressNote} onChange={(event) => setProgressNote(event.target.value)} maxLength={1000} aria-label="本次仓库进度操作说明" placeholder="本次操作说明：数量更正原因或货代交接信息" className="h-10 min-w-64 flex-1 rounded-lg border bg-white px-3"/>
-              <button disabled={busy || hasUnsavedQuantity || selectedItems.every((item) => item.shipped_quantity > 0 || item.received_quantity >= item.quantity)} onClick={() => void openBatchReceipt()} className="h-10 rounded-lg border border-cyan-300 bg-white px-4 font-medium text-cyan-800 disabled:opacity-40">选中 {selectedItems.filter((item) => item.shipped_quantity === 0 && item.received_quantity < item.quantity).length} 项批量登记回货</button>
+              <button disabled={busy || hasUnsavedQuantity || selectedItems.every((item) => item.received_quantity >= item.quantity)} onClick={() => void openBatchReceipt()} className="h-10 rounded-lg border border-cyan-300 bg-white px-4 font-medium text-cyan-800 disabled:opacity-40">选中 {selectedItems.filter((item) => item.received_quantity < item.quantity).length} 项批量登记回货</button>
               <button disabled={busy || hasUnsavedQuantity || startableItems.length === 0} onClick={() => void runProgress("START", startableItems)} className="h-10 rounded-lg border border-blue-300 bg-white px-4 text-blue-800 disabled:opacity-40">选中 {startableItems.length} 项开始采购</button>
               <button disabled={busy || hasUnsavedQuantity || selectedItems.length === 0 || selectedItems.some((item) => item.received_quantity !== item.quantity)} onClick={() => setBatchStage("READY_TO_SHIP")} className="h-10 rounded-lg border border-violet-300 bg-white px-4 text-violet-800 disabled:opacity-40">选中 {selectedItems.length} 项标记理货完成</button>
-              <button disabled={busy || hasUnsavedQuantity || data.shipment_feature_ready === false || !selectedShippable} onClick={() => openShipment(selectedItems)} className="h-10 rounded-lg border border-emerald-300 bg-white px-4 font-medium text-emerald-800 disabled:opacity-40">选中 {selectedItems.length} 项交货代</button>
+              <button disabled={busy || hasUnsavedQuantity || data.shipment_feature_ready === false || !selectedShippable} onClick={() => openShipment(selectedItems)} className="h-10 rounded-lg border border-emerald-300 bg-white px-4 font-medium text-emerald-800 disabled:opacity-40">选中 {selectedItems.length} 项指定数量交货代</button>
               <button disabled={busy || hasUnsavedQuantity || !canShip} onClick={() => openShipment(unshippedItems)} className="h-10 rounded-lg bg-emerald-600 px-4 font-medium text-white disabled:opacity-40">{stockProgress.shipped_units ? "剩余产品交货代" : "整单交货代"}</button>
             </div>
-            {selectedItems.length ? <p className="mt-2 text-xs text-blue-800">已选择 {selectedItems.length} 项；交货代仅处理所选完整产品行。批量标记理货完成不会自动发货。</p> : null}
+            {selectedItems.length ? <p className="mt-2 text-xs text-blue-800">已选择 {selectedItems.length} 项；在交货确认窗口逐项填写本次件数，可分批交接同一产品。批量理货不会自动发货。</p> : null}
             {data.shipment_feature_ready === false ? <p role="status" className="mt-2 text-xs text-amber-800">交货代费用记录尚未就绪，暂不可发货；采购、回货和理货操作不受影响。</p> : null}
-            {!canShip ? <p className="mt-2 text-xs text-slate-500">整单交货代需要所有未发货产品完成理货；如只交接部分，请选择已理货的完整产品行。</p> : null}
+            {!canShip ? <p className="mt-2 text-xs text-slate-500">“剩余产品交货代”需全部剩余件数已理货；分批交接请选择已理货的产品项并指定件数。</p> : null}
           </section> : null}
           {canViewProcurement && data.delivery_notes?.length ? <section className="mx-5 mb-5 rounded-xl border bg-white p-4 text-sm"><div className="flex flex-wrap items-start justify-between gap-2"><div><h2 className="font-semibold">送货单纸单凭证</h2><p className="mt-1 text-xs text-slate-500">按供应商代码与送货单号去重；一张送货单关联多个 PI 时共享同一组照片。可在交货代前或之后补传。</p></div><span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-600">{data.delivery_notes.reduce((count, note) => count + note.attachments.length, 0)} 张照片 · {data.delivery_notes.filter((note) => note.attachments.length === 0).length} 张单待补</span></div><div className="mt-3 grid gap-2 xl:grid-cols-2">{data.delivery_notes.map((note) => <SupplierDeliveryNoteFiles key={note.id} note={note} canUpload={data.can_upload_delivery_note_files} onUploaded={() => void load()}/>)}</div></section> : null}
           {data.can_view_documents && !canViewProcurement && data.delivery_notes?.length ? <section className="mx-5 mb-5 rounded-xl border bg-white p-4 text-sm"><h2 className="font-semibold">送货单纸单凭证</h2><div className="mt-3 grid gap-2 xl:grid-cols-2">{data.delivery_notes.map((note) => <SupplierDeliveryNoteFiles key={note.id} note={note} canUpload={data.can_upload_delivery_note_files} onUploaded={() => void load()}/>)}</div></section> : null}
@@ -1155,9 +1166,10 @@ export function StockOrderDetailView({ id }: { id: string }) {
               <div className="flex justify-end gap-2 border-t pt-3"><button type="button" disabled={busy} onClick={() => setBatchReceiptDraft(null)} className="rounded-lg border px-4 py-2">取消</button><button type="submit" disabled={busy || batchReceiptDraft.some((line) => !line.supplierId)} className="rounded-lg bg-cyan-700 px-4 py-2 font-medium text-white disabled:opacity-40">{busy ? "整批提交中…" : `原子提交 ${batchReceiptDraft.length} 项回货`}</button></div>
             </form> : null}
           </AppDialog>
-          <AppDialog open={shipmentDraft !== null} title="确认交货代并记录本次费用" description="仅所选完整产品行会标记已交货代；三项费用为本次交接发生额，统一人民币，未发生请填0。" onClose={() => { if (!busy) { setShipmentDraft(null); setError(""); } }}>
+          <AppDialog open={shipmentDraft !== null} title="确认本批交货代数量与费用" description="逐项填写本次交接件数，不超过已理货未交货数量；三项费用只记录本批发生额，未发生请填0。" onClose={() => { if (!busy) { setShipmentDraft(null); setError(""); } }}>
             {shipmentDraft ? <form onSubmit={(event) => { event.preventDefault(); void confirmShipment(); }} className="space-y-4 text-sm">
-              <p className="rounded-lg bg-blue-50 p-3 text-blue-900">本次交接 {shipmentDraft.itemIds.length} 项、{items.filter((item) => shipmentDraft.itemIds.includes(item.id)).reduce((sum, item) => sum + Number(item.quantity), 0)} 件。请先核对实物和交接凭证。</p>
+              <p className="rounded-lg bg-blue-50 p-3 text-blue-900">本次交接 {shipmentDraft.lines.length} 项、{shipmentDraft.lines.reduce((sum, line) => sum + (Number(line.quantity) || 0), 0)} 件。请先核对实物和交接凭证。</p>
+              <div className="max-h-64 space-y-2 overflow-y-auto rounded-lg border p-2">{shipmentDraft.lines.map((line) => { const item = items.find((row) => row.id === line.itemId); if (!item) return null; const available = item.prepared_quantity - item.shipped_quantity; return <label key={line.itemId} className="flex items-center justify-between gap-3 rounded border px-3 py-2"><span className="min-w-0 truncate">第 {item.line_number} 项 · {item.model || item.item_name}<small className="block text-slate-500">已交 {item.shipped_quantity}/{item.quantity} · 本次最多 {available} 件</small></span><input required type="number" min={1} max={available} step={1} aria-label={`第 ${item.line_number} 项本次交货代数量`} value={line.quantity} onChange={(event) => setShipmentDraft((current) => current && { ...current, lines: current.lines.map((row) => row.itemId === line.itemId ? { ...row, quantity: event.target.value } : row) })} className="h-9 w-24 rounded border px-2 text-right"/></label>; })}</div>
               <label className="block">货代交接信息（必填）<textarea required maxLength={1000} value={shipmentDraft.note} onChange={(event) => setShipmentDraft((current) => current && { ...current, note: event.target.value })} placeholder="货代名称、交接时间、运单号或交接凭证" className="mt-1 min-h-20 w-full rounded-lg border px-3 py-2"/></label>
               <div className="grid gap-3 sm:grid-cols-3">{([
                 ["packaging", "包装费用"], ["shipping", "出货费用"], ["procurement", "其他费用"],
@@ -1259,7 +1271,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
                 <span>出货费用：¥{Number(data.expenses.shipping_expenses_cny).toFixed(2)}</span>
                 <span>其他费用：¥{Number(data.expenses.procurement_expenses_cny).toFixed(2)}</span>
               </div>
-              {data.shipments?.length ? <div className="mt-3 space-y-2 border-t pt-3">{data.shipments.map((shipment) => <div key={shipment.id} className="rounded-lg border bg-white p-3"><p className="font-medium">{new Date(shipment.created_at).toLocaleString("zh-CN")} · {shipment.item_ids.length} 项完整产品行</p><p className="mt-1 break-words text-slate-600">{shipment.handoff_note}</p><p className="mt-1 text-slate-600">包装费用 ¥{Number(shipment.packaging_cost_cny).toFixed(2)} · 出货费用 ¥{Number(shipment.shipping_expenses_cny).toFixed(2)} · 其他费用 ¥{Number(shipment.procurement_expenses_cny).toFixed(2)}</p></div>)}</div> : null}
+              {data.shipments?.length ? <div className="mt-3 space-y-2 border-t pt-3">{data.shipments.map((shipment) => <div key={shipment.id} className="rounded-lg border bg-white p-3"><p className="font-medium">{new Date(shipment.created_at).toLocaleString("zh-CN")} · {shipment.item_ids.length} 项{shipment.shipment_lines ? `、${shipment.shipment_lines.reduce((sum, line) => sum + Number(line.quantity || 0), 0)} 件` : "完整产品行（历史）"}</p>{shipment.shipment_lines ? <p className="mt-1 text-xs text-slate-600">{shipment.shipment_lines.map((line) => { const item = items.find((row) => row.id === line.item_id); return `${item ? `第 ${item.line_number} 项` : "产品"} ${line.quantity} 件`; }).join(" · ")}</p> : null}<p className="mt-1 break-words text-slate-600">{shipment.handoff_note}</p><p className="mt-1 text-slate-600">包装费用 ¥{Number(shipment.packaging_cost_cny).toFixed(2)} · 出货费用 ¥{Number(shipment.shipping_expenses_cny).toFixed(2)} · 其他费用 ¥{Number(shipment.procurement_expenses_cny).toFixed(2)}</p></div>)}</div> : null}
             </section>
           ) : null}
           <section className="border-t p-5">

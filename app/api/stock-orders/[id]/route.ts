@@ -124,7 +124,7 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
           .select("packaging_cost_cny,procurement_expenses_cny,shipping_expenses_cny,updated_at")
           .eq("stock_order_id", id).maybeSingle(),
         supabase.from("stock_order_shipments")
-          .select("id,item_ids,packaging_cost_cny,procurement_expenses_cny,shipping_expenses_cny,handoff_note,created_by,created_at")
+          .select("id,item_ids,shipment_lines,packaging_cost_cny,procurement_expenses_cny,shipping_expenses_cny,handoff_note,created_by,created_at")
           .eq("stock_order_id", id).order("created_at", { ascending: false }),
       ]);
       if (expenseResult.error) throw expenseResult.error;

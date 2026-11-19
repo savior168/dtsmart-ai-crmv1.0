@@ -82,6 +82,7 @@ export const STOCK_ITEM_PROGRESS = [
   { key: "RECEIVED", label: "已回齐待理货", tone: "bg-cyan-100 text-cyan-800" },
   { key: "SORTING", label: "理货中", tone: "bg-violet-100 text-violet-800" },
   { key: "READY_TO_SHIP", label: "已理货待交货代", tone: "bg-blue-100 text-blue-800" },
+  { key: "PARTIAL_SHIPPED", label: "部分已交货代", tone: "bg-emerald-50 text-emerald-800" },
   { key: "SHIPPED", label: "已交货代", tone: "bg-emerald-100 text-emerald-800" },
 ] as const;
 export type StockItemProgressKey = (typeof STOCK_ITEM_PROGRESS)[number]["key"];
@@ -92,6 +93,7 @@ export function stockItemProgressKey(item: PhysicalStockItem): StockItemProgress
   const prepared = Number(item.prepared_quantity || 0);
   const shipped = Number(item.shipped_quantity || 0);
   if (quantity > 0 && shipped === quantity) return "SHIPPED";
+  if (shipped > 0) return "PARTIAL_SHIPPED";
   if (quantity > 0 && prepared === quantity) return "READY_TO_SHIP";
   if (received > 0 && received < quantity) return prepared > shipped ? "PARTIAL_RECEIPT_SORTING" : "PARTIAL_RECEIPT";
   if (quantity > 0 && received === quantity) return prepared > 0 ? "SORTING" : "RECEIVED";
