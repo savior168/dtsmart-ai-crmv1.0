@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 const scopeSql = read("supabase/migrations/20261118120000_order_clerk_sales_assignments.sql");
-const customerScopeSql = read("supabase/migrations/20261119021736_clerk_assigned_customer_read.sql");
+const customerScopeSql = read("supabase/migrations/20261119023124_clerk_assigned_customer_read.sql");
 const dealSql = read("supabase/migrations/20261118121000_first_shipped_pi_stage_repair.sql");
 const create = read("app/api/orders/create-pi/route.ts");
 const choices = read("app/api/orders/pi-customers/route.ts");
