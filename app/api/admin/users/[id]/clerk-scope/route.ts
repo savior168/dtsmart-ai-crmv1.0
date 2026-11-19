@@ -2,12 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { authErrorStatus, requireAdmin } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function GET(_: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
     await requireAdmin();
-    const { id } = await context.params;
+    const { id: rawId } = await context.params;
+    const id = rawId.trim();
     if (!UUID.test(id)) throw new Error("用户编号无效");
     const admin = createAdminClient();
     const [{ data: clerk, error: clerkError }, { data: sellers, error: sellerError }, { data: assignments, error: assignmentError }] = await Promise.all([
@@ -29,7 +30,8 @@ export async function GET(_: NextRequest, context: { params: Promise<{ id: strin
 export async function PATCH(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
     const { supabase } = await requireAdmin();
-    const { id } = await context.params;
+    const { id: rawId } = await context.params;
+    const id = rawId.trim();
     const body = await request.json() as { sales_user_ids?: unknown; reason?: unknown };
     const ids = body.sales_user_ids;
     const reason = typeof body.reason === "string" ? body.reason.trim() : "";

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { activeDescendantIds } from "@/lib/auth/subordinate-scope";
+import { assignedSalesIds } from "@/lib/auth/order-clerk-scope";
 import { uploadWorkflowEvidence, validateWorkflowEvidence } from "@/lib/customer-workflow-evidence";
 import { countryFilterRawValues } from "@/lib/countries";
 
@@ -14,6 +15,8 @@ export async function GET(request: NextRequest) {
     const scopeUserId = await requestedOwnerId(request, account, "customers.data_all");
     const teamOwnerIds = account.role === "SUPERVISOR" && scopeUserId === null
       ? await activeDescendantIds(account.id) : null;
+    const clerkOwnerIds = account.role === "ORDER_CLERK" && scopeUserId === null
+      ? await assignedSalesIds(account.id) : null;
     const dashboardMode = request.nextUrl.searchParams.get("dashboard") === "1";
     const dashboardFrom = request.nextUrl.searchParams.get("from") || "";
     const dashboardTo = request.nextUrl.searchParams.get("to") || "";
@@ -42,6 +45,9 @@ export async function GET(request: NextRequest) {
     } else if (teamOwnerIds) {
       protectionsQuery = protectionsQuery.in("owner_id", teamOwnerIds);
       expiredQuery = expiredQuery.in("owner_id", teamOwnerIds);
+    } else if (clerkOwnerIds) {
+      protectionsQuery = clerkOwnerIds.length ? protectionsQuery.in("owner_id", clerkOwnerIds) : protectionsQuery.eq("owner_id", "00000000-0000-0000-0000-000000000000");
+      expiredQuery = clerkOwnerIds.length ? expiredQuery.in("owner_id", clerkOwnerIds) : expiredQuery.eq("owner_id", "00000000-0000-0000-0000-000000000000");
     }
     const [protections, expired] = await Promise.all([protectionsQuery, dashboardMode ? Promise.resolve({ data: [], error: null }) : expiredQuery]);
     if (protections.error) throw protections.error;

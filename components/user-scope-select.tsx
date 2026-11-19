@@ -22,7 +22,7 @@ export function UserScopeSelect({
   allLabel?: string;
   filterLabel?: string;
   permission: string;
-  kind?: "owner" | "pi_creator";
+  kind?: "owner" | "pi_creator" | "sales_owner";
   initializeDefault?: boolean;
   custom?: boolean;
 }) {

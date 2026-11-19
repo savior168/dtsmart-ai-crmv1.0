@@ -13,9 +13,16 @@ async function warehouseAccess() {
   return context;
 }
 
+async function readAccess() {
+  const context = await requirePermission("stock.view");
+  if (!["WAREHOUSE", "ADMIN"].includes(context.account.role)
+    || !hasPermission(context.account, "supplier.documents.view")) throw new Error("FORBIDDEN");
+  return context;
+}
+
 export async function GET(request: NextRequest) {
   try {
-    const { supabase } = await warehouseAccess();
+    const { supabase } = await readAccess();
     const page = Number(request.nextUrl.searchParams.get("page") || "1");
     if (!Number.isSafeInteger(page) || page < 1 || page > 2000) throw new Error("分页参数无效");
     const orderId = request.nextUrl.searchParams.get("order_id") || "";

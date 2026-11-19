@@ -349,10 +349,10 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
         })}
       </section>
       {summaryError?<div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"><span>获客统计暂不可用：{summaryError}。下方任务列表仍可查看。</span><button type="button" className="font-medium underline" onClick={()=>setSummaryRetry(value=>value+1)}>重试统计</button></div>:null}
-      <section className={`${panel} flex flex-wrap items-center gap-x-5 gap-y-2 px-4 py-2.5 text-xs text-slate-600`} aria-label="AI获客关联客户统计">
-        <b className="cursor-help text-slate-800" title="统计口径：仅统计获客任务关联客户，不代表全系统公海库存。历史入池结果、历史结果差额、仍关联客户的结果、重复关联记录、获客关联的当前公海客户、已关联但不在当前公海、获客关联待认领、获客关联已认领均按当前筛选计算。">关联公海统计 <CircleHelp size={13} className="inline align-[-2px] text-slate-400"/></b>
-        <span title={`当前仍关联客户的入池结果 ${summary?formatNumber(summary.accepted):"—"} 条，减去重复关联记录 ${summary?formatNumber(summary.repeated_results):"—"} 条，再减去不在公海的客户 ${summary?formatNumber(summary.out_of_pool_customers):"—"} 位。`}>当前公海客户 <b>{summary?formatNumber(summary.current_customers):"—"}</b></span>
-        <span title="当前筛选范围内获客任务关联、且公海状态为可认领的客户；并非全系统待认领总数。">待认领 <b>{summary?formatNumber(summary.available_customers):"—"}</b></span>
+      <section className={`${panel} flex flex-wrap items-center gap-x-5 gap-y-2 px-4 py-2.5 text-xs text-slate-600`} aria-label="AI获客任务关联客户统计">
+        <b className="cursor-help text-slate-800" title="仅统计当前筛选的获客任务所关联客户，不是客户公海全来源总数。公海页的待认领还要求完成 AI 评分且达到 60 分。">任务关联公海客户 <CircleHelp size={13} className="inline align-[-2px] text-slate-400"/></b>
+        <span title={`获客任务仍关联的入池结果 ${summary?formatNumber(summary.accepted):"—"} 条，减去重复关联 ${summary?formatNumber(summary.repeated_results):"—"} 条及不在公海的客户 ${summary?formatNumber(summary.out_of_pool_customers):"—"} 位；包含未认领和已认领。`}>当前关联 <b>{summary?formatNumber(summary.current_customers):"—"}</b></span>
+        <span title="任务关联且公海状态为可认领的未归属客户；这里不按 AI 评分筛除，因此可能比客户公海页面的可认领口径多出少量未达标客户。">其中未认领 <b>{summary?formatNumber(summary.available_customers):"—"}</b></span>
         <span title="当前筛选范围内获客任务关联、且公海状态为已认领的客户。">已认领 <b>{summary?formatNumber(summary.claimed_customers):"—"}</b></span>
         <button type="button" disabled={!summary} onClick={()=>{setOutOfPoolPage(1);setOutOfPoolOpen(true)}} title="仍有关联入池结果，但客户不在当前公海；点击查看逐项原因。" className="font-medium text-blue-700 hover:underline disabled:text-slate-400 disabled:no-underline">不在公海 {summary?formatNumber(summary.out_of_pool_customers):"—"} · 查看</button>
       </section>

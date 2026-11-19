@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 type Seller = { id: string; name: string | null; email: string; role: string; status: string };
 
 export function ClerkSalesScopeEditor({ clerkId }: { clerkId: string }) {
+  const normalizedClerkId = clerkId.trim();
   const [sellers, setSellers] = useState<Seller[]>([]);
   const [assigned, setAssigned] = useState<string[]>([]);
   const [initial, setInitial] = useState<string[]>([]);
@@ -18,7 +19,7 @@ export function ClerkSalesScopeEditor({ clerkId }: { clerkId: string }) {
   const load = useCallback(async (signal?: AbortSignal) => {
     setLoading(true); setError("");
     try {
-      const response = await fetch(`/api/admin/users/${encodeURIComponent(clerkId)}/clerk-scope`, { cache: "no-store", signal });
+      const response = await fetch(`/api/admin/users/${encodeURIComponent(normalizedClerkId)}/clerk-scope`, { cache: "no-store", signal });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || "授权范围加载失败");
       if (signal?.aborted) return;
@@ -31,7 +32,7 @@ export function ClerkSalesScopeEditor({ clerkId }: { clerkId: string }) {
       setSellers([]);
       setError(caught instanceof Error ? caught.message : "授权范围加载失败");
     } finally { if (!signal?.aborted) setLoading(false); }
-  }, [clerkId]);
+  }, [normalizedClerkId]);
 
   useEffect(() => { const controller = new AbortController(); void load(controller.signal); return () => controller.abort(); }, [load]);
 
@@ -43,7 +44,7 @@ export function ClerkSalesScopeEditor({ clerkId }: { clerkId: string }) {
     setError("");
     setSuccess("");
     try {
-      const response = await fetch(`/api/admin/users/${clerkId}/clerk-scope`, {
+      const response = await fetch(`/api/admin/users/${encodeURIComponent(normalizedClerkId)}/clerk-scope`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sales_user_ids: assigned, reason: reason.trim() }),
       });

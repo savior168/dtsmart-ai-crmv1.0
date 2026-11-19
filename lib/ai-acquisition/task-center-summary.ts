@@ -48,8 +48,8 @@ export async function loadAcquisitionTaskSummary(admin: ReturnType<typeof create
     const total = Number(firstPage.count || 0);
     // Keep every database request under the 1000-row API limit, but fetch
     // independent pages in bounded waves instead of serial round trips.
-    for (let rowOffset = 1000; rowOffset < total; rowOffset += 4000) {
-      const offsets = [0, 1000, 2000, 3000].map((step) => rowOffset + step).filter((value) => value < total);
+    for (let rowOffset = 1000; rowOffset < total; rowOffset += 8000) {
+      const offsets = Array.from({ length: 8 }, (_, index) => rowOffset + index * 1000).filter((value) => value < total);
       const pages = await Promise.all(offsets.map((value) => loadPage(value)));
       for (const page of pages) {
         if (page.error) throw page.error;
@@ -67,10 +67,10 @@ export async function loadAcquisitionTaskSummary(admin: ReturnType<typeof create
   for (const candidate of linkedAccepted) acceptedByTask[candidate.task_id] = (acceptedByTask[candidate.task_id] || 0) + 1;
   const acceptedCustomerIds = [...new Set(linkedAccepted.map((row) => String(row.imported_customer_id)))];
   const customerProfiles: Array<{id:string;company_name:string|null;deleted_at:string|null;acquisition_scope:string|null;pool_status:string|null;status:string|null;owner_id:string|null}> = [];
-  // Profile lookups are independent. Fetch four bounded batches concurrently
-  // so the summary no longer waits for every 200-customer round trip in turn.
-  for (let offset = 0; offset < acceptedCustomerIds.length; offset += 800) {
-    const batches = Array.from({ length: 4 }, (_, index) => acceptedCustomerIds.slice(offset + index * 200, offset + (index + 1) * 200))
+  // Profile lookups are independent; keep request size bounded while avoiding
+  // a long serial chain for task centers with thousands of accepted results.
+  for (let offset = 0; offset < acceptedCustomerIds.length; offset += 1600) {
+    const batches = Array.from({ length: 8 }, (_, index) => acceptedCustomerIds.slice(offset + index * 200, offset + (index + 1) * 200))
       .filter((ids) => ids.length > 0);
     const pages = await Promise.all(batches.map((ids) => admin.from("customers")
       .select("id,company_name,deleted_at,acquisition_scope,pool_status,status,owner_id")

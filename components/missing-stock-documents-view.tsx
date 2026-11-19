@@ -22,7 +22,7 @@ async function fetchAll<T>(path: string): Promise<T[]> {
   throw new Error("补录清单超过分页上限，请联系管理员");
 }
 
-export function MissingStockDocumentsView({ showLegacySources = false }: { showLegacySources?: boolean }) {
+export function MissingStockDocumentsView({ showLegacySources = false, canEditLegacySources = false }: { showLegacySources?: boolean; canEditLegacySources?: boolean }) {
   const [rows, setRows] = useState<QueueRow[]>([]);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
@@ -122,7 +122,7 @@ export function MissingStockDocumentsView({ showLegacySources = false }: { showL
                   {detail.delivery_notes.filter((note) => note.number_pending || !note.attachments.length).map((note) => <SupplierDeliveryNoteFiles key={note.id} note={note} canUpload={detail.can_upload_delivery_note_files} onUploaded={() => { void loadDetail(row.stock_order_id); void load(); }}/>)}
                 </div></div> : row.legacy_count > 0 ? <p className="text-amber-800">请在下方按产品核对供应商、真实送货单号和采购价；关联后可直接上传照片。</p> : row.missing_number_count || row.missing_image_count ? <p className="text-amber-800">尚无可补录的关联送货单或历史实收来源，请打开备货单核对回货记录。</p> : null}
               </>}
-              {showLegacySources && row.legacy_count > 0 ? <LegacySupplierSourcesView orderId={row.stock_order_id} onUpdated={() => { void load(); void loadDetail(row.stock_order_id); }}/> : null}
+              {showLegacySources && row.legacy_count > 0 ? <LegacySupplierSourcesView orderId={row.stock_order_id} readOnly={!canEditLegacySources} onUpdated={() => { void load(); void loadDetail(row.stock_order_id); }}/> : null}
               <Link href={`/stock-orders/${row.stock_order_id}`} target="_blank" rel="noopener noreferrer" className="inline-block text-xs text-blue-700 hover:underline">查看完整备货单</Link>
             </div></td></tr> : null}
           </Fragment>) : <tr><td colSpan={3} className="p-8 text-center text-slate-600">{rows.length ? "没有符合筛选条件的待补录事项" : "当前没有待补录事项"}</td></tr>}

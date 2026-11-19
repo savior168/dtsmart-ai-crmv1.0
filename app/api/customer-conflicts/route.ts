@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { authErrorStatus, requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { activeDescendantIds } from "@/lib/auth/subordinate-scope";
+import { assignedSalesIds } from "@/lib/auth/order-clerk-scope";
 import { customerLookupIdentityKeys } from "@/lib/import-dedupe";
 
 type ConflictRow = {
@@ -130,6 +131,8 @@ export async function GET(request: NextRequest) {
     const scopeUserId = await requestedOwnerId(request, account, "customers.data_all");
     const teamOwnerIds = account.role === "SUPERVISOR" && scopeUserId === null
       ? new Set(await activeDescendantIds(account.id)) : null;
+    const clerkOwnerIds = account.role === "ORDER_CLERK"
+      ? new Set(await assignedSalesIds(account.id)) : null;
     const summaryOnly = request.nextUrl.searchParams.get("summary") === "1";
     const tableRows: ConflictRow[] = [];
     let tableAvailable = true;
@@ -184,8 +187,11 @@ export async function GET(request: NextRequest) {
     const current = aggregateOpenConflicts(currentRows);
     // The submitter filter determines whether a customer row is included; it
     // must not truncate the row's complete submitter list.
-    const scoped = scopeUserId ? current.filter((item) => item.submitter_ids?.includes(scopeUserId))
-      : teamOwnerIds ? current.filter((item) => item.submitter_ids?.some((id) => teamOwnerIds.has(id))) : current;
+    const clerkVisible = clerkOwnerIds ? current.filter((item) => item.customer_id
+      && clerkOwnerIds.has(ownerByCustomer.get(item.customer_id) || "")) : current;
+    const scoped = scopeUserId ? clerkVisible.filter((item) => item.submitter_ids?.includes(scopeUserId))
+      : teamOwnerIds ? clerkVisible.filter((item) => item.submitter_ids?.some((id) => teamOwnerIds.has(id)))
+        : clerkOwnerIds ? clerkVisible.filter((item) => item.submitter_ids?.some((id) => clerkOwnerIds.has(id))) : clerkVisible;
     if (summaryOnly) return NextResponse.json({ count: scoped.length }, { headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=60" } });
     const scopedCustomerIds = new Set(scoped.map((item) => item.customer_id).filter(Boolean));
     return NextResponse.json({ data: await enrichConflicts(scoped, customers.filter((item) => scopedCustomerIds.has(item.id))), count: scoped.length });

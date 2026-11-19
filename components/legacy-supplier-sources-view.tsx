@@ -18,7 +18,7 @@ type Draft = { row: Row; supplierId: string; noteNumber: string; date: string; q
 type BatchDraft = { orderRows: Row[]; selectedIds: string[]; supplierId: string; noteNumber: string;
   date: string; quantities: Record<string, string>; prices: Record<string, string>; confirmed: boolean; adjustDetails: boolean };
 
-export function LegacySupplierSourcesView({ orderId, onUpdated }: { orderId?: string; onUpdated?: () => void } = {}) {
+export function LegacySupplierSourcesView({ orderId, onUpdated, readOnly = false }: { orderId?: string; onUpdated?: () => void; readOnly?: boolean } = {}) {
   const [rows, setRows] = useState<Row[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [count, setCount] = useState(0);
@@ -45,6 +45,7 @@ export function LegacySupplierSourcesView({ orderId, onUpdated }: { orderId?: st
   }, [page, orderId]);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
+    if (readOnly) return;
     let cancelled = false;
     async function loadSuppliers() {
       try {
@@ -63,7 +64,7 @@ export function LegacySupplierSourcesView({ orderId, onUpdated }: { orderId?: st
     }
     void loadSuppliers();
     return () => { cancelled = true; };
-  }, []);
+  }, [readOnly]);
 
   async function showLinkedNote(stockOrderId: string, noteId: string) {
     const response = await fetch(`/api/stock-orders/${stockOrderId}`, { cache: "no-store" }).catch(() => null);
@@ -149,7 +150,7 @@ export function LegacySupplierSourcesView({ orderId, onUpdated }: { orderId?: st
     {newNote ? <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3"><SupplierDeliveryNoteFiles note={newNote} canUpload onUploaded={() => { setNewNote(null); setMessage("送货单照片已保存，可继续核对其他历史来源。"); void load(); onUpdated?.(); }}/></div> : null}
     <div className="mt-3 space-y-2">{loading ? <p className="p-5 text-center text-sm text-slate-500">加载中…</p> : error ? null : grouped.size ? [...grouped].map(([groupOrderId, orderRows]) => <div key={groupOrderId} className="rounded-lg border text-sm">
       {!orderId ? <div className="flex flex-wrap items-center justify-between gap-3 p-3"><div><Link href={`/stock-orders/${groupOrderId}`} className="font-medium text-blue-700 hover:underline">{orderRows[0].order.warehouse_reference_number || orderRows[0].order.order_number}</Link><span className="ml-3 text-slate-600">待补 {orderRows.length} 项 · {orderRows.reduce((sum, row) => sum + row.quantity, 0)} 件</span></div><button type="button" aria-expanded={expandedOrder === groupOrderId} aria-controls={`legacy-items-${groupOrderId}`} onClick={() => setExpandedOrder((current) => current === groupOrderId ? null : groupOrderId)} className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-900">{expandedOrder === groupOrderId ? "收起产品" : "展开补录产品"}</button></div> : <p className="px-3 pt-3 text-xs font-medium text-amber-900">历史实收来源 · 待补 {orderRows.length} 项 / {orderRows.reduce((sum, row) => sum + row.quantity, 0)} 件</p>}
-      {(expandedOrder === groupOrderId || Boolean(orderId)) && orderRows.length > 1 ? <div className="flex justify-end border-t px-3 pt-3"><button type="button" onClick={() => openBatch(orderRows)} className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-800">同送货单批量补录 {orderRows.length} 项</button></div> : null}
+      {(expandedOrder === groupOrderId || Boolean(orderId)) && orderRows.length > 1 && !readOnly ? <div className="flex justify-end border-t px-3 pt-3"><button type="button" onClick={() => openBatch(orderRows)} className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-800">同送货单批量补录 {orderRows.length} 项</button></div> : null}
       {(expandedOrder === groupOrderId || Boolean(orderId)) ? <div id={`legacy-items-${groupOrderId}`} className="space-y-2 border-t bg-slate-50/60 p-3">
       {batchDraft?.orderRows[0]?.order.id === groupOrderId ? <div className="rounded-lg border border-blue-200 bg-white p-3 text-xs">
         <p className="font-semibold text-blue-900">同一张送货单批量补录 · 任一行失败则全部不保存</p>
@@ -169,7 +170,7 @@ export function LegacySupplierSourcesView({ orderId, onUpdated }: { orderId?: st
         <div className="mt-3 flex gap-2"><button type="button" disabled={busy || !suppliers.length} onClick={() => void submitBatch()} className="rounded-lg bg-blue-600 px-4 py-2 font-medium text-white disabled:opacity-50">{busy ? "保存中…" : "批量确认关联"}</button><button type="button" disabled={busy} onClick={() => setBatchDraft(null)} className="rounded-lg border px-4 py-2">取消</button></div>
       </div> : null}
       {orderRows.sort((a, b) => a.item.line_number - b.item.line_number).map((row) => <div key={row.stock_order_item_id} className="rounded-lg border bg-white p-3">
-      <div className="flex flex-wrap items-center justify-between gap-2"><div><span className="font-medium">第 {row.item.line_number} 行 · {[row.item.item_name, row.item.brand, row.item.model, row.item.quality].filter(Boolean).join(" / ") || "产品项"}</span><small className="ml-2 text-amber-800">待归属 {row.quantity} 件 · 已实收 {row.item.received_quantity} 件</small></div><button type="button" onClick={() => { setError(""); setNewNote(null); setBatchDraft(null); setDraft({ row, supplierId: suppliers.find((supplier) => supplier.system_code === row.item.warehouse_supplier_code)?.id || "", noteNumber: "", date: "", quantity: String(row.quantity), unitPrice: row.item.procurement_cost_confirmed ? Number(row.item.procurement_cost).toFixed(2) : "", adjustDetails: !row.item.procurement_cost_confirmed }); }} className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-900">单项补充</button></div>
+      <div className="flex flex-wrap items-center justify-between gap-2"><div><span className="font-medium">第 {row.item.line_number} 行 · {[row.item.item_name, row.item.brand, row.item.model, row.item.quality].filter(Boolean).join(" / ") || "产品项"}</span><small className="ml-2 text-amber-800">待归属 {row.quantity} 件 · 已实收 {row.item.received_quantity} 件</small></div>{readOnly ? <span className="text-xs text-slate-600">请仓库员核对并补录</span> : <button type="button" onClick={() => { setError(""); setNewNote(null); setBatchDraft(null); setDraft({ row, supplierId: suppliers.find((supplier) => supplier.system_code === row.item.warehouse_supplier_code)?.id || "", noteNumber: "", date: "", quantity: String(row.quantity), unitPrice: row.item.procurement_cost_confirmed ? Number(row.item.procurement_cost).toFixed(2) : "", adjustDetails: !row.item.procurement_cost_confirmed }); }} className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-900">单项补充</button>}</div>
       {draft?.row.stock_order_item_id === row.stock_order_item_id ? <div className="mt-3 grid gap-2 border-t pt-3 sm:grid-cols-2 xl:grid-cols-5">
         <label className="text-xs">供应商代码<AppSelect aria-label="历史来源供应商" required forceSearch value={draft.supplierId} onChange={(event) => setDraft({ ...draft, supplierId: event.target.value })} className="mt-1 h-9 w-full" placeholderValue=""><option value="">选择已核对供应商</option>{suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.system_code}</option>)}</AppSelect></label>
         <label className="text-xs">真实送货单号<input aria-label="历史来源送货单号" required maxLength={100} value={draft.noteNumber} onChange={(event) => setDraft({ ...draft, noteNumber: event.target.value })} className="mt-1 h-9 w-full rounded border px-2"/></label>

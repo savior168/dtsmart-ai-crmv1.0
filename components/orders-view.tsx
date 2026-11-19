@@ -224,7 +224,7 @@ export function OrdersView({ initialFilters = {} }: { initialFilters?: { status?
           </p>
         </header>
         <AppFilterBar>
-          <label className="relative min-w-64 flex-1 xl:min-w-[320px]">
+          <label className="relative min-w-60 flex-1 xl:min-w-[240px]">
             <Search
               className="absolute left-3 top-3 text-slate-400"
               size={17}
@@ -239,7 +239,7 @@ export function OrdersView({ initialFilters = {} }: { initialFilters?: { status?
           <AppSelect
             value={CURRENT_PI_STATUSES.includes(status as typeof CURRENT_PI_STATUSES[number]) ? status : ""}
             onChange={(e) => { setStatus(e.target.value); setPage(1); }}
-            className={appFieldClass}
+            className={`${appFieldClass} xl:w-[148px]`}
             aria-label="按订单状态筛选"
           >
             <option value="">全部订单状态</option>
@@ -249,15 +249,15 @@ export function OrdersView({ initialFilters = {} }: { initialFilters?: { status?
               </option>
             ))}
           </AppSelect>
-          <AppSelect value={country} onChange={(e) => { setCountry(e.target.value); setPage(1); }} className={appFieldClass} aria-label="按目的国家筛选" forceSearch>
+          <AppSelect value={country} onChange={(e) => { setCountry(e.target.value); setPage(1); }} className={`${appFieldClass} xl:w-[132px]`} aria-label="按目的国家筛选" forceSearch>
             <option value="">全部目的国家</option>{COUNTRY_OPTIONS.map((option) => <option key={option.code} value={option.code}>{option.name}</option>)}
           </AppSelect>
-          <AppSelect value={currency} onChange={(e) => { setCurrency(e.target.value); setPage(1); }} className={appFieldClass} aria-label="按付款币种筛选" forceSearch>
+          <AppSelect value={currency} onChange={(e) => { setCurrency(e.target.value); setPage(1); }} className={`${appFieldClass} xl:w-[132px]`} aria-label="按付款币种筛选" forceSearch>
             <option value="">全部付款币种</option>{QUOTE_CURRENCIES.map(([code, name]) => <option key={code} value={code}>{code} · {name}</option>)}
           </AppSelect>
           <CompactDateRange label="创建日期" fromLabel="创建开始日期" toLabel="创建结束日期" from={dateFrom} to={dateTo} onFromChange={(value) => { setDateFrom(value); setPage(1); }} onToChange={(value) => { setDateTo(value); setPage(1); }} onMonthRangeApply={({ from, to }) => { setDateFrom(from); setDateTo(to); setPage(1); }}/>
-          <UserScopeSelect permission="orders.data_all" value={userId} onChange={(value) => { setUserId(value); setPage(1); }} className={`${appFieldClass} min-w-52`} filterLabel="所属销售员" custom/>
-          {canFilterCreator ? <UserScopeSelect permission="orders.data_all" kind="pi_creator" value={creatorId} onChange={(value) => { setCreatorId(value); setPage(1); }} className={`${appFieldClass} min-w-52`} filterLabel="制单人" allLabel="全部制单人" custom/> : null}
+          <UserScopeSelect permission="orders.data_all" kind="sales_owner" value={userId} onChange={(value) => { setUserId(value); setPage(1); }} className={`${appFieldClass} xl:w-[176px]`} filterLabel="所属销售员" custom/>
+          {canFilterCreator ? <UserScopeSelect permission="orders.data_all" kind="pi_creator" value={creatorId} onChange={(value) => { setCreatorId(value); setPage(1); }} className={`${appFieldClass} xl:w-[176px]`} filterLabel="制单人" allLabel="全部制单人" custom/> : null}
           <button
             onClick={() => {
               setQ("");

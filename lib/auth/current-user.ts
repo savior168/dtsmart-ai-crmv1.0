@@ -171,6 +171,7 @@ export async function requestedOwnerId(request: Request, account: CurrentAccount
       .eq("id", requested).in("role", ["SALES", "SUPERVISOR"]).eq("status", "ACTIVE").maybeSingle();
     if (error) throw error;
     if (!data) throw new Error("FORBIDDEN");
+    await requireAssignedSales(account.id, requested);
     return requested;
   }
   if (account.role === "ORDER_CLERK" && ["orders.data_all", "stock.data_all"].includes(dataPermission)) {

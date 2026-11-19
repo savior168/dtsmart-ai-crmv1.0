@@ -48,7 +48,9 @@ assert.match(legacySourcesView, /showLinkedNote[\s\S]*body\.delivery_notes[\s\S]
 assert.match(legacySourcesApi, /"lines" in body[\s\S]*link_legacy_supplier_receipt_sources_batch/, "批量补录必须走单次事务 RPC");
 assert.match(batchLegacyMigration, /security invoker[\s\S]*jsonb_array_length\(p_lines\) not between 1 and 50[\s\S]*order_id <> current_order_id[\s\S]*link_legacy_supplier_receipt_source/, "批量补录须限制同 PI、50 项且复用单项权限与审计校验");
 assert.match(legacySourcesApi, /const orderIds = \[\.\.\.new Set\(baselines[\s\S]*visibleOrderIds = scopedOrderIds\.slice\(\(page - 1\) \* 50, page \* 50\)/, "历史来源应按 PI 分页，避免同一 PI 被拆到两页");
-assert.match(legacySourcesApi, /const \{ supabase \} = await warehouseAccess\(\)[\s\S]*supabase\.from\("stock_orders"\)[\s\S]*orderIds\.filter\(\(id\) => byOrder\.has\(id\)\)/, "历史来源清单须限制在登录用户可查看的备货单范围");
+assert.match(legacySourcesApi, /export async function GET[\s\S]*const \{ supabase \} = await readAccess\(\)[\s\S]*supabase\.from\("stock_orders"\)[\s\S]*orderIds\.filter\(\(id\) => byOrder\.has\(id\)\)/, "历史来源清单须限制在登录用户可查看的备货单范围");
+assert.match(legacySourcesApi, /export async function POST[\s\S]*const \{ supabase \} = await warehouseAccess\(\)/, "补录写入仍须限定仓库员");
+assert.match(missingDocumentsView, /<LegacySupplierSourcesView orderId=\{row\.stock_order_id\} readOnly=\{!canEditLegacySources\}/, "管理员可核对缺失明细但不得获得仓库补录写权限");
 assert.match(read("components/warehouse-dashboard.tsx"), /order\.warehouse_reference_number \|\| "未填写订单编号"/, "仓库工作台须显示制单人填写的订单编号");
 assert.match(read("components/stock-orders-view.tsx"), /results\.some\(count=>count>0\)[\s\S]*pendingRemediation \? <Link href="\/stock-orders\/missing-documents"[^>]*>待补录备货单<\/Link>/, "备货单列表仅在存在待补录项目时显示清晰入口");
 assert.match(read("components/missing-stock-documents-view.tsx"), /href=\{`\/stock-orders\/\$\{row\.stock_order_id\}`\} target="_blank" rel="noopener noreferrer"/, "待补录清单中的 PI 编号须安全地在新页签打开对应备货单");

@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { dedupeVerifiedContactRows, normalizeEmailStrict, normalizePhoneInternational } from "@/lib/ai/contact-intelligence";
 import { canReadCustomerAiEvidence } from "@/lib/ai/customer-evidence-access";
 import { activeDescendantIds } from "@/lib/auth/subordinate-scope";
+import { requireAssignedSales } from "@/lib/auth/order-clerk-scope";
 
 function cleanStoredDiscoveredValues(value: unknown, type: "EMAIL" | "PHONE", country: unknown, originals: unknown[]) {
   const normalize = (item: unknown) => type === "EMAIL" ? normalizeEmailStrict(String(item || "")) : normalizePhoneInternational(String(item || ""), String(country || ""));
@@ -38,7 +39,13 @@ export async function GET(_: NextRequest, context: { params: Promise<{ id: strin
     const subordinateIds = account.role === "SUPERVISOR" && hasPermission(account, "customers.data_all")
       ? await activeDescendantIds(account.id) : [];
     const subordinateOwner = Boolean(customer.owner_id && subordinateIds.includes(customer.owner_id));
-    const canReadAll = account.role === "ADMIN" || (account.role === "ORDER_CLERK" && Boolean(customer.owner_id)) || subordinateOwner;
+    const assignedClerkOwner = account.role === "ORDER_CLERK" && customer.owner_id
+      ? await requireAssignedSales(account.id, customer.owner_id).then(() => true).catch((cause: unknown) => {
+        if (cause instanceof Error && cause.message === "FORBIDDEN") return false;
+        throw cause;
+      })
+      : false;
+    const canReadAll = account.role === "ADMIN" || assignedClerkOwner || subordinateOwner;
     const publicReadOnly = account.role !== "ORDER_CLERK" && isPublicUnclaimed(customer);
     if (!canReadAll && !isOwner && !publicReadOnly) throw new Error("FORBIDDEN");
 

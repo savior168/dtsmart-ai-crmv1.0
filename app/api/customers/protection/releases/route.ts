@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requestedOwnerId, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { activeDescendantIds } from "@/lib/auth/subordinate-scope";
+import { assignedSalesIds } from "@/lib/auth/order-clerk-scope";
 
 export async function GET(request: NextRequest) {
   try {
@@ -9,6 +10,8 @@ export async function GET(request: NextRequest) {
     const ownerId = await requestedOwnerId(request, account, "customers.data_all");
     const teamOwnerIds = account.role === "SUPERVISOR" && ownerId === null
       ? await activeDescendantIds(account.id) : null;
+    const clerkOwnerIds = account.role === "ORDER_CLERK" && ownerId === null
+      ? await assignedSalesIds(account.id) : null;
     if (ownerId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(ownerId)) {
       return NextResponse.json({ error: "无效的归属人" }, { status: 400 });
     }
@@ -22,6 +25,12 @@ export async function GET(request: NextRequest) {
     else if (teamOwnerIds) {
       const ids = teamOwnerIds.join(",");
       query = query.or(`source_owner_id.in.(${ids}),and(source_owner_id.is.null,user_id.in.(${ids}))`);
+    } else if (clerkOwnerIds) {
+      if (!clerkOwnerIds.length) query = query.eq("id", "00000000-0000-0000-0000-000000000000");
+      else {
+        const ids = clerkOwnerIds.join(",");
+        query = query.or(`source_owner_id.in.(${ids}),and(source_owner_id.is.null,user_id.in.(${ids}))`);
+      }
     }
     const result = await query.order("created_at", { ascending: false }).range((page - 1) * pageSize, page * pageSize - 1);
     if (result.error) throw result.error;

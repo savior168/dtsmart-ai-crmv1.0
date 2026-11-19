@@ -9,6 +9,7 @@ import { sqlErrorMessage } from "@/lib/sales-flow";
 import { normalizeAddressPayload } from "@/lib/customers/address-list";
 import { normalizeCustomerGrade } from "@/lib/customers/customer-grade";
 import { activeDescendantIds } from "@/lib/auth/subordinate-scope";
+import { requireAssignedSales } from "@/lib/auth/order-clerk-scope";
 
 // Only user-entered source data is editable here. AI conclusions, verified
 // contacts, ownership and workflow state must be changed by their dedicated
@@ -77,7 +78,13 @@ export async function GET(_: NextRequest, context: { params: Promise<{ id: strin
     const subordinateOwner = account.role === "SUPERVISOR" && hasPermission(account, "customers.data_all") && data.owner_id
       ? (await activeDescendantIds(account.id)).includes(data.owner_id)
       : false;
-    const mayRead = account.role === "ADMIN" || (account.role === "ORDER_CLERK" && Boolean(data.owner_id)) || data.owner_id === user.id || subordinateOwner || (account.role !== "ORDER_CLERK" && publicUnclaimed);
+    const assignedClerkOwner = account.role === "ORDER_CLERK" && data.owner_id
+      ? await requireAssignedSales(account.id, data.owner_id).then(() => true).catch((cause: unknown) => {
+        if (cause instanceof Error && cause.message === "FORBIDDEN") return false;
+        throw cause;
+      })
+      : false;
+    const mayRead = account.role === "ADMIN" || assignedClerkOwner || data.owner_id === user.id || subordinateOwner || (account.role !== "ORDER_CLERK" && publicUnclaimed);
     if (!mayRead) return NextResponse.json({ error: "无权查看其他销售员的客户资料" }, { status: 403 });
     const historicalChannel = publicChannelForUrl(data.website);
     return NextResponse.json({

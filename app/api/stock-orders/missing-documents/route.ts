@@ -16,12 +16,20 @@ export async function GET(request: NextRequest) {
     if (error) throw error;
     const rows: Array<{ stock_order_id: string; order_number: string; missing_number_count: number; missing_image_count: number; total_count: number }> = data || [];
     if (!rows.length) return NextResponse.json({ data: rows, count: 0, page });
+    // The queue RPC is security-definer. Only emit detail links for stock rows
+    // the caller can actually read through the same RLS path as the detail API.
+    const visible = await supabase.from("stock_orders").select("id")
+      .in("id", rows.map((row) => row.stock_order_id));
+    if (visible.error) throw visible.error;
+    const visibleIds = new Set((visible.data || []).map((row) => row.id));
+    const scopedRows = rows.filter((row) => visibleIds.has(row.stock_order_id));
+    if (!scopedRows.length) return NextResponse.json({ data: [], count: 0, page });
     const admin = createAdminClient();
     const [items, stockOrders] = await Promise.all([
       admin.from("stock_order_items").select("id,stock_order_id")
-        .in("stock_order_id", rows.map((row) => row.stock_order_id)).gt("shipped_quantity", 0),
+        .in("stock_order_id", scopedRows.map((row) => row.stock_order_id)).gt("shipped_quantity", 0),
       admin.from("stock_orders").select("id,stock_number")
-        .in("id", rows.map((row) => row.stock_order_id)),
+        .in("id", scopedRows.map((row) => row.stock_order_id)),
     ]);
     if (items.error) throw items.error;
     if (stockOrders.error) throw stockOrders.error;
@@ -71,7 +79,7 @@ export async function GET(request: NextRequest) {
     for (const item of items.data || []) {
       if (!allocatedItemIds.has(item.id)) unlinkedByOrder.set(item.stock_order_id, (unlinkedByOrder.get(item.stock_order_id) || 0) + 1);
     }
-    return NextResponse.json({ data: rows.map((row) => ({ ...row,
+    return NextResponse.json({ data: scopedRows.map((row) => ({ ...row,
       stock_number: stockNumberById.get(row.stock_order_id) || null,
       missing_photo_note_numbers: [...(missingNotesByOrder.get(row.stock_order_id) || [])].sort(),
       delivery_note_numbers: [...(noteNumbersByOrder.get(row.stock_order_id) || [])].sort(),
