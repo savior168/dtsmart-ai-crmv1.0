@@ -164,7 +164,7 @@ export function canWriteOwnedRecord(account: CurrentAccount, ownerId: string | n
 export async function requestedOwnerId(request: Request, account: CurrentAccount, dataPermission: string) {
   if (!hasPermission(account, dataPermission)) return account.id;
   const requested = new URL(request.url).searchParams.get("user_id")?.trim() || "";
-  if (account.role === "ADMIN") return requested.toLowerCase() === "all" ? null : requested || account.id;
+  if (account.role === "ADMIN") return !requested || requested.toLowerCase() === "all" ? null : requested;
   if (account.role === "ORDER_CLERK" && dataPermission === "customers.data_all") {
     if (!requested || requested.toLowerCase() === "all") return null;
     const { data, error } = await createAdminClient().from("users").select("id")

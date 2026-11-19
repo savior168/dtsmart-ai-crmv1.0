@@ -47,7 +47,7 @@ export async function GET(request: Request) {
       can_select_all: profile.role !== "SUPERVISOR" || Boolean(
         (creatorOptions || permission === "sales.performance.data_all" || SUPERVISOR_TEAM_ALL_PERMISSIONS.has(permission))
         && descendantIds && descendantIds.length > 1),
-      default_all: !["ADMIN", "SUPERVISOR"].includes(profile.role) || creatorOptions });
+      default_all: profile.role !== "SUPERVISOR" || creatorOptions });
   } catch (error) {
     const message = error instanceof Error ? error.message : "用户加载失败";
     return NextResponse.json({ error: message }, { status: message === "UNAUTHORIZED" ? 401 : 400 });

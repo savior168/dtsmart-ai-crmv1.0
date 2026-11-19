@@ -5,7 +5,7 @@ import { sqlErrorMessage } from "@/lib/sales-flow";
 
 async function warehouseAccess() {
   const context = await requirePermission("stock.view");
-  if (context.account.role !== "WAREHOUSE"
+  if (!["WAREHOUSE", "ADMIN"].includes(context.account.role)
     || !hasPermission(context.account, "stock.update")
     || !hasPermission(context.account, "stock.procurement.edit")
     || !hasPermission(context.account, "supplier.documents.view")

@@ -18,8 +18,8 @@ export async function POST(request: NextRequest) {
       || !Number.isFinite(amount) || amount <= 0
       || !/^\d{4}-\d{2}-\d{2}$/.test(paidOn)
       || !["CASH", "BANK", "ALIPAY", "WECHAT", "OTHER"].includes(method)
-      || !reference || reference.length > 200) {
-      throw new Error("请填写有效的送货单、付款金额、日期、方式及凭证号");
+      || reference.length > 200) {
+      throw new Error("请填写有效的送货单、付款金额、日期和方式；凭证号最多200字");
     }
     const { data, error } = await supabase.rpc("record_supplier_payment", {
       p_delivery_note_id: body.delivery_note_id, p_amount_cny: amount,

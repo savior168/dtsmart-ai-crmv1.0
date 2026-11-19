@@ -14,8 +14,8 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     const version = typeof body.expected_updated_at === "string" ? body.expected_updated_at : "";
     if (!/^[0-9a-f-]{36}$/i.test(id)
       || !/^(?:0|[1-9]\d{0,15})(?:\.\d{1,2})?$/.test(amountText)
-      || !reason || reason.length > 500 || !Number.isFinite(Date.parse(version))) {
-      throw new Error("请输入有效的纸质送货单金额、核对说明并刷新单据版本");
+      || reason.length > 500 || !Number.isFinite(Date.parse(version))) {
+      throw new Error("请输入有效的纸质送货单金额并刷新单据版本；核对说明最多500字");
     }
     const { data, error } = await supabase.rpc("confirm_supplier_note_paper_total", {
       p_delivery_note_id: id,

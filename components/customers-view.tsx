@@ -312,7 +312,7 @@ export function CustomersView({ canCreate, canImport }: { canCreate: boolean; ca
       const role = String(body?.profile?.role || "SALES");
       const elevated = Boolean(body?.can_select_owner);
       const fallback = String(body?.profile?.id || "");
-      const requested = new URLSearchParams(window.location.search).get("user_id") || (role === "ORDER_CLERK" ? "all" : fallback);
+      const requested = new URLSearchParams(window.location.search).get("user_id") || (["ADMIN", "ORDER_CLERK"].includes(role) ? "all" : fallback);
       const canSelectAll = Boolean(body?.can_select_all);
       const initialScope = elevated && (requested !== "all" || canSelectAll) ? requested : fallback;
       setCurrentRole(role);
@@ -351,9 +351,8 @@ export function CustomersView({ canCreate, canImport }: { canCreate: boolean; ca
   const crossUserReadOnly = currentRole !== "ADMIN" && canViewAll && scopeUserId !== defaultScopeUserId || currentRole === "ORDER_CLERK";
   function switchWorkspace(next: CustomerWorkspace) {
     setWorkspace(next);
-    // 每个客户工作区首次进入都以本人为默认范围；主管和系统管理员
-    // 只有主动使用归属人/提交人筛选时才查看其他用户的数据。
-    if (currentRole === "ORDER_CLERK") setScopeUserId("all");
+    // 管理员与跟单员默认使用各自获授权的全部范围；主管仍默认本人。
+    if (["ADMIN", "ORDER_CLERK"].includes(currentRole)) setScopeUserId("all");
     else if (defaultScopeUserId) setScopeUserId(defaultScopeUserId);
     setSelected(new Set());
     setProtectedSelected(new Set());
@@ -409,7 +408,7 @@ export function CustomersView({ canCreate, canImport }: { canCreate: boolean; ca
     if (key === "target") setTarget("");
     if (key === "followupStatus") setFollowupStatus("");
     if (key === "aiFilter") setAiFilter("all");
-    if (key === "scopeUserId") setScopeUserId(defaultScopeUserId);
+    if (key === "scopeUserId") setScopeUserId(currentRole === "ADMIN" ? "all" : defaultScopeUserId);
     setPage(1);
   }
   function reset() {
@@ -427,7 +426,7 @@ export function CustomersView({ canCreate, canImport }: { canCreate: boolean; ca
     setTarget("");
     setFollowupStatus("");
     setAiFilter("all");
-    setScopeUserId(defaultScopeUserId);
+    setScopeUserId(currentRole === "ADMIN" ? "all" : defaultScopeUserId);
     setSort("updated_at");
     setDirection("desc");
     setPage(1);
@@ -598,7 +597,7 @@ export function CustomersView({ canCreate, canImport }: { canCreate: boolean; ca
             : scopeUserId === "all"
               ? "全部归属人"
               : `${userOptions.find((item) => item.id === scopeUserId)?.name?.trim() || userOptions.find((item) => item.id === scopeUserId)?.email || "未设置用户名"}的客户`} ·
-          {currentRole === "SUPERVISOR" ? "主管默认查看本人，可切换授权范围内的归属人" : currentRole === "ADMIN" ? "系统管理员可切换指定用户" : "系统按登录权限自动确定"} · 客户数已按主体去重
+          {currentRole === "SUPERVISOR" ? "主管默认查看本人，可切换授权范围内的归属人" : currentRole === "ADMIN" ? "系统管理员默认查看全部归属人，可切换指定用户" : "系统按登录权限自动确定"} · 客户数已按主体去重
           <button type="button" onClick={() => setPermissionOpen(true)} className="float-right text-blue-600 hover:underline">
             查看权限说明 ⓘ
           </button>

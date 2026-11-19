@@ -25,8 +25,8 @@ assert.match(warehouseQueue, /LegacySupplierSourcesView/,
 const warehousePage = readFileSync(new URL("../app/stock-orders/missing-documents/page.tsx", import.meta.url), "utf8");
 const legacyApi = readFileSync(new URL("../app/api/stock-orders/legacy-receipt-sources/route.ts", import.meta.url), "utf8");
 const legacyMigration = readFileSync(new URL("../supabase/migrations/20261118044017_link_legacy_supplier_receipt_source.sql", import.meta.url), "utf8");
-assert.match(warehousePage, /showLegacySources canEditLegacySources=\{account\.role === "WAREHOUSE"\}/);
-assert.match(legacyApi, /context\.account\.role !== "WAREHOUSE"/);
+assert.match(warehousePage, /\["WAREHOUSE", "ADMIN"\][\s\S]*showLegacySources canEditLegacySources\/>/);
+assert.match(legacyApi, /\["WAREHOUSE", "ADMIN"\]\.includes\(context\.account\.role\)/);
 assert.match(legacyMigration, /actor\.role <> 'WAREHOUSE'/);
 assert.match(legacyMigration, /remaining := baseline\.quantity-p_quantity;[\s\S]*?delete from public\.supplier_receipt_legacy_baselines[\s\S]*?update public\.supplier_receipt_legacy_baselines/,
   "legacy source attribution must consume existing baseline rather than increase physical receipts");

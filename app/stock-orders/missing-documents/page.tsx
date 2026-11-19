@@ -8,5 +8,5 @@ export default async function MissingStockDocumentsPage() {
   if (!["WAREHOUSE", "ADMIN"].includes(account.role)
     || !["stock.update", "stock.procurement.edit", "supplier.documents.view", "supplier.documents.manage"]
       .every((permission) => hasPermission(account, permission))) redirect("/access-denied");
-  return <MissingStockDocumentsView showLegacySources canEditLegacySources={account.role === "WAREHOUSE"}/>;
+  return <MissingStockDocumentsView showLegacySources canEditLegacySources/>;
 }
