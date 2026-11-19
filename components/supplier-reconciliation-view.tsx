@@ -14,7 +14,7 @@ import { settlementDisplay } from "@/lib/suppliers/settlement";
 type Allocation = { id: string; pi_number: string; system_pi_number: string; pi_id: string; product: string; quantity: number;
   unit_price_cny: number; amount_cny: number; cash_paid_reported_cny: number | null;
   correction_of: string | null; correction_reason: string | null; recorded_at: string };
-type Payment = { id: string; amount_cny: number; paid_on: string; method: string; reference: string };
+type Payment = { id: string; amount_cny: number; paid_on: string; method: string; reference: string; documents_pending_at_payment: boolean | null };
 type Note = { id: string; supplier_id: string; supplier_code: string; supplier_name: string;
   number_pending: boolean;
   settlement_cycle: string; settlement_days: number | null; settlement_terms_original?: string | null; note_number: string; document_date: string; updated_at: string;
@@ -28,7 +28,7 @@ type SupplierSummary = { supplier_id: string; system_code: string; supplier_name
 type MonthlySummary = { month: string; supplier_id: string; system_code: string;
   allocated_cny: number; paid_cny: number; unpaid_cny: number };
 type PaymentDraft = { noteId: string; noteNumber: string; amount: string;
-  paidOn: string; method: string; reference: string };
+  paidOn: string; method: string; reference: string; documentsPending: boolean };
 type BatchPaymentDraft = { supplierId: string; supplierCode: string; paidOn: string; method: string;
   reference: string; confirmed: boolean; lines: { noteId: string; noteNumber: string; unpaid: number; amount: string }[] };
 type PaperDraft = { noteId: string; noteNumber: string; amount: string; version: string; reason: string };
@@ -44,8 +44,9 @@ function SummaryMetric({ label, value, loading, hint, onClick, tone = "text-slat
 const settlementLabel = settlementDisplay;
 function noteChecks(note: Note, canViewDocuments: boolean) {
   const checks: string[] = [];
-  if (note.number_pending) checks.push("待补送货单号，暂不可核对或付款");
+  if (note.number_pending) checks.push("待补送货单号");
   if (canViewDocuments && !note.attachments?.length) checks.push("缺纸单图片");
+  if (!canViewDocuments) checks.push("无纸单查看权限");
   if (note.paper_total_cny === null) checks.push("待录纸单金额");
   else if (Math.abs(note.paper_total_cny - note.allocated_cny) > 0.005) checks.push("金额有差异");
   return checks;
@@ -74,7 +75,7 @@ function NoteDetails({ note }: { note: Note }) {
     </table></div>
     {groups.length === 0 ? <p className="mt-2 text-xs text-amber-700">这张送货单尚未关联 PI。</p> : null}
     <h4 className="mt-4 font-medium">付款流水</h4>
-    {note.payments.length ? note.payments.map((entry) => <p key={entry.id} className="mt-1 text-xs">{entry.paid_on} · {money(entry.amount_cny)} · {entry.method} · 凭证 {entry.reference || "未填写"}</p>) : <p className="mt-1 text-xs text-slate-500">暂无已确认付款</p>}
+    {note.payments.length ? note.payments.map((entry) => <p key={entry.id} className="mt-1 text-xs">{entry.paid_on} · {money(entry.amount_cny)} · {entry.method} · 依据 {entry.reference || "未填写"}{entry.documents_pending_at_payment ? <span className="ml-2 rounded bg-amber-50 px-1.5 py-0.5 text-amber-800">付款时单据待补</span> : null}</p>) : <p className="mt-1 text-xs text-slate-500">暂无已确认付款</p>}
   </div>;
 }
 const localDate = (value: Date) => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
@@ -111,7 +112,7 @@ export function SupplierReconciliationView({ canRecordPayment }: { canRecordPaym
   const [expandedSupplier, setExpandedSupplier] = useState<string | null>(null);
   const [notes, setNotes] = useState<Note[]>([]);
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(50);
+  const [pageSize, setPageSize] = useState(20);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [payment, setPayment] = useState<PaymentDraft | null>(null);
   const [selectedNotes, setSelectedNotes] = useState<string[]>([]);
@@ -196,13 +197,15 @@ export function SupplierReconciliationView({ canRecordPayment }: { canRecordPaym
     setError("");
     setPayment({ noteId: note.id, noteNumber: note.note_number,
       amount: Number(note.unpaid_cny).toFixed(2), paidOn: localDate(new Date()),
-      method: note.settlement_cycle === "CASH" ? "CASH" : "BANK", reference: "" });
+      method: note.settlement_cycle === "CASH" ? "CASH" : "BANK", reference: "",
+      documentsPending: note.number_pending || !note.attachments?.length });
   }
   async function submitPayment() {
     if (!payment || busy) return;
     if (!/^(?:0|[1-9]\d*)(?:\.\d{1,2})?$/.test(payment.amount)
-      || Number(payment.amount) <= 0 || payment.reference.trim().length > 200) {
-      setError("请填写大于零的付款金额；凭证号最多200字"); return;
+      || Number(payment.amount) <= 0 || payment.reference.trim().length > 200
+      || payment.documentsPending && !payment.reference.trim()) {
+      setError("请填写大于零的付款金额；单据待补时须填写真实付款依据（最多200字）"); return;
     }
     setBusy(true); setError("");
     const response = await fetch("/api/supplier-reconciliation/payments", {
@@ -218,7 +221,7 @@ export function SupplierReconciliationView({ canRecordPayment }: { canRecordPaym
     await load();
   }
   function toggleSelectedNote(note: Note) {
-    if (note.number_pending || note.unpaid_cny <= 0) return;
+    if (note.number_pending || !note.attachments?.length || note.unpaid_cny <= 0) return;
     setSelectedNotes((current) => current.includes(note.id)
       ? current.filter((id) => id !== note.id)
       : current.length >= 50 || current.some((id) => notes.find((item) => item.id === id)?.supplier_id !== note.supplier_id)
@@ -226,7 +229,7 @@ export function SupplierReconciliationView({ canRecordPayment }: { canRecordPaym
   }
   function openBatchPayment() {
     const selected = notes.filter((note) => selectedNotes.includes(note.id));
-    if (selected.length < 2 || selected.length > 50 || selected.some((note) => note.supplier_id !== selected[0].supplier_id)) return;
+    if (selected.length < 2 || selected.length > 50 || selected.some((note) => note.supplier_id !== selected[0].supplier_id || note.number_pending || !note.attachments?.length || note.unpaid_cny <= 0)) return;
     setError("");
     setBatchPayment({ supplierId: selected[0].supplier_id, supplierCode: selected[0].supplier_code,
       paidOn: localDate(new Date()), method: selected[0].settlement_cycle === "CASH" ? "CASH" : "BANK", reference: "", confirmed: false,
@@ -306,9 +309,10 @@ export function SupplierReconciliationView({ canRecordPayment }: { canRecordPaym
     </section>
     <div id="supplier-monthly-matrix" className="scroll-mt-20" aria-busy={loading}>{loading ? <p role="status" className="mb-2 text-xs text-slate-600">正在更新月度对账数据…</p> : null}<div className={loading ? "pointer-events-none opacity-50" : ""}><SupplierMonthlyMatrix suppliers={supplierSummary} monthly={monthlySummary} metric={matrixMetric} dateFrom={filters.from} dateTo={filters.to} supplierId={filters.supplierId} onMetricChange={setMatrixMetric} onDrill={drillToMonth}/></div></div>
     {matrixOrigin ? <div role="status" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900"><span>正在核对：{filters.supplierId ? supplierSummary.find((item) => item.supplier_id === filters.supplierId)?.system_code || "所选供应商" : "全部供应商"} · {filters.from} 至 {filters.to}。上方汇总与下方明细均已切换到同一范围。</span><button type="button" onClick={returnToMatrix} className="rounded-lg border border-blue-300 bg-white px-3 py-1.5 font-medium text-blue-700">返回原汇总范围</button></div> : null}
-    <section id="supplier-delivery-notes" className="scroll-mt-20 rounded-xl border bg-white p-4"><div className="flex flex-wrap items-center justify-between gap-2"><div><h2 className="font-semibold">采购明细</h2><p className="mt-1 text-xs text-slate-500">一张真实送货单一行；展开可核对关联 PI、产品分配与付款流水。</p></div>{filters.supplierId ? <button type="button" onClick={clearSupplierFilter} className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs text-blue-700">{supplierSummary.find((item) => item.supplier_id === filters.supplierId)?.system_code || "所选供应商"} · 清除筛选</button> : null}</div>
+    <section id="supplier-delivery-notes" className="scroll-mt-20 rounded-xl border bg-white p-4"><div className="flex flex-wrap items-center justify-between gap-2"><div><h2 className="font-semibold">采购明细</h2><p className="mt-1 text-xs text-slate-500">一张送货单一行；展开核对关联 PI、产品分配与付款流水。默认每页 20 张，可在底部切换。</p></div>{filters.supplierId ? <button type="button" onClick={clearSupplierFilter} className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs text-blue-700">{supplierSummary.find((item) => item.supplier_id === filters.supplierId)?.system_code || "所选供应商"} · 清除筛选</button> : null}</div>
+      <p className="mt-2 text-xs text-slate-500">缺件不等于未付款；黄色状态标签可悬停查看待补事项。付款与纸单核对是不同记录，筛选和分页不会改变上方汇总金额。</p>
       {canRecordPayment ? <div className="mt-3 flex flex-wrap items-center gap-3 rounded-lg border border-emerald-100 bg-emerald-50/60 px-3 py-2 text-xs"><span>已选 {selectedNotes.length} 张同一供应商送货单（仅当前页，最多 50 张）</span><button type="button" disabled={selectedNotes.length < 2 || loading} onClick={openBatchPayment} className="rounded bg-emerald-700 px-3 py-1.5 font-medium text-white disabled:opacity-40">批量登记付款</button>{selectedNotes.length ? <button type="button" onClick={() => setSelectedNotes([])} className="text-slate-600 hover:underline">清空选择</button> : null}</div> : null}
-      <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[1600px] text-left text-sm"><thead><tr className="border-b bg-slate-50 text-slate-600"><th className="p-3">选择 / 送货日期</th><th>供应商</th><th>当时商务条件</th><th>送货单号</th><th className="min-w-44">关联 PI</th><th className="min-w-52">纸单影像</th><th className="min-w-44">核对提示</th><th>数量</th><th>分配金额</th><th>纸单金额 / 差额</th><th>已付</th><th>未付</th><th>操作</th></tr></thead><tbody>{notes.map((note) => <Fragment key={note.id}><tr className="border-b align-top"><td className="p-3"><div className="flex items-center gap-2">{canRecordPayment ? <input type="checkbox" aria-label={`选择送货单 ${note.note_number} 批量付款`} checked={selectedNotes.includes(note.id)} disabled={loading || note.number_pending || note.unpaid_cny <= 0 || selectedNotes.length >= 50 && !selectedNotes.includes(note.id) || selectedNotes.some((id) => notes.find((item) => item.id === id)?.supplier_id !== note.supplier_id)} onChange={() => toggleSelectedNote(note)} className="h-4 w-4 accent-emerald-700"/> : null}<span>{note.document_date}</span></div></td><td>{note.supplier_code}<small className="block text-slate-500">{note.supplier_name}</small></td><td>{settlementLabel(note.settlement_cycle, note.settlement_days, note.settlement_terms_original)}</td><td>{note.note_number}</td><td className="max-w-56 py-2 pr-3"><div className="flex flex-wrap gap-1.5">{groupAllocations(note.allocations).slice(0, 2).map((group) => <Link key={group.piId} href={`/orders/${group.piId}`} className="rounded border border-blue-100 bg-blue-50 px-1.5 py-0.5 text-xs text-blue-700 hover:underline" title={`打开 PI ${group.piNumber || group.systemPiNumber}`}>{group.piNumber || group.systemPiNumber}</Link>)}{groupAllocations(note.allocations).length > 2 ? <button type="button" onClick={() => setExpanded(note.id)} className="text-xs text-blue-700 hover:underline">另 {groupAllocations(note.allocations).length - 2} 单 ↓</button> : null}{!note.allocations.length ? <span className="text-xs text-amber-700">未关联 PI</span> : null}</div></td><td className="w-52 min-w-52 max-w-52 p-2 align-top"><SupplierDeliveryNoteFiles note={{ id: note.id, supplier_code: note.supplier_code, note_number: note.note_number, document_date: note.document_date, attachments: note.attachments || [] }} compact/></td><td className="w-44 min-w-44 max-w-44 px-2 py-3 align-top">{noteChecks(note, canViewDocuments).length ? noteChecks(note, canViewDocuments).map((check) => <span key={check} className="mb-1 block w-fit rounded bg-amber-50 px-2 py-0.5 text-xs text-amber-800">{check}</span>) : <span className="text-xs text-emerald-700">资料齐备 · 金额一致</span>}</td><td>{note.allocated_quantity}</td><td>{money(note.allocated_cny)}</td><td>{note.paper_total_cny === null ? "未录入" : <>{money(note.paper_total_cny)}<small className={`block ${Math.abs(note.paper_total_cny - note.allocated_cny) > 0.005 ? "text-amber-700" : "text-emerald-700"}`}>{Math.abs(note.paper_total_cny - note.allocated_cny) > 0.005 ? `差额 ${money(note.paper_total_cny - note.allocated_cny)}` : "金额一致"}</small></>}</td><td>{money(note.paid_cny)}</td><td className="font-medium">{money(note.unpaid_cny)}</td><td className="space-x-2 whitespace-nowrap"><button onClick={() => setExpanded((value) => value === note.id ? null : note.id)} className="text-blue-700">{expanded === note.id ? "收起" : `查看PI（${groupAllocations(note.allocations).length}）`}</button>{canRecordPayment ? <button onClick={() => { setError(""); setPaperDraft({ noteId: note.id, noteNumber: note.note_number, amount: note.paper_total_cny === null ? "" : Number(note.paper_total_cny).toFixed(2), version: note.updated_at, reason: "" }); }} className="text-blue-700">核对纸单</button> : null}{canRecordPayment && !note.number_pending && note.unpaid_cny > 0 ? <button onClick={() => openPayment(note)} className="text-emerald-700">登记付款</button> : null}</td></tr>{expanded === note.id ? <tr className="bg-slate-50"><td colSpan={13} className="p-3"><NoteDetails note={note}/></td></tr> : null}</Fragment>)}</tbody></table>
+      <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[1760px] text-left text-sm"><thead><tr className="border-b bg-slate-50 text-slate-600"><th className="p-3">选择 / 送货日期</th><th>供应商</th><th>当时商务条件</th><th>送货单号</th><th className="min-w-44">关联 PI</th><th className="min-w-52">纸单影像</th><th className="min-w-52">核对状态</th><th>数量</th><th>分配金额</th><th>纸单金额 / 差额</th><th>已付</th><th>未付</th><th>操作</th></tr></thead><tbody>{notes.map((note) => <Fragment key={note.id}><tr className="border-b align-top"><td className="p-3"><div className="flex items-center gap-2">{canRecordPayment ? <input type="checkbox" aria-label={`选择送货单 ${note.note_number} 批量付款`} checked={selectedNotes.includes(note.id)} disabled={loading || note.number_pending || !note.attachments?.length || note.unpaid_cny <= 0 || selectedNotes.length >= 50 && !selectedNotes.includes(note.id) || selectedNotes.some((id) => notes.find((item) => item.id === id)?.supplier_id !== note.supplier_id)} onChange={() => toggleSelectedNote(note)} className="h-4 w-4 accent-emerald-700"/> : null}<span>{note.document_date}</span></div></td><td>{note.supplier_code}<small className="block text-slate-500">{note.supplier_name}</small></td><td>{settlementLabel(note.settlement_cycle, note.settlement_days, note.settlement_terms_original)}</td><td>{note.note_number}</td><td className="max-w-56 py-2 pr-3"><div className="flex flex-wrap gap-1.5">{groupAllocations(note.allocations).slice(0, 2).map((group) => <Link key={group.piId} href={`/orders/${group.piId}`} className="rounded border border-blue-100 bg-blue-50 px-1.5 py-0.5 text-xs text-blue-700 hover:underline" title={`打开 PI ${group.piNumber || group.systemPiNumber}`}>{group.piNumber || group.systemPiNumber}</Link>)}{groupAllocations(note.allocations).length > 2 ? <button type="button" onClick={() => setExpanded(note.id)} className="text-xs text-blue-700 hover:underline">另 {groupAllocations(note.allocations).length - 2} 单 ↓</button> : null}{!note.allocations.length ? <span className="text-xs text-amber-700">未关联 PI</span> : null}</div></td><td className="w-52 min-w-52 max-w-52 p-2 align-top"><SupplierDeliveryNoteFiles note={{ id: note.id, supplier_code: note.supplier_code, note_number: note.note_number, document_date: note.document_date, attachments: note.attachments || [] }} compact/></td><td className="w-52 min-w-52 max-w-52 px-2 py-3 align-top">{noteChecks(note, canViewDocuments).length ? noteChecks(note, canViewDocuments).map((check) => <span key={check} title={check === "待补送货单号" ? "送货单号待补；已发生付款应单笔登记并填写付款依据，纸单核对待补号后完成" : check === "缺纸单图片" ? "纸单影像待补；已付款不代表纸单已核对" : check === "待录纸单金额" ? "纸单金额尚未录入，请核对实物凭证" : "纸单金额与系统分配金额不同，请核查"} className="mb-1 inline-block max-w-full truncate rounded bg-amber-50 px-2 py-0.5 text-xs text-amber-800">{check}</span>) : <span className="text-xs text-emerald-700">已核对 · 金额一致</span>}</td><td>{note.allocated_quantity}</td><td>{money(note.allocated_cny)}</td><td>{note.paper_total_cny === null ? "未录入" : <>{money(note.paper_total_cny)}<small className={`block ${Math.abs(note.paper_total_cny - note.allocated_cny) > 0.005 ? "text-amber-700" : "text-emerald-700"}`}>{Math.abs(note.paper_total_cny - note.allocated_cny) > 0.005 ? `差额 ${money(note.paper_total_cny - note.allocated_cny)}` : "金额一致"}</small></>}</td><td>{money(note.paid_cny)}</td><td className="font-medium">{money(note.unpaid_cny)}</td><td className="space-x-2 whitespace-nowrap"><button onClick={() => setExpanded((value) => value === note.id ? null : note.id)} className="text-blue-700">{expanded === note.id ? "收起" : `查看PI（${groupAllocations(note.allocations).length}）`}</button>{canRecordPayment && !note.number_pending ? <button disabled={!note.attachments?.length} title={!note.attachments?.length ? "请先上传此送货单对应的纸单影像" : undefined} onClick={() => { setError(""); setPaperDraft({ noteId: note.id, noteNumber: note.note_number, amount: note.paper_total_cny === null ? "" : Number(note.paper_total_cny).toFixed(2), version: note.updated_at, reason: "" }); }} className="text-blue-700 disabled:cursor-not-allowed disabled:text-slate-400">核对纸单</button> : null}{canRecordPayment && note.unpaid_cny > 0 ? <button onClick={() => openPayment(note)} className="text-emerald-700">登记付款</button> : null}</td></tr>{expanded === note.id ? <tr className="bg-slate-50"><td colSpan={13} className="p-3"><NoteDetails note={note}/></td></tr> : null}</Fragment>)}</tbody></table>
         {!loading && notes.length === 0 ? <p className="py-10 text-center text-sm text-slate-500">该日期范围没有送货单回货记录</p> : null}</div>
       <div className="mt-4"><AppPagination page={page} pageSize={pageSize} total={summary?.note_count || 0} itemLabel="张送货单" pageSizes={[10, 20, 50, 100]} onPage={(next) => { setPage(next); setExpanded(null); }} onPageSize={(size) => { setPageSize(size); setPage(1); setExpanded(null); }}/></div>
     </section>
@@ -333,11 +337,11 @@ export function SupplierReconciliationView({ canRecordPayment }: { canRecordPaym
       </form> : null}
     </AppDialog>
     <AppDialog open={payment !== null} title="登记供应商付款" description="付款流水提交后不可覆盖或删除；请与银行或现金凭证核对。" onClose={() => { if (!busy) { setPayment(null); setError(""); } }}>
-      {payment ? <form onSubmit={(event) => { event.preventDefault(); void submitPayment(); }} className="space-y-3 text-sm"><p>送货单号：{payment.noteNumber}</p><div className="grid gap-3 sm:grid-cols-2">
+      {payment ? <form onSubmit={(event) => { event.preventDefault(); void submitPayment(); }} className="space-y-3 text-sm"><p>送货单号：{payment.noteNumber}</p>{payment.documentsPending ? <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-900">此单送货单号或纸单影像待补。只记录已真实发生的付款，并填写可追溯的付款依据；登记后仍须继续补齐单据，不能视为纸单核对完成。</p> : null}<div className="grid gap-3 sm:grid-cols-2">
         <label>付款金额（人民币）<input required inputMode="decimal" value={payment.amount} onChange={(event) => setPayment((current) => current && { ...current, amount: event.target.value })} className="mt-1 h-10 w-full rounded border px-3"/></label>
         <label>付款日期<input required type="date" max={localDate(new Date())} value={payment.paidOn} onChange={(event) => setPayment((current) => current && { ...current, paidOn: event.target.value })} className="mt-1 h-10 w-full rounded border px-3"/></label>
         <div><span>付款方式</span><AppSelect value={payment.method} onChange={(event) => setPayment((current) => current && { ...current, method: event.target.value })} aria-label="付款方式" className="mt-1 h-10 w-full rounded border px-3"><option value="CASH">现金</option><option value="BANK">银行转账</option><option value="ALIPAY">支付宝</option><option value="WECHAT">微信支付</option><option value="OTHER">其他</option></AppSelect></div>
-        <label>付款凭证号（选填）<input maxLength={200} value={payment.reference} onChange={(event) => setPayment((current) => current && { ...current, reference: event.target.value })} className="mt-1 h-10 w-full rounded border px-3"/></label>
+        <label>{payment.documentsPending ? "付款依据 / 流水号（必填）" : "付款凭证号（选填）"}<input required={payment.documentsPending} maxLength={200} value={payment.reference} onChange={(event) => setPayment((current) => current && { ...current, reference: event.target.value })} className="mt-1 h-10 w-full rounded border px-3"/></label>
       </div>{error ? <p role="alert" className="rounded bg-rose-50 p-3 text-rose-700">{error}</p> : null}<div className="flex justify-end gap-2 border-t pt-3"><button type="button" disabled={busy} onClick={() => setPayment(null)} className="rounded border px-4 py-2">取消</button><button type="submit" disabled={busy} className="rounded bg-emerald-700 px-4 py-2 text-white disabled:opacity-40">{busy ? "登记中…" : "确认登记付款"}</button></div></form> : null}
     </AppDialog>
   </div></main>;

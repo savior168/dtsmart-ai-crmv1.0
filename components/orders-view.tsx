@@ -47,6 +47,7 @@ type Row = {
 export function OrdersView({ initialFilters = {} }: { initialFilters?: { status?: string; dateFrom?: string; dateTo?: string; creatorId?: string } }) {
   const router = useRouter();
   const listRequestVersion = useRef(0);
+  const lastListRequestAt = useRef(0);
   const [data, setData] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -138,6 +139,7 @@ export function OrdersView({ initialFilters = {} }: { initialFilters?: { status?
   }
   const load = useCallback(async (silent = false) => {
     const requestVersion = ++listRequestVersion.current;
+    lastListRequestAt.current = Date.now();
     if (!silent) setLoading(true);
     const p = new URLSearchParams({ page: String(page), page_size: String(pageSize), type: "PI" });
     if (q) p.set("q", q);
@@ -209,7 +211,7 @@ export function OrdersView({ initialFilters = {} }: { initialFilters?: { status?
     return () => clearTimeout(t);
   }, [load]);
   useEffect(() => {
-    const refresh = () => { if (document.visibilityState === "visible") void load(true); };
+    const refresh = () => { if (document.visibilityState === "visible" && Date.now() - lastListRequestAt.current >= 14000) void load(true); };
     const timer = window.setInterval(refresh, 15000);
     window.addEventListener("focus", refresh);
     return () => { window.clearInterval(timer); window.removeEventListener("focus", refresh); };
@@ -256,8 +258,8 @@ export function OrdersView({ initialFilters = {} }: { initialFilters?: { status?
             <option value="">全部付款币种</option>{QUOTE_CURRENCIES.map(([code, name]) => <option key={code} value={code}>{code} · {name}</option>)}
           </AppSelect>
           <CompactDateRange label="创建日期" fromLabel="创建开始日期" toLabel="创建结束日期" from={dateFrom} to={dateTo} onFromChange={(value) => { setDateFrom(value); setPage(1); }} onToChange={(value) => { setDateTo(value); setPage(1); }} onMonthRangeApply={({ from, to }) => { setDateFrom(from); setDateTo(to); setPage(1); }}/>
-          <UserScopeSelect permission="orders.data_all" kind="sales_owner" value={userId} onChange={(value) => { setUserId(value); setPage(1); }} className={`${appFieldClass} xl:w-[176px]`} filterLabel="所属销售员" custom/>
-          {canFilterCreator ? <UserScopeSelect permission="orders.data_all" kind="pi_creator" value={creatorId} onChange={(value) => { setCreatorId(value); setPage(1); }} className={`${appFieldClass} xl:w-[176px]`} filterLabel="制单人" allLabel="全部制单人" custom/> : null}
+          <UserScopeSelect permission="orders.data_all" kind="sales_owner" value={userId} onChange={(value) => { setUserId(value); setPage(1); }} className={`${appFieldClass} xl:w-[176px]`} filterLabel="所属销售员" preserveImplicitDefault custom/>
+          {canFilterCreator ? <UserScopeSelect permission="orders.data_all" kind="pi_creator" value={creatorId} onChange={(value) => { setCreatorId(value); setPage(1); }} className={`${appFieldClass} xl:w-[176px]`} filterLabel="制单人" allLabel="全部制单人" preserveImplicitDefault custom/> : null}
           <button
             onClick={() => {
               setQ("");

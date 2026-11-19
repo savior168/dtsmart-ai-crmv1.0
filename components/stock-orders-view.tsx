@@ -18,6 +18,7 @@ import { RowActionItem, RowActionMenu } from "@/components/ui/row-action-menu";
 import { StockProgressCell } from "@/components/stock-progress-cell";
 import { stockProgressLabel, stockProgressTone, type StockProgress } from "@/lib/stock-progress";
 import { batchExportFilename, documentExportFilename } from "@/lib/export-file-name";
+import { fetchAllStockRemediationRows } from "@/lib/stock-remediation-queue";
 
 type Row = { id:string; sales_order_id:string; stock_number:string; order_number:string; warehouse_reference_number:string|null; customer_short_name:string; customer_name:string|null; customer_detail_id:string|null; destination_country:string|null; status:StockOrderStatus; progress:StockProgress; status_note:string|null; stocking_requirements:string|null; expected_ready_at:string; created_at:string; updated_at:string; sales?:{name?:string|null;email?:string}|null; preparer?:{name?:string|null;email?:string}|null };
 type Payload = { data:Row[]; count:number; profile:{role:string}; can_view_all:boolean; can_view_pi:boolean; can_export:boolean; can_preview:boolean; can_view_documents:boolean };
@@ -26,6 +27,7 @@ const STOCK_FILTER_STATUSES = ["DRAFT", "WAITING", "ACTIVE", "SHIPPED", "SHORTAG
 export function StockOrdersView({initialFilters={}}:{initialFilters?:{status?:string;dateFrom?:string;dateTo?:string;creatorId?:string}}) {
   const router=useRouter();
   const listRequestVersion=useRef(0);
+  const lastListRequestAt=useRef(0);
   const [data,setData]=useState<Payload|null>(null);
   const [loading,setLoading]=useState(true);
   const [error,setError]=useState("");
@@ -44,14 +46,18 @@ export function StockOrdersView({initialFilters={}}:{initialFilters?:{status?:st
   const [exportBusy,setExportBusy]=useState(false);
   const [singleExportId,setSingleExportId]=useState<string|null>(null);
   const [selectedIds,setSelectedIds]=useState<string[]>([]);
-  const [pendingRemediation,setPendingRemediation]=useState(false);
+  const [pendingRemediationCount,setPendingRemediationCount]=useState(0);
   useEffect(()=>{
-    if(!data?.can_view_documents||!["WAREHOUSE","ADMIN"].includes(data.profile.role)){setPendingRemediation(false);return;}
+    if(!data?.can_view_documents||!["WAREHOUSE","ADMIN"].includes(data.profile.role)){setPendingRemediationCount(0);return;}
     let active=true;
     const check=async()=>{
-      const urls=["/api/stock-orders/missing-documents?page=1",...(data.profile.role==="WAREHOUSE"?["/api/stock-orders/legacy-receipt-sources?page=1"]:[])];
-      const results=await Promise.all(urls.map(async url=>{try{const response=await fetch(url,{cache:"no-store"});return response.ok?Number((await response.json()).count||0):0}catch{return 0}}));
-      if(active)setPendingRemediation(results.some(count=>count>0));
+      try {
+        const [documents,legacy]=await Promise.all([
+          fetchAllStockRemediationRows<{stock_order_id:string}>("/api/stock-orders/missing-documents"),
+          fetchAllStockRemediationRows<{order:{id:string}}>("/api/stock-orders/legacy-receipt-sources"),
+        ]);
+        if(active)setPendingRemediationCount(new Set([...documents.map(row=>row.stock_order_id),...legacy.map(row=>row.order.id)]).size);
+      } catch { if(active)setPendingRemediationCount(0); }
     };
     void check();
     window.addEventListener("focus",check);
@@ -87,6 +93,7 @@ export function StockOrdersView({initialFilters={}}:{initialFilters?:{status?:st
   }
   const load=useCallback(async(silent=false)=>{
     const requestVersion=++listRequestVersion.current;
+    lastListRequestAt.current=Date.now();
     if(!silent)setLoading(true); setError("");
     const params=new URLSearchParams({page:String(page),page_size:String(pageSize)});
     if(q.trim())params.set("q",q.trim()); if(status)params.set("status",status); if(country)params.set("country",country); if(userId)params.set("user_id",userId);
@@ -116,19 +123,19 @@ export function StockOrdersView({initialFilters={}}:{initialFilters?:{status?:st
   function toggleSelection(id:string){setSelectedIds(current=>current.includes(id)?current.filter(item=>item!==id):current.length<50?[...current,id]:current)}
   function togglePageSelection(){setSelectedIds(current=>pageSelection.every(id=>current.includes(id))?current.filter(id=>!pageSelection.includes(id)):[...current,...pageSelection.filter(id=>!current.includes(id)).slice(0,50-current.length)])}
   useEffect(()=>{void load()},[load]);
-  useEffect(()=>{const refresh=()=>{if(document.visibilityState==="visible")void load(true)};const timer=window.setInterval(refresh,15000);window.addEventListener("focus",refresh);return()=>{window.clearInterval(timer);window.removeEventListener("focus",refresh)}},[load]);
+  useEffect(()=>{const refresh=()=>{if(document.visibilityState==="visible"&&Date.now()-lastListRequestAt.current>=14000)void load(true)};const timer=window.setInterval(refresh,15000);window.addEventListener("focus",refresh);return()=>{window.clearInterval(timer);window.removeEventListener("focus",refresh)}},[load]);
   function toggleSort(key:string){setSortDir(sortBy===key&&sortDir==="asc"?"desc":"asc");setSortBy(key);setPage(1)}
   function SortHeader({label,column}:{label:string;column:string}){return <th aria-sort={sortBy===column?sortDir==="asc"?"ascending":"descending":"none"} className="px-4 py-3 font-medium"><button type="button" onClick={()=>toggleSort(column)} className="inline-flex items-center gap-1 whitespace-nowrap hover:text-blue-700">{label}{sortBy===column?sortDir==="asc"?<ArrowUp size={13}/>:<ArrowDown size={13}/>:<ArrowUpDown size={13} className="text-slate-400"/>}</button></th>}
   const canFilterCreator=Boolean(data?.can_view_all);
   const tableColumns=12+Number(Boolean(data?.can_export));
   return <main className="p-4 lg:p-6"><div className="mx-auto max-w-[1660px]">
-    <header><h1 className="flex items-center gap-2 text-2xl font-bold"><ShoppingCart className="text-blue-600"/>采购管理</h1><div className="mt-1 flex flex-wrap items-center justify-between gap-x-3 gap-y-2"><p className="text-sm text-slate-500">销售员通过PI订单提交备货需求；仓库员完善备货信息并更新备货进度。备货状态不记录库存。</p>{pendingRemediation ? <Link href="/stock-orders/missing-documents" className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1 text-sm font-medium text-amber-900 hover:bg-amber-100">待补录备货单</Link> : null}</div></header>
+    <header><h1 className="flex items-center gap-2 text-2xl font-bold"><ShoppingCart className="text-blue-600"/>采购管理</h1><div className="mt-1 flex flex-wrap items-center justify-between gap-x-3 gap-y-2"><p className="text-sm text-slate-500">销售员通过PI订单提交备货需求；仓库员完善备货信息并更新备货进度。备货状态不记录库存。</p>{pendingRemediationCount > 0 ? <Link href="/stock-orders/missing-documents" className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1 text-sm font-medium text-amber-900 hover:bg-amber-100">待补录备货单 {pendingRemediationCount} 张</Link> : null}</div></header>
     <AppFilterBar>
       <label className="relative min-w-60 flex-1 xl:min-w-[240px]"><Search className="absolute left-3 top-3 text-slate-400" size={17}/><input value={q} onChange={e=>{setQ(e.target.value);setPage(1)}} placeholder="搜索客户名称、公司、PI/备货单号、电话或邮箱" className={`${appFieldClass} w-full pl-9`}/></label>
       <AppSelect value={status} onChange={e=>{setStatus(e.target.value);setPage(1)}} className={`${appFieldClass} xl:w-[148px]`} aria-label="按备货状态筛选"><option value="">全部备货状态</option>{STOCK_FILTER_STATUSES.map(key=><option key={key} value={key}>{key==="DRAFT"?"备货草稿（待完善）":key==="ACTIVE"?"仓库处理中（所有在途阶段）":key==="OTHER"?"其他状态（草稿／取消／历史）":STOCK_STATUS_LABELS[key]}</option>)}</AppSelect>
       <AppSelect value={country} onChange={e=>{setCountry(e.target.value);setPage(1)}} className={`${appFieldClass} xl:w-[132px]`} aria-label="按目的国家筛选" forceSearch><option value="">全部目的国家</option>{COUNTRY_OPTIONS.map(option=><option key={option.code} value={option.code}>{option.name}</option>)}</AppSelect>
-      {data?.can_view_all?<UserScopeSelect permission="stock.data_all" kind="sales_owner" value={userId} onChange={value=>{setUserId(value);setPage(1)}} className={`${appFieldClass} xl:w-[176px]`} filterLabel="所属销售员" custom/>:null}
-      {canFilterCreator ? <UserScopeSelect permission="stock.data_all" kind="pi_creator" value={creatorId} onChange={value=>{setCreatorId(value);setPage(1)}} className={`${appFieldClass} xl:w-[176px]`} filterLabel="制单人" allLabel="全部制单人" custom/> : null}
+      {data?.can_view_all?<UserScopeSelect permission="stock.data_all" kind="sales_owner" value={userId} onChange={value=>{setUserId(value);setPage(1)}} className={`${appFieldClass} xl:w-[176px]`} filterLabel="所属销售员" preserveImplicitDefault custom/>:null}
+      {canFilterCreator ? <UserScopeSelect permission="stock.data_all" kind="pi_creator" value={creatorId} onChange={value=>{setCreatorId(value);setPage(1)}} className={`${appFieldClass} xl:w-[176px]`} filterLabel="制单人" allLabel="全部制单人" preserveImplicitDefault custom/> : null}
       <CompactDateRange label="创建日期" fromLabel="备货单创建开始日期" toLabel="备货单创建结束日期" from={dateFrom} to={dateTo} onFromChange={value=>{setDateFrom(value);setPage(1)}} onToChange={value=>{setDateTo(value);setPage(1)}} onMonthRangeApply={({ from, to }) => { setDateFrom(from); setDateTo(to); setPage(1); }}/>
       <button onClick={()=>{setQ("");setStatus("");setCountry("");setUserId("");setCreatorId("");setDateFrom("");setDateTo("");setSortBy("created_at");setSortDir("desc");setPage(1)}} className="h-10 rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-50">重置</button>
     </AppFilterBar>

@@ -4,23 +4,12 @@ import Link from "next/link";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { LegacySupplierSourcesView } from "@/components/legacy-supplier-sources-view";
 import { SupplierDeliveryNoteFiles, type SupplierDeliveryNoteView } from "@/components/supplier-delivery-note-files";
+import { fetchAllStockRemediationRows } from "@/lib/stock-remediation-queue";
 
 type DocumentRow = { stock_order_id: string; order_number: string; stock_number?: string | null; missing_number_count: number; missing_image_count: number; missing_photo_note_numbers?: string[]; delivery_note_numbers?: string[]; pending_note_number_count?: number; pending_note_photo_count?: number; unlinked_shipped_item_count?: number };
 type LegacyRow = { order: { id: string; order_number: string; stock_number: string; warehouse_reference_number: string | null }; stock_order_item_id: string };
 type QueueRow = DocumentRow & { legacy_count: number };
 type OrderDetail = { delivery_notes?: SupplierDeliveryNoteView[]; can_upload_delivery_note_files?: boolean };
-
-async function fetchAll<T>(path: string): Promise<T[]> {
-  const rows: T[] = [];
-  for (let page = 1; page <= 2000; page++) {
-    const response = await fetch(`${path}?page=${page}`, { cache: "no-store" });
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(body.error || "补录清单加载失败");
-    rows.push(...(body.data || []));
-    if (page * 50 >= Number(body.count || 0)) return rows;
-  }
-  throw new Error("补录清单超过分页上限，请联系管理员");
-}
 
 export function MissingStockDocumentsView({ showLegacySources = false, canEditLegacySources = false }: { showLegacySources?: boolean; canEditLegacySources?: boolean }) {
   const [rows, setRows] = useState<QueueRow[]>([]);
@@ -39,8 +28,8 @@ export function MissingStockDocumentsView({ showLegacySources = false, canEditLe
     setLoading(true);
     try {
       const [documents, legacy] = await Promise.all([
-        fetchAll<DocumentRow>("/api/stock-orders/missing-documents"),
-        showLegacySources ? fetchAll<LegacyRow>("/api/stock-orders/legacy-receipt-sources") : Promise.resolve([]),
+        fetchAllStockRemediationRows<DocumentRow>("/api/stock-orders/missing-documents"),
+        showLegacySources ? fetchAllStockRemediationRows<LegacyRow>("/api/stock-orders/legacy-receipt-sources") : Promise.resolve([]),
       ]);
       const byOrder = new Map<string, QueueRow>();
       for (const row of documents) byOrder.set(row.stock_order_id, { ...row, legacy_count: 0 });

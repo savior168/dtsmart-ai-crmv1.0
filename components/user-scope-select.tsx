@@ -14,6 +14,7 @@ export function UserScopeSelect({
   permission,
   kind = "owner",
   initializeDefault = false,
+  preserveImplicitDefault = false,
   custom = false,
 }: {
   value: string;
@@ -24,6 +25,7 @@ export function UserScopeSelect({
   permission: string;
   kind?: "owner" | "pi_creator" | "sales_owner";
   initializeDefault?: boolean;
+  preserveImplicitDefault?: boolean;
   custom?: boolean;
 }) {
   const [loaded, setLoaded] = useState(false);
@@ -51,7 +53,7 @@ export function UserScopeSelect({
         setDefaultValue(body.profile.id || "");
         setCanSelectAll(Boolean(body.can_select_all));
         setDefaultAll(Boolean(body.default_all));
-        if (elevated && !valueRef.current) {
+        if (elevated && !valueRef.current && !preserveImplicitDefault) {
           // Keep the visible fallback and the API query in the same scope.
           // Explicit initialization still defaults managers to their own data.
           onChangeRef.current(initializeDefault ? body.profile.id : body.default_all && body.can_select_all ? "all" : body.profile.id);
@@ -59,7 +61,7 @@ export function UserScopeSelect({
       })
       .catch(() => { if (active) setLoaded(true); });
     return () => { active = false; };
-  }, [initializeDefault, kind, permission]);
+  }, [initializeDefault, kind, permission, preserveImplicitDefault]);
 
   useEffect(() => {
     if (initializeDefault && loaded && elevated && !value && defaultValue) onChangeRef.current(defaultValue);

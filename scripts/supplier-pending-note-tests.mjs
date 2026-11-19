@@ -19,6 +19,7 @@ const legacySourcesApi = read("app/api/stock-orders/legacy-receipt-sources/route
 const batchLegacyMigration = read("supabase/migrations/20261118183000_batch_legacy_supplier_receipt_sources.sql");
 const cron = read("app/api/cron/stock-document-reminders/route.ts");
 const optionalFieldsMigration = read("supabase/migrations/20261119050000_admin_legacy_remediation_optional_reconciliation_fields.sql");
+const pendingPaymentMigration = read("supabase/migrations/20261119080000_supplier_document_pending_payment.sql");
 
 assert.match(migration, /record_supplier_receipt_pending[\s\S]*public\.record_supplier_receipt\([\s\S]*number_pending = true/);
 assert.match(migration, /record_supplier_receipts_batch_with_pending[\s\S]*public\.record_supplier_receipts_batch\([\s\S]*number_pending = true/);
@@ -32,7 +33,7 @@ assert.doesNotMatch(stock, /!receiptDraft\.noteNumber\.trim\(\)|!line\.noteNumbe
 assert.match(stock, /纸质送货单号（选填，可后补）/);
 assert.match(stock, /recentNotes = \(data\.receipts \|\| \[\]\)\.filter\(\(receipt\) => \{[\s\S]*receipt\.remaining_quantity <= 0/, "已全额冲正的送货单不得再作为回货复用候选");
 assert.match(cutover, /legacy_quantity < 0[\s\S]*supplier_receipt_legacy_baselines[\s\S]*stock_receipt_requires_supplier_document/, "历史实收应先对齐来源基线再启用数量校验");
-assert.match(missingDocumentsView, /fetchAll<DocumentRow>[\s\S]*fetchAll<LegacyRow>[\s\S]*new Map<string, QueueRow>[\s\S]*<LegacySupplierSourcesView orderId=/, "仓库待补信息须按 PI 合并并在本页补录");
+assert.match(missingDocumentsView, /fetchAllStockRemediationRows<DocumentRow>[\s\S]*fetchAllStockRemediationRows<LegacyRow>[\s\S]*new Map<string, QueueRow>[\s\S]*<LegacySupplierSourcesView orderId=/, "仓库待补信息须按 PI 合并并在本页补录");
 assert.match(missingDocumentsView, /送货单号待补[\s\S]*历史回货来源待归属[\s\S]*缺照片[\s\S]*SupplierDeliveryNoteFiles/, "清单须区分待归属来源、待补单号与具体送货单缺照片");
 assert.match(read("app/api/stock-orders/missing-documents/route.ts"), /photographed = new Set[\s\S]*missingNotesByOrder[\s\S]*missing_photo_note_numbers/, "待补清单须按实际送货单号去重提示缺失照片");
 assert.match(read("app/api/stock-orders/missing-documents/route.ts"), /pendingNumbersByOrder[\s\S]*unlinkedByOrder[\s\S]*pending_note_number_count[\s\S]*unlinked_shipped_item_count/, "缺单号须与尚未关联送货单来源区分");
@@ -56,7 +57,7 @@ assert.match(read("app/stock-orders/missing-documents/page.tsx"), /\["WAREHOUSE"
 assert.match(missingDocumentsView, /<LegacySupplierSourcesView orderId=\{row\.stock_order_id\} readOnly=\{!canEditLegacySources\}/, "补录组件按页面授权开关输入区");
 assert.match(read("supabase/migrations/20261119050000_admin_legacy_remediation_optional_reconciliation_fields.sql"), /actor\.role not in \(''WAREHOUSE'',''ADMIN''\)/, "数据库补录函数须同样允许管理员");
 assert.match(read("components/warehouse-dashboard.tsx"), /order\.warehouse_reference_number \|\| "未填写订单编号"/, "仓库工作台须显示制单人填写的订单编号");
-assert.match(read("components/stock-orders-view.tsx"), /results\.some\(count=>count>0\)[\s\S]*pendingRemediation \? <Link href="\/stock-orders\/missing-documents"[^>]*>待补录备货单<\/Link>/, "备货单列表仅在存在待补录项目时显示清晰入口");
+assert.match(read("components/stock-orders-view.tsx"), /new Set\(\[\.\.\.documents\.map\(row=>row\.stock_order_id\),\.\.\.legacy\.map\(row=>row\.order\.id\)\]\)\.size[\s\S]*pendingRemediationCount > 0 \? <Link href="\/stock-orders\/missing-documents"[^>]*>待补录备货单 \{pendingRemediationCount\} 张<\/Link>/, "备货单入口须按单据去重显示待补数量");
 assert.match(read("components/missing-stock-documents-view.tsx"), /href=\{`\/stock-orders\/\$\{row\.stock_order_id\}`\} target="_blank" rel="noopener noreferrer"/, "待补录清单中的 PI 编号须安全地在新页签打开对应备货单");
 assert.match(read("components/missing-stock-documents-view.tsx"), /href=\{`\/stock-orders\/\$\{row\.stock_order_id\}`\} target="_blank" rel="noopener noreferrer"[^>]*>查看完整备货单<\/Link>/, "展开区底部查看完整备货单也须在新页签打开");
 assert.match(read("app/api/stock-orders/missing-documents/route.ts"), /noteNumbersByOrder[\s\S]*delivery_note_numbers/, "待补录清单须提供已关联送货单号供完整搜索");
@@ -67,7 +68,8 @@ assert.match(reconciliationView, /groupAllocations\(note\.allocations\)\.slice\(
 assert.match(reconciliationView, /notes\.map\(\(note\) => <Fragment key=\{note\.id\}>[\s\S]*<tr className="bg-slate-50"><td colSpan=\{13\} className="p-3"><NoteDetails note=\{note\}\/>/, "PI 与产品核对详情须紧跟当前送货单行显示");
 assert.match(reconciliationView, /搜索送货单号、供应商代码或PI订单号[\s\S]*按所选送货日期范围查找/);
 assert.match(reconciliationView, /核对说明（选填）<textarea maxLength=\{500\}/, "纸单核对说明应选填");
-assert.match(reconciliationView, /付款凭证号（选填）<input maxLength=\{200\}/, "付款凭证号应选填");
+assert.match(reconciliationView, /documentsPending \? "付款依据 \/ 流水号（必填）" : "付款凭证号（选填）"/, "正常付款凭证号选填，缺件付款须填写依据");
+assert.match(pendingPaymentMigration, /documents_pending_at_payment boolean[\s\S]*pending_number or pending_photo[\s\S]*payment_reference[\s\S]*new\.documents_pending_at_payment/, "单据待补付款须有可追溯依据，并标记付款时状态");
 assert.doesNotMatch(read("app/api/supplier-reconciliation/notes/[id]/route.ts"), /!reason \|\|/, "纸单核对接口不可强制说明");
 assert.doesNotMatch(read("app/api/supplier-reconciliation/payments/route.ts"), /!reference \|\|/, "付款接口不可强制凭证号");
 assert.match(optionalFieldsMigration, /where btrim\(payment_reference\) <> ''/, "有凭证号的付款仍须保留唯一性");

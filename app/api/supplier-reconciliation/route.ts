@@ -40,6 +40,11 @@ export async function GET(request: NextRequest) {
       .select("id,supplier_delivery_note_id,filename,mime_type,size_bytes,created_at")
       .in("supplier_delivery_note_id", notes.map((note) => note.id)).order("created_at") : { data: [] as Array<{ id: string; supplier_delivery_note_id: string | null; filename: string; mime_type: string; size_bytes: number; created_at: string }>, error: null };
     if (attachmentResult.error) throw attachmentResult.error;
+    const paymentFlags = notes.length ? await admin.from("supplier_payments")
+      .select("id,documents_pending_at_payment").in("delivery_note_id", notes.map((note) => note.id))
+      : { data: [], error: null };
+    if (paymentFlags.error) throw paymentFlags.error;
+    const pendingAtPayment = new Map((paymentFlags.data || []).map((payment) => [payment.id, payment.documents_pending_at_payment]));
     const attachmentsByNote = new Map<string, NonNullable<typeof attachmentResult.data>>();
     for (const attachment of attachmentResult.data || []) {
       const list = attachmentsByNote.get(attachment.supplier_delivery_note_id!) || [];
@@ -53,6 +58,9 @@ export async function GET(request: NextRequest) {
       number_pending: Boolean(pendingById.get(note.id)?.number_pending),
       updated_at: pendingById.get(note.id)?.updated_at || (note as { updated_at?: string }).updated_at,
       attachments: attachmentsByNote.get(note.id) || [],
+      payments: ((note as { payments?: Array<{ id: string }> }).payments || []).map((payment) => ({
+        ...payment, documents_pending_at_payment: pendingAtPayment.get(payment.id) ?? null,
+      })),
     })) });
   } catch (error) {
     const message = sqlErrorMessage(error, "供应商对账加载失败");
