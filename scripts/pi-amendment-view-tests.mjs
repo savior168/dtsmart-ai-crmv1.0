@@ -12,8 +12,12 @@ for (const [name, source] of [["PI变更", amendmentUi], ["PI创建", orderFormU
 assert.match(amendmentUi, /\{currency !== "CNY" \? <td className="whitespace-nowrap px-2 py-1\.5">\{currency\}/, "CNY单据不得重复显示付款币种单价");
 assert.match(amendmentUi, /\{currency !== "CNY" \? <td className="whitespace-nowrap px-2 py-1\.5 font-medium text-blue-700">/, "CNY单据不得重复显示付款币种金额");
 for (const field of ["成本单价", "销售单价"]) {
-  assert.ok(amendmentUi.includes(`disabled={isLocked} aria-label={\`第\${index + 1}行${field}`), `${field}应允许未交货代的已有PI行申请更正，同时锁定已交货代行`);
+  assert.ok(amendmentUi.includes(`disabled={isLocked} aria-label={\`第\${index + 1}行${field}`), `${field}应锁定已交货代行`);
 }
+assert.match(amendmentUi, /changes\.every\(\(change\) => change\.kind === "PRICE"\)/, "仅改价格不得创建仓库待确认变更");
+const priceOnlyGuard = readFileSync(new URL("../supabase/migrations/20261119080310_prevent_price_only_warehouse_amendments.sql", import.meta.url), "utf8");
+assert.match(priceOnlyGuard, /request_direct_pi_amendment\(uuid,integer,jsonb,text\)/, "数据库应阻断直接调用变更RPC提交纯价格修改");
+assert.match(priceOnlyGuard, /仅修改售价或销售成本请使用产品行更正价格/, "数据库应指引使用即时价格更正流程");
 assert.match(amendmentUi, /parsePiProductRows\(parsePiClipboardTsv\(text\), fxRate, currency\)/, "PI变更粘贴须复用创建PI的表格解析与币种规则");
 assert.match(amendmentUi, /setDraft\(\(current\) => current \? \[\.\.\.current, \.\.\.additions\] : current\)/, "粘贴只追加新产品，不得覆盖已有或已交货代产品");
 assert.match(amendmentUi, /if \(draft\.length \+ parsed\.length > 500\)/, "粘贴须遵守PI产品行数上限");

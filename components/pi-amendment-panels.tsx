@@ -103,6 +103,9 @@ export function PiAmendmentSalesPanel({ orderId, revision, items, progress, amen
       }]));
       const changes = diffPiAmendment(items, proposed, progressMap);
       if (!changes.length) throw new Error("请先修改至少一项产品");
+      if (changes.every((change) => change.kind === "PRICE")) {
+        throw new Error("仅修改售价或销售成本无需仓库确认。请关闭弹窗，在对应产品行使用「更正价格」；多项产品请逐项更正并留痕。");
+      }
       setBusy(true); setError("");
       const response = await fetch(`/api/orders/${orderId}/amendments`, {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -132,7 +135,7 @@ export function PiAmendmentSalesPanel({ orderId, revision, items, progress, amen
       </div>;
     })}</div>
     {error && !draft ? <p role="alert" className="mt-2 rounded bg-rose-50 p-2 text-sm text-rose-700">{error}</p> : null}
-    <AppDialog open={draft !== null} title="申请PI订单变更" description="产品字段名称、顺序和表格样式与创建 PI 产品明细保持一致；金额按本 PI 汇率展示。整份申请须由仓库确认后才同时更新 PI 与备货单；已交货代行不能修改。" onClose={() => { if (!busy) setDraft(null); }} width="max-w-[96vw]">
+    <AppDialog open={draft !== null} title="申请PI订单变更" description="仅改售价或销售成本请使用产品行「更正价格」，无需仓库确认或通知；涉及产品、数量或理货要求的变更才由仓库确认。已交货代行不能修改。" onClose={() => { if (!busy) setDraft(null); }} width="max-w-[96vw]">
       {draft ? <form onSubmit={(event) => { event.preventDefault(); void submit(); }} className="space-y-3 text-sm">
         <div className="flex flex-wrap items-center gap-2 text-xs" aria-live="polite">
           <span className="rounded bg-emerald-50 px-2 py-1 text-emerald-800">新增 {addedCount}</span>

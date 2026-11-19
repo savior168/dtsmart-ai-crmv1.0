@@ -919,7 +919,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
                       ...(canViewProcurement ? ["仓库备注"] : []),
                       ...(canExecute ? ["操作"] : []),
                     ].map((x) => (
-                      <th key={x} className="break-words px-2 py-3 font-medium leading-4">
+                      <th key={x} className={`break-words px-2 py-3 font-medium leading-4 ${x === "操作" ? "sticky right-0 z-20 border-l border-slate-200 bg-slate-50 shadow-[-4px_0_8px_-6px_#64748b]" : ""}`}>
                         {x}
                       </th>
                     ))}
@@ -1016,7 +1016,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
                       </td>
                       <td className="px-2 py-2"><div className="line-clamp-2 break-words text-[13px] leading-5 text-slate-600" title={item.internal_note || "-"}>{item.internal_note || "-"}</div></td>
                       {canViewProcurement ? <td className="px-2 py-2">{canEditProcurement ? <input value={procurementDraft[item.id]?.note || ""} onChange={(event) => setProcurementDraft((current) => ({ ...current, [item.id]: { cost: current[item.id]?.cost || "", note: event.target.value } }))} maxLength={1000} aria-label={`第 ${item.line_number} 项仓库备注`} placeholder="仓库补充说明" className="h-9 w-full min-w-0 rounded border px-2" /> : <div className="line-clamp-2 break-words text-[13px] leading-5 text-slate-600" title={item.warehouse_note || "-"}>{item.warehouse_note || "-"}</div>}</td> : null}
-                      {canExecute ? <td className="px-2 py-2"><button type="button" disabled={busy || savingItemId !== null || hasUnsavedQuantity} onClick={() => setCorrection({
+                      {canExecute ? <td className={`sticky right-0 z-10 border-l border-slate-200 px-2 py-2 shadow-[-4px_0_8px_-6px_#64748b] ${amendmentHighlightByLine.get(item.line_number) === "ADDED" ? "bg-emerald-50" : amendmentHighlightByLine.get(item.line_number) === "CHANGED" ? "bg-amber-50" : "bg-white"}`}><button type="button" disabled={busy || savingItemId !== null || hasUnsavedQuantity} onClick={() => setCorrection({
                         itemId: item.id, received: String(item.received_quantity), prepared: String(item.prepared_quantity),
                         supplierCode: item.warehouse_supplier_code || "", reason: "", revertStart: false,
                       })} className="whitespace-nowrap rounded border border-amber-300 px-3 py-1.5 text-amber-800 disabled:opacity-40">更正进度</button></td> : null}
