@@ -4,6 +4,7 @@ import { hasPermission, requireUser } from "@/lib/auth/current-user";
 export default async function AiAcquisitionPage(){
   const { account } = await requireUser();
   return <AcquisitionTaskCenter
+    initialShowOwner={hasPermission(account,"ai.acquisition.data_all")}
     canCreate={hasPermission(account,"ai.acquisition.create")}
     canViewUsage={hasPermission(account,"ai.acquisition.usage.view")}
     canManageSettings={hasPermission(account,"ai.acquisition.settings.manage")}

@@ -59,7 +59,7 @@ function taskControl(status:string) {
   return null;
 }
 
-export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettings, canViewGoogleBilling, canControl }:{ canCreate:boolean; canViewUsage:boolean; canManageSettings:boolean; canViewGoogleBilling:boolean; canControl:boolean }) {
+export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettings, canViewGoogleBilling, canControl, initialShowOwner=false }:{ canCreate:boolean; canViewUsage:boolean; canManageSettings:boolean; canViewGoogleBilling:boolean; canControl:boolean; initialShowOwner?:boolean }) {
   const router=useRouter();
   const [tasks, setTasks] = useState<AcquisitionTask[]>([]),
     [count, setCount] = useState(0),
@@ -94,7 +94,7 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
     [outOfPoolOpen, setOutOfPoolOpen] = useState(false),
     [outOfPoolPage, setOutOfPoolPage] = useState(1),
     [outOfPoolPageSize, setOutOfPoolPageSize] = useState(20),
-    [showOwner, setShowOwner] = useState(false),
+    [showOwner, setShowOwner] = useState(initialShowOwner),
     [scopeUserId, setScopeUserId] = useState(""),
     [pendingAction, setPendingAction] = useState<{task:AcquisitionTask;action:AcquisitionAction}|null>(null),
     [actionBusy, setActionBusy] = useState(false);
@@ -421,7 +421,7 @@ export function AcquisitionTaskCenter({ canCreate, canViewUsage, canManageSettin
           <SearchableMultiSelectFilter label="国家/地区" value={countries} options={filterOptions.countries.map((item)=>({...item,label:COUNTRY_NAMES.of(item.value)||item.value}))} onChange={(value)=>{setPage(1);setCountries(value)}}/>
           <SearchableMultiSelectFilter label="所属行业" value={industries} options={filterOptions.industries} onChange={(value)=>{setPage(1);setIndustries(value)}}/>
           <select aria-label="获客模式" className={`${input} w-full`} value={costMode} onChange={(event)=>{setPage(1);setCostMode(event.target.value)}}><option value="">全部获客模式</option><option value="FREE_ONLY">标准获客</option><option value="ADAPTIVE">智能获客</option></select>
-          {showOwner ? <UserScopeSelect permission="ai.acquisition.data_all" value={scopeUserId} initializeDefault={false} onChange={(value)=>{setScopeUserId(value);setPage(1)}} allLabel="全部归属人" filterLabel="归属人" className={`${input} w-full`}/> : null}
+          {showOwner ? <UserScopeSelect permission="ai.acquisition.data_all" value={scopeUserId} initializeDefault={false} onChange={(value)=>{setScopeUserId(value);setPage(1)}} allLabel="全部归属人" filterLabel="归属人" className={`${input} w-full`} reserveWhileLoading/> : null}
           <div className="flex gap-2"><button type="submit" className={primaryButton}>查询</button><button type="button" className={button} onClick={refreshAll}><RefreshCw size={16}/>刷新</button></div>
           </div>
           <div className="flex flex-wrap items-center gap-3 border-t border-slate-100 pt-3">

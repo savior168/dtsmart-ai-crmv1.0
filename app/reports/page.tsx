@@ -9,5 +9,5 @@ export default async function ReportsPage() {
   if (account.role === "ORDER_CLERK") return <OperationsOverview role="ORDER_CLERK" userId={account.id} canViewOrders={hasPermission(account, "orders.view")} canFilterCreator={hasPermission(account, "orders.data_all")} canViewStock={hasPermission(account, "stock.view")} report />;
   if (account.role === "WAREHOUSE") return <OperationsOverview role="WAREHOUSE" userId={account.id} canViewOrders={false} canFilterCreator={false} canViewStock={hasPermission(account, "stock.view")} report />;
   if (account.role === "FINANCE") return <FinanceReportsView canViewReconciliation={hasPermission(account, "supplier.reconciliation.view")} />;
-  return <SalesReportsView />;
+  return <SalesReportsView canFilterOwner={hasPermission(account,"reports.data_all")} />;
 }

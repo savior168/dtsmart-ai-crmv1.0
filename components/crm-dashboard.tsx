@@ -165,7 +165,7 @@ function DashboardHeader({ title, href }: { title: string; href: string }) {
   return <div className="flex h-12 items-center justify-between px-4"><h3 className="flex items-center gap-2 text-[15px] font-semibold text-slate-900">{title}<Info size={14} className="text-slate-400" /></h3><Link href={href} className="text-xs font-medium text-blue-600 hover:text-blue-700">查看详情</Link></div>;
 }
 
-export function CrmDashboard({ showPerformance = true, canImportCustomers = false, canCreateAiScreening = false }: { showPerformance?: boolean; canImportCustomers?: boolean; canCreateAiScreening?: boolean }) {
+export function CrmDashboard({ showPerformance = true, canImportCustomers = false, canCreateAiScreening = false, canFilterOwner = false }: { showPerformance?: boolean; canImportCustomers?: boolean; canCreateAiScreening?: boolean; canFilterOwner?: boolean }) {
   const now = useMemo(() => new Date(), []);
   const [from, setFrom] = useState(() => businessDatePreset("month", now).from);
   const [to, setTo] = useState(() => businessDatePreset("month", now).to);
@@ -257,7 +257,7 @@ export function CrmDashboard({ showPerformance = true, canImportCustomers = fals
         <section className="mb-4 flex flex-wrap items-center gap-3">
           <CompactDateRange label="统计日期" from={from} to={to} onFromChange={(value) => { setFrom(value); setSelectedPreset(""); }} onToChange={(value) => { setTo(value); setSelectedPreset(""); }} presets={BUSINESS_DATE_PRESETS} selectedPreset={selectedPreset} onPresetChange={selectPreset} className="shadow-sm"/>
           <input aria-label="国家筛选" value={country} onChange={(event) => setCountry(event.target.value)} placeholder="输入国家名称" className="h-10 w-40 rounded-lg border border-slate-200 bg-white px-4 text-sm shadow-sm" />
-          <UserScopeSelect permission="dashboard.data_all" value={scopeUserId} onChange={setScopeUserId} className="h-10 min-w-52 rounded-lg border border-slate-200 bg-white px-3 text-sm shadow-sm" />
+          {canFilterOwner ? <UserScopeSelect permission="dashboard.data_all" value={scopeUserId} onChange={setScopeUserId} className="h-10 min-w-52 rounded-lg border border-slate-200 bg-white px-3 text-sm shadow-sm" reserveWhileLoading /> : null}
           <button type="button" onClick={reset} className="inline-flex h-10 items-center gap-2 rounded-lg border border-blue-500 bg-white px-5 text-sm font-medium text-blue-600 transition hover:bg-blue-50"><RefreshCw size={16} />重置</button>
           {canImportCustomers || canCreateAiScreening ? <span className="mx-1 hidden h-6 w-px bg-slate-200 xl:block" /> : null}
           {canImportCustomers ? <Link href="/import?destination=private" className="inline-flex h-10 items-center gap-2 rounded-lg border bg-white px-4 text-sm font-medium text-slate-700 shadow-sm hover:border-blue-300 hover:text-blue-700"><UsersRound size={16}/>导入我的客户</Link> : null}

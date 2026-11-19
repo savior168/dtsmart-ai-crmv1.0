@@ -44,7 +44,7 @@ type Row = {
   creator?: { name?: string | null; email?: string } | null;
   stock?: StockLink | StockLink[] | null;
 };
-export function OrdersView({ initialFilters = {} }: { initialFilters?: { status?: string; dateFrom?: string; dateTo?: string; creatorId?: string } }) {
+export function OrdersView({ initialFilters = {}, canFilterOwner = false, initialCanFilterCreator = false }: { initialFilters?: { status?: string; dateFrom?: string; dateTo?: string; creatorId?: string }; canFilterOwner?: boolean; initialCanFilterCreator?: boolean }) {
   const router = useRouter();
   const listRequestVersion = useRef(0);
   const lastListRequestAt = useRef(0);
@@ -62,7 +62,7 @@ export function OrdersView({ initialFilters = {} }: { initialFilters?: { status?
   const [dateTo, setDateTo] = useState(initialFilters.dateTo || "");
   const [userId, setUserId] = useState("");
   const [creatorId, setCreatorId] = useState(initialFilters.creatorId || "");
-  const [canFilterCreator, setCanFilterCreator] = useState(false);
+  const [canFilterCreator, setCanFilterCreator] = useState(initialCanFilterCreator);
   const [canViewStock, setCanViewStock] = useState(false);
   const [canCreate, setCanCreate] = useState(false);
   const [canImport, setCanImport] = useState(false);
@@ -258,8 +258,8 @@ export function OrdersView({ initialFilters = {} }: { initialFilters?: { status?
             <option value="">全部付款币种</option>{QUOTE_CURRENCIES.map(([code, name]) => <option key={code} value={code}>{code} · {name}</option>)}
           </AppSelect>
           <CompactDateRange label="创建日期" fromLabel="创建开始日期" toLabel="创建结束日期" from={dateFrom} to={dateTo} onFromChange={(value) => { setDateFrom(value); setPage(1); }} onToChange={(value) => { setDateTo(value); setPage(1); }} onMonthRangeApply={({ from, to }) => { setDateFrom(from); setDateTo(to); setPage(1); }}/>
-          <UserScopeSelect permission="orders.data_all" kind="sales_owner" value={userId} onChange={(value) => { setUserId(value); setPage(1); }} className={`${appFieldClass} xl:w-[176px]`} filterLabel="所属销售员" preserveImplicitDefault custom/>
-          {canFilterCreator ? <UserScopeSelect permission="orders.data_all" kind="pi_creator" value={creatorId} onChange={(value) => { setCreatorId(value); setPage(1); }} className={`${appFieldClass} xl:w-[176px]`} filterLabel="制单人" allLabel="全部制单人" preserveImplicitDefault custom/> : null}
+          {canFilterOwner ? <UserScopeSelect permission="orders.data_all" kind="sales_owner" value={userId} onChange={(value) => { setUserId(value); setPage(1); }} className={`${appFieldClass} xl:w-[176px]`} filterLabel="所属销售员" preserveImplicitDefault reserveWhileLoading custom/> : null}
+          {canFilterCreator ? <UserScopeSelect permission="orders.data_all" kind="pi_creator" value={creatorId} onChange={(value) => { setCreatorId(value); setPage(1); }} className={`${appFieldClass} xl:w-[176px]`} filterLabel="制单人" allLabel="全部制单人" preserveImplicitDefault reserveWhileLoading custom/> : null}
           <button
             onClick={() => {
               setQ("");

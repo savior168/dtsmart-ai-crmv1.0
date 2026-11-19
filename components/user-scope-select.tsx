@@ -15,6 +15,7 @@ export function UserScopeSelect({
   kind = "owner",
   initializeDefault = false,
   preserveImplicitDefault = false,
+  reserveWhileLoading = false,
   custom = false,
 }: {
   value: string;
@@ -26,6 +27,7 @@ export function UserScopeSelect({
   kind?: "owner" | "pi_creator" | "sales_owner";
   initializeDefault?: boolean;
   preserveImplicitDefault?: boolean;
+  reserveWhileLoading?: boolean;
   custom?: boolean;
 }) {
   const [loaded, setLoaded] = useState(false);
@@ -72,7 +74,8 @@ export function UserScopeSelect({
 
   // 普通销售员没有跨用户数据权限，不渲染归属人筛选控件，也避免
   // 页面初始化时短暂闪现一个不可用的“我的数据”下拉框。
-  if (!loaded || !elevated) return null;
+  if (!loaded) return reserveWhileLoading ? <AppSelect aria-label={`${filterLabel}加载中`} value="" onChange={() => {}} disabled className={className}><option value="">{filterLabel}：加载中…</option></AppSelect> : null;
+  if (!elevated) return null;
   const selected = (value === "all" && !canSelectAll ? defaultValue : value) || (!initializeDefault ? (defaultAll ? "all" : defaultValue) : "");
   const options = <>{canSelectAll ? <option value="all">{filterLabel}：{allLabel}</option> : null}
     {users.map((user) => <option key={user.id} value={user.id}>{filterLabel}：{user.name?.trim() || user.email}{user.id === defaultValue ? "（我的数据）" : ""}{user.status && user.status !== "ACTIVE" ? "（已停用）" : ""}</option>)}</>;

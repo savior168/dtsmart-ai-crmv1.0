@@ -92,10 +92,12 @@ assert.match(creatorScope, /hasPermission\(account, dataPermission\)/,
   "PI creator filter must require the configured data grant");
 assert.doesNotMatch(creatorScope, /ORDER_CLERK|account\.role/,
   "PI creator filter must not hard-code a role after the data grant is configured");
-assert.match(stockListView, /const canFilterCreator\s*=\s*Boolean\(data\?\.can_view_all\)/,
+assert.match(stockListView, /const canFilterCreator\s*=\s*canFilterOwner/,
   "备货制单人筛选应由数据权限决定，不能写死仓库员角色");
-assert.match(stockListView, /data\?\.can_view_all\s*\?\s*<UserScopeSelect permission="stock\.data_all"/,
+assert.match(stockListView, /canFilterOwner\s*\?\s*<UserScopeSelect permission="stock\.data_all"/,
   "备货归属销售员筛选应随跨用户数据权限显示");
+assert.match(read("app/stock-orders/page.tsx"), /canFilterOwner=\{hasPermission\(account,"stock\.data_all"\)\}/,
+  "备货筛选权限应在服务端首屏确定");
 assert.doesNotMatch(userOptionsApi, /creatorOptions\s*&&\s*!\["ADMIN",\s*"ORDER_CLERK"\]/,
   "制单人选项接口不能在数据权限之外再按角色拒绝仓库员");
 assert.match(userScopeSelect, /setCanSelectAll\(Boolean\(body\.can_select_all\)\)/,

@@ -368,7 +368,7 @@ assert.match(
   /setDefaultAll\(Boolean\(body\.default_all\)\)[\s\S]*const selected = \(value === "all" && !canSelectAll \? defaultValue : value\) \|\| \(!initializeDefault \? \(defaultAll \? "all" : defaultValue\) : ""\)/,
   "归属人控件须按服务端授权范围显示全部选项，同时保持主管本人默认值",
 );
-assert.match(userScopeSelect, /if \(!loaded \|\| !elevated\) return null/, "销售员不得显示归属人筛选控件");
+assert.match(userScopeSelect, /if \(!elevated\) return null/, "销售员不得显示归属人筛选控件");
 assert.match(customersView, /show_owner|currentRole[\s\S]*SUPERVISOR/, "客户列表必须识别主管和系统管理员的数据范围");
 assert.match(customerListFields, /key: "owner", label: "归属人"/, "跨用户客户列表必须统一显示归属人字段");
 assert.ok(customersView.indexOf('aria-label="归属人"') < customersView.indexOf('<ImportBatchMultiSelect'), "客户列表归属人筛选必须位于导入批次前面");

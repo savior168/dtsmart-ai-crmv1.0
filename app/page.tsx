@@ -20,6 +20,7 @@ export default async function Home() {
     canViewNotifications={hasPermission(account, "notifications.view")}
   />;
   return <CrmDashboard
+    canFilterOwner={hasPermission(account, "dashboard.data_all")}
     showPerformance={["ADMIN", "SUPERVISOR", "SALES"].includes(account.role) && hasPermission(account, "reports.view")}
     canImportCustomers={hasPermission(account, "imports.create")}
     canCreateAiScreening={account.role === "ADMIN"}
