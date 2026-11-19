@@ -14,6 +14,9 @@ assert.match(dashboardApi, /text: dashboardStockActivityText\(/, "最近备货�
 assert.match(dashboardApi, /\.gte\("updated_at".*\.lt\("updated_at"/, "最近备货动态应使用备货更新时间");
 const dashboard = read("components/crm-dashboard.tsx");
 const reports = read("components/sales-reports-view.tsx");
+assert.match(reports, /function resetFilters\(\)[\s\S]*setUserId\(""\)[\s\S]*setCountry\(""\)[\s\S]*setCustomerId\(""\)/, "业绩分析重置须清除所有筛选条件");
+assert.match(reports, /onClick=\{resetFilters\}[\s\S]*>重置<\/button>/, "业绩分析须提供重置入口");
+assert.doesNotMatch(reports, /onClick=\{\(\) => void load\(\)\}[\s\S]{0,100}>查询<\/button>/, "筛选变更自动加载时不应再提供重复查询按钮");
 assert.match(
   reports,
   /stock_statuses\.map\(\(row\) => \(\{ \.\.\.row, label: STOCK_STATUS_LABELS\[row\.label as StockOrderStatus\] \|\| row\.label \}\)\)/,
