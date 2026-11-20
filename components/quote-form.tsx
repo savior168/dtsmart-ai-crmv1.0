@@ -765,7 +765,7 @@ export function QuoteForm({
               <div>
                 <h2 className="font-semibold">客户报价产品明细</h2>
                 <p className="mt-1 text-xs text-slate-500">
-                  仅填写客户可见内容；销售员在备货单中补充中文说明和理货要求，实际采购价由采购人员核实后填写。
+                  填写产品规格、数量和客户报价；中文说明与理货要求可在备货单中补充。
                 </p>
               </div>
               {!readonly ? (
@@ -947,7 +947,7 @@ export function QuoteForm({
                   </b>
                 </div>
                 <div className="mt-3 rounded-lg bg-blue-50 p-3 text-xs text-blue-800">
-                  报价单仅保存客户可见的销售信息。客户确认后，系统创建订单快照和待完善备货单，采购成本不会出现在客户文件中。
+                  客户确认后，系统创建订单快照和待完善备货单。
                 </div>
               </aside>
             </div>

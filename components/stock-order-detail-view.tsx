@@ -872,9 +872,6 @@ export function StockOrderDetailView({ id }: { id: string }) {
           <div className="p-5 pt-0">
             <h2 className="mb-1 font-semibold">仓库产品明细</h2>
             {data.amendment_highlights?.length ? <p className="mb-2 text-xs text-slate-600" aria-label="最近一次已生效PI变更标记">最近一次已生效变更：<span className="ml-2 text-emerald-700">绿色 · 新增</span><span className="ml-3 text-amber-700">琥珀色 · 调整</span><span className="ml-3 text-rose-700">红色 · 已删除项见上方历史记录</span></p> : null}
-            <p className="mb-3 text-xs text-slate-500">
-              仅展示仓库所需规格、数量、理货要求及 PI 预估成本；销售价、客户付款价和利润率不会在备货单展示。
-            </p>
             <div className="mb-3 flex flex-wrap items-center gap-3 text-sm">
               <input value={receivingSearch} onChange={(e) => setReceivingSearch(e.target.value)} placeholder="搜索产品、型号、供应商编码" className="h-9 min-w-64 rounded border px-3" />
               <label className="inline-flex items-center gap-2"><span className="text-slate-500">单项进度</span><select value={stageFilter} onChange={(e) => setStageFilter(e.target.value as "ALL" | StockItemProgressKey)} className="h-9 rounded border bg-white px-2"><option value="ALL">全部进度</option>{STOCK_ITEM_PROGRESS.map((stage) => <option key={stage.key} value={stage.key}>{stage.label}</option>)}</select></label>

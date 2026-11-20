@@ -1,4 +1,5 @@
 "use client";
+import { PI_DATA_REFRESH_EVENT, PI_DATA_REFRESH_STORAGE_KEY } from "@/lib/ui/pi-data-refresh";
 
 import NextLink from "next/link";
 import { useRouter } from "next/navigation";
@@ -220,6 +221,15 @@ export function CrmDashboard({ showPerformance = true, canImportCustomers = fals
     const timer = window.setTimeout(() => { void load(); }, 120);
     return () => { window.clearTimeout(timer); controllerRef.current?.abort(); requestId.current += 1; };
   }, [load]);
+  useEffect(() => {
+    if (!showPerformance) return;
+    const refresh = () => { void load(); };
+    const onStorage = (event: StorageEvent) => { if (event.key === PI_DATA_REFRESH_STORAGE_KEY) refresh(); };
+    window.addEventListener(PI_DATA_REFRESH_EVENT, refresh);
+    window.addEventListener("storage", onStorage);
+    window.addEventListener("focus", refresh);
+    return () => { window.removeEventListener(PI_DATA_REFRESH_EVENT, refresh); window.removeEventListener("storage", onStorage); window.removeEventListener("focus", refresh); };
+  }, [load, showPerformance]);
 
   function reset() {
     const current = businessDatePreset("month", new Date());

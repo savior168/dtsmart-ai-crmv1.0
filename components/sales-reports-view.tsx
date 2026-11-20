@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { BarChart3, CheckCircle2, FileDown, LoaderCircle, Medal, MessageSquareText, Sparkles, Target, TrendingUp, UsersRound, type LucideIcon } from "lucide-react";
 import { UserScopeSelect } from "@/components/user-scope-select";
@@ -14,6 +14,7 @@ import { BUSINESS_DATE_PRESETS, businessDatePreset, type BusinessDatePreset } fr
 import { formatPerformanceNumber } from "@/lib/reports/format";
 import { teamContribution } from "@/lib/reports/team-contribution";
 import { STOCK_STATUS_LABELS, type StockOrderStatus } from "@/lib/types";
+import { PI_DATA_REFRESH_EVENT, PI_DATA_REFRESH_STORAGE_KEY } from "@/lib/ui/pi-data-refresh";
 
 type Report = { profile: { role: string }; totals: SalesMetrics; ranking: SalesRankingRow[]; breakdowns: SalesBreakdowns };
 type PerformanceCustomer = { id: string | null; label: string; order_count: number; quantity: number; cny: number; usd: number; missing_cny: number; missing_usd: number; cost_cny: number; product_profit_cny: number; product_profit_usd: number; product_sales_cny: number; missing_profit_orders: number; missing_profit_usd_orders: number; product_margin: number | null };
@@ -34,20 +35,30 @@ function percentage(value: number, total: number) { return total ? Math.round(va
 export function SalesReportsView({ mode = "center", canFilterOwner = false }: { mode?: "center" | "performance"; canFilterOwner?: boolean }) {
   const initial = useMemo(() => range("month"), []); const [from, setFrom] = useState(initial.from); const [to, setTo] = useState(initial.to); const [userId, setUserId] = useState(""); const [selectedPreset, setSelectedPreset] = useState("month");
   const [report, setReport] = useState<Report | null>(null); const [performance, setPerformance] = useState<Performance | null>(null); const [country, setCountry] = useState(""); const [customerId, setCustomerId] = useState(""); const [loading, setLoading] = useState(true); const [error, setError] = useState("");
-  const load = useCallback(async () => { setLoading(true); setError(""); const params = new URLSearchParams(businessRange(from, to)); if (userId) params.set("user_id", userId); if (mode === "performance" && country) params.set("country", country); if (mode === "performance" && customerId) params.set("customer_id", customerId);  try {
+  const requestId = useRef(0);
+  const load = useCallback(async () => { const request = ++requestId.current; setLoading(true); setError(""); const params = new URLSearchParams(businessRange(from, to)); if (userId) params.set("user_id", userId); if (mode === "performance" && country) params.set("country", country); if (mode === "performance" && customerId) params.set("customer_id", customerId);  try {
     if (mode === "performance") {
       const response = await fetch(`/api/reports/sales/performance?${params}`, { cache: "no-store" });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || "业绩分析加载失败");
-      setPerformance(body);
+      if (request === requestId.current) setPerformance(body);
     } else {
       const response = await fetch(`/api/reports/sales?${params}`, { cache: "no-store" });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || "报表加载失败");
-      setReport(body);
+      if (request === requestId.current) setReport(body);
     }
-  } catch (reason) { setError(reason instanceof Error ? reason.message : "报表加载失败"); } finally { setLoading(false); } }, [from, to, userId, country, customerId, mode]);
-  useEffect(() => { void load(); }, [load]);
+  } catch (reason) { if (request === requestId.current) setError(reason instanceof Error ? reason.message : "报表加载失败"); } finally { if (request === requestId.current) setLoading(false); } }, [from, to, userId, country, customerId, mode]);
+  useEffect(() => { void load(); return () => { requestId.current += 1; }; }, [load]);
+  useEffect(() => {
+    if (mode !== "performance") return;
+    const refresh = () => { void load(); };
+    const onStorage = (event: StorageEvent) => { if (event.key === PI_DATA_REFRESH_STORAGE_KEY) refresh(); };
+    window.addEventListener(PI_DATA_REFRESH_EVENT, refresh);
+    window.addEventListener("storage", onStorage);
+    window.addEventListener("focus", refresh);
+    return () => { window.removeEventListener(PI_DATA_REFRESH_EVENT, refresh); window.removeEventListener("storage", onStorage); window.removeEventListener("focus", refresh); };
+  }, [load, mode]);
   function preset(kind: RangePreset) { const next = range(kind); setFrom(next.from); setTo(next.to); setSelectedPreset(kind); setCountry(""); setCustomerId(""); }
   function resetFilters() { const next = range("month"); setFrom(next.from); setTo(next.to); setSelectedPreset("month"); setUserId(""); setCountry(""); setCustomerId(""); }
   const exportParams = new URLSearchParams(businessRange(from, to)); if (userId) exportParams.set("user_id", userId);

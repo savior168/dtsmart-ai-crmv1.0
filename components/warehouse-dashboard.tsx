@@ -35,7 +35,7 @@ export function WarehouseDashboard() {
   }, []);
   useEffect(() => { void load(); }, [load]);
   return <main className="p-4 lg:p-6"><div className="mx-auto max-w-[1500px]">
-    <header className="flex flex-wrap items-end justify-between gap-3"><div><h1 className="text-2xl font-bold">采购备货工作台</h1><p className="mt-1 text-sm text-slate-500">只展示仓库必要数据；不显示客户联系方式、销售价格和利润。</p></div><button onClick={() => void load()} className="inline-flex h-10 items-center gap-2 rounded-lg border bg-white px-4 text-sm"><RefreshCw size={16}/>刷新</button></header>
+    <header className="flex flex-wrap items-end justify-between gap-3"><h1 className="text-2xl font-bold">采购备货工作台</h1><button onClick={() => void load()} className="inline-flex h-10 items-center gap-2 rounded-lg border bg-white px-4 text-sm"><RefreshCw size={16}/>刷新</button></header>
     {error ? <div className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{error}</div> : null}
     {loading ? <div className="grid min-h-72 place-items-center"><LoaderCircle className="animate-spin text-blue-600"/></div> : data ? <>
       <section className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{statusGroups.map((group) => <Link key={group.status} href={`/stock-orders?status=${group.status}`} className="rounded-xl border bg-white p-5 shadow-sm transition hover:border-blue-300"><small className="text-slate-500">{group.label}</small><b className="mt-2 block text-3xl">{group.keys.reduce((sum, key) => sum + Number(data.counts[key as StockOrderStatus] || 0), 0)}</b></Link>)}</section>

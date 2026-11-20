@@ -225,7 +225,7 @@ export function AmendmentChanges({ changes }: { changes: WarehousePiChange["chan
     {change.kind === "删除" ? <s>{lineLabel(change.before)} · {String(change.before?.quantity)} 件</s>
       : change.kind === "新增" ? <span>{lineLabel(change.after)} · {String(change.after?.quantity)} 件</span>
       : <span>{lineLabel(change.before)} · {String(change.before?.quantity)} 件 → {lineLabel(change.after)} · {String(change.after?.quantity)} 件</span>}
-    {change.sales_price_changed || change.seller_cost_changed ? <span className="ml-2 font-medium">（{change.sales_price_changed ? "售价" : ""}{change.sales_price_changed && change.seller_cost_changed ? "、" : ""}{change.seller_cost_changed ? "销售预估成本" : ""}已调整，仓库不展示金额）</span> : null}
+    {change.sales_price_changed || change.seller_cost_changed ? <span className="ml-2 font-medium">（价格信息已调整）</span> : null}
   </div>)}</div>;
 }
 

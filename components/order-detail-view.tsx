@@ -14,6 +14,7 @@ import { PiAmendmentSalesPanel } from "@/components/pi-amendment-panels";
 import { ArchivedPiRequirementAttachments, PiRequirementAttachments, type PiRequirementAttachment } from "@/components/pi-requirement-attachments";
 import type { PiAmendmentRecord } from "@/lib/orders/pi-amendment-view";
 import { latestAppliedPiAmendmentHighlights } from "@/lib/orders/pi-amendment-highlights";
+import { notifyPiDataUpdated } from "@/lib/ui/pi-data-refresh";
 
 function PiInternalTextCell({ text, fallback, label, lineNumber, attachments = [] }: {
   text: string | null; fallback: string; label: string; lineNumber: number; attachments?: PiRequirementAttachment[];
@@ -279,6 +280,7 @@ export function OrderDetailView({ id }: { id: string }) {
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || "价格更正失败");
+      notifyPiDataUpdated();
       setPriceCorrection(null);
       await load();
     } catch (cause) { setError(cause instanceof Error ? cause.message : "价格更正失败"); }

@@ -14,6 +14,12 @@ assert.match(dashboardApi, /text: dashboardStockActivityText\(/, "最近备货�
 assert.match(dashboardApi, /\.gte\("updated_at".*\.lt\("updated_at"/, "最近备货动态应使用备货更新时间");
 const dashboard = read("components/crm-dashboard.tsx");
 const reports = read("components/sales-reports-view.tsx");
+const piDetail = read("components/order-detail-view.tsx");
+const priceRefresh = read("lib/ui/pi-data-refresh.ts");
+assert.match(piDetail, /notifyPiDataUpdated\(\);[\s\S]*await load\(\)/, "价格更正提交后须通知已打开的业绩页面并刷新 PI");
+assert.match(priceRefresh, /window\.dispatchEvent[\s\S]*window\.localStorage\.setItem/, "价格更正须通知当前页面及其他标签页");
+assert.match(dashboard, /PI_DATA_REFRESH_STORAGE_KEY[\s\S]*window\.addEventListener\("focus", refresh\)/, "工作台须在价格更正或重新聚焦时重新查询");
+assert.match(reports, /PI_DATA_REFRESH_STORAGE_KEY[\s\S]*window\.addEventListener\("focus", refresh\)/, "业绩分析须在价格更正或重新聚焦时重新查询");
 assert.match(reports, /function resetFilters\(\)[\s\S]*setUserId\(""\)[\s\S]*setCountry\(""\)[\s\S]*setCustomerId\(""\)/, "业绩分析重置须清除所有筛选条件");
 assert.match(reports, /onClick=\{resetFilters\}[\s\S]*>重置<\/button>/, "业绩分析须提供重置入口");
 assert.doesNotMatch(reports, /onClick=\{\(\) => void load\(\)\}[\s\S]{0,100}>查询<\/button>/, "筛选变更自动加载时不应再提供重复查询按钮");
