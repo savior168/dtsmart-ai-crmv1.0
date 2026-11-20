@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { authErrorStatus, hasPermission, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sqlErrorMessage } from "@/lib/sales-flow";
+import { loadStockProgressItems } from "@/lib/stock-progress-query";
+import { summarizeStockProgress } from "@/lib/stock-progress";
 
 async function warehouseAccess() {
   const context = await requirePermission("stock.view");
@@ -32,6 +34,7 @@ export async function GET(request: NextRequest) {
     for (let offset = 0; ; offset += 1000) {
       const batch = await admin.from("supplier_receipt_legacy_baselines")
         .select("stock_order_item_id,quantity,captured_at")
+        .gt("quantity", 0)
         .order("captured_at").order("stock_order_item_id").range(offset, offset + 999);
       if (batch.error) throw batch.error;
       baselines.push(...(batch.data || []));
@@ -42,7 +45,8 @@ export async function GET(request: NextRequest) {
     for (let offset = 0; offset < baselines.length; offset += 200) {
       const items = await admin.from("stock_order_items")
         .select("id,stock_order_id,line_number,item_name,brand,model,quality,quantity,received_quantity,shipped_quantity,warehouse_supplier_code,procurement_cost,procurement_cost_confirmed")
-        .in("id", baselines.slice(offset, offset + 200).map((row) => row.stock_order_item_id));
+        .in("id", baselines.slice(offset, offset + 200).map((row) => row.stock_order_item_id))
+        .is("pi_amendment_cancelled_at", null);
       if (items.error) throw items.error;
       itemRows.push(...(items.data || []));
     }
@@ -52,7 +56,7 @@ export async function GET(request: NextRequest) {
     for (let offset = 0; offset < orderIds.length; offset += 200) {
       const result = await supabase.from("stock_orders")
         .select("id,order_number,stock_number,warehouse_reference_number,status,updated_at")
-        .in("id", orderIds.slice(offset, offset + 200));
+        .in("id", orderIds.slice(offset, offset + 200)).neq("status", "CANCELLED");
       if (result.error) throw result.error;
       authorizedOrders.push(...(result.data || []));
     }
@@ -60,11 +64,14 @@ export async function GET(request: NextRequest) {
     const scopedOrderIds = orderId ? orderIds.filter((id) => id === orderId && byOrder.has(id)) : orderIds.filter((id) => byOrder.has(id));
     const visibleOrderIds = scopedOrderIds.slice((page - 1) * 50, page * 50);
     if (!visibleOrderIds.length) return NextResponse.json({ data: [], count: scopedOrderIds.length, page });
+    const progressItems = await loadStockProgressItems(supabase, visibleOrderIds);
+    const progressByOrder = new Map(visibleOrderIds.map((id) => [id,
+      summarizeStockProgress(byOrder.get(id)?.status || "WAITING", progressItems.get(id) || [])]));
     const visible = new Set(visibleOrderIds);
     return NextResponse.json({ data: baselines.flatMap((baseline) => {
       const item = byItem.get(baseline.stock_order_item_id);
       const order = item && byOrder.get(item.stock_order_id);
-      return item && order && visible.has(order.id) ? [{ ...baseline, item, order }] : [];
+      return item && order && visible.has(order.id) ? [{ ...baseline, item, order: { ...order, progress: progressByOrder.get(order.id) } }] : [];
     }), count: scopedOrderIds.length, item_count: baselines.length, page }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
     const message = sqlErrorMessage(error, "历史来源待补清单加载失败");

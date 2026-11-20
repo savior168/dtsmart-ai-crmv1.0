@@ -61,6 +61,9 @@ assert.match(read("components/stock-orders-view.tsx"), /new Set\(\[\.\.\.documen
 assert.match(read("components/missing-stock-documents-view.tsx"), /href=\{`\/stock-orders\/\$\{row\.stock_order_id\}`\} target="_blank" rel="noopener noreferrer"/, "待补录清单中的 PI 编号须安全地在新页签打开对应备货单");
 assert.match(read("components/missing-stock-documents-view.tsx"), /href=\{`\/stock-orders\/\$\{row\.stock_order_id\}`\} target="_blank" rel="noopener noreferrer"[^>]*>查看完整备货单<\/Link>/, "展开区底部查看完整备货单也须在新页签打开");
 assert.match(read("app/api/stock-orders/missing-documents/route.ts"), /noteNumbersByOrder[\s\S]*delivery_note_numbers/, "待补录清单须提供已关联送货单号供完整搜索");
+assert.match(read("supabase/migrations/20261120093000_include_received_documents_in_remediation.sql"), /pi_amendment_cancelled_at is null[\s\S]*received_quantity > 0 or i\.shipped_quantity > 0/, "已回货但未交货代的有效产品也须列入缺件清单");
+assert.match(read("app/api/stock-orders/missing-documents/route.ts"), /receiptItems = \(items\.data \|\| \[\]\)\.filter[\s\S]*received_quantity > 0 \|\| item\.shipped_quantity > 0/, "缺件细节须与清单采用同一回货范围");
+assert.match(missingDocumentsView, /stockProgressLabel\(row\.progress\)[\s\S]*<StockProgressCell progress=\{row\.progress\}/, "待补录清单进度筛选与进度列须复用备货单口径");
 assert.match(read("components/missing-stock-documents-view.tsx"), /delivery_note_numbers\?\.some[\s\S]*filtered\.slice\(\(page - 1\) \* 50, page \* 50\)/, "搜索应覆盖送货单号并在分页前筛选");
 assert.match(files, /note\.updated_at[\s\S]*补录单号/);
 assert.match(report, /number_pending[\s\S]*待补送货单号/);

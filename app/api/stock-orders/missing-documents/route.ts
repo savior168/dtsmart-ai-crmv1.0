@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { authErrorStatus, hasPermission, requirePermission } from "@/lib/auth/current-user";
 import { sqlErrorMessage } from "@/lib/sales-flow";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { loadStockProgressItems } from "@/lib/stock-progress-query";
+import { summarizeStockProgress } from "@/lib/stock-progress";
 
 export async function GET(request: NextRequest) {
   try {
@@ -18,23 +20,26 @@ export async function GET(request: NextRequest) {
     if (!rows.length) return NextResponse.json({ data: rows, count: 0, page });
     // The queue RPC is security-definer. Only emit detail links for stock rows
     // the caller can actually read through the same RLS path as the detail API.
-    const visible = await supabase.from("stock_orders").select("id")
+    const visible = await supabase.from("stock_orders").select("id,status")
       .in("id", rows.map((row) => row.stock_order_id));
     if (visible.error) throw visible.error;
     const visibleIds = new Set((visible.data || []).map((row) => row.id));
     const scopedRows = rows.filter((row) => visibleIds.has(row.stock_order_id));
     if (!scopedRows.length) return NextResponse.json({ data: [], count: 0, page });
+    const statusById = new Map((visible.data || []).map((row) => [row.id, row.status]));
+    const progressItems = await loadStockProgressItems(supabase, scopedRows.map((row) => row.stock_order_id));
     const admin = createAdminClient();
     const [items, stockOrders] = await Promise.all([
-      admin.from("stock_order_items").select("id,stock_order_id")
-        .in("stock_order_id", scopedRows.map((row) => row.stock_order_id)).gt("shipped_quantity", 0),
+      admin.from("stock_order_items").select("id,stock_order_id,received_quantity,shipped_quantity")
+        .in("stock_order_id", scopedRows.map((row) => row.stock_order_id)).is("pi_amendment_cancelled_at", null),
       admin.from("stock_orders").select("id,stock_number")
         .in("id", scopedRows.map((row) => row.stock_order_id)),
     ]);
     if (items.error) throw items.error;
     if (stockOrders.error) throw stockOrders.error;
     const stockNumberById = new Map((stockOrders.data || []).map((order) => [order.id, order.stock_number]));
-    const itemIds = (items.data || []).map((item) => item.id);
+    const receiptItems = (items.data || []).filter((item) => item.received_quantity > 0 || item.shipped_quantity > 0);
+    const itemIds = receiptItems.map((item) => item.id);
     const allocations = itemIds.length ? await admin.from("supplier_receipt_allocations")
       .select("stock_order_item_id,delivery_note_id").in("stock_order_item_id", itemIds)
       .gt("quantity", 0).is("correction_of", null) : { data: [], error: null };
@@ -46,7 +51,7 @@ export async function GET(request: NextRequest) {
     ]);
     if (notes.error) throw notes.error;
     if (photos.error) throw photos.error;
-    const orderByItem = new Map((items.data || []).map((item) => [item.id, item.stock_order_id]));
+    const orderByItem = new Map(receiptItems.map((item) => [item.id, item.stock_order_id]));
     const photographed = new Set((photos.data || []).map((photo) => photo.supplier_delivery_note_id));
     const missingNotesByOrder = new Map<string, Set<string>>();
     const noteNumbersByOrder = new Map<string, Set<string>>();
@@ -76,10 +81,11 @@ export async function GET(request: NextRequest) {
     }
     const allocatedItemIds = new Set((allocations.data || []).map((allocation) => allocation.stock_order_item_id));
     const unlinkedByOrder = new Map<string, number>();
-    for (const item of items.data || []) {
+    for (const item of receiptItems) {
       if (!allocatedItemIds.has(item.id)) unlinkedByOrder.set(item.stock_order_id, (unlinkedByOrder.get(item.stock_order_id) || 0) + 1);
     }
     return NextResponse.json({ data: scopedRows.map((row) => ({ ...row,
+      progress: summarizeStockProgress(statusById.get(row.stock_order_id) || "WAITING", progressItems.get(row.stock_order_id) || []),
       stock_number: stockNumberById.get(row.stock_order_id) || null,
       missing_photo_note_numbers: [...(missingNotesByOrder.get(row.stock_order_id) || [])].sort(),
       delivery_note_numbers: [...(noteNumbersByOrder.get(row.stock_order_id) || [])].sort(),

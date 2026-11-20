@@ -5,9 +5,12 @@ import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { LegacySupplierSourcesView } from "@/components/legacy-supplier-sources-view";
 import { SupplierDeliveryNoteFiles, type SupplierDeliveryNoteView } from "@/components/supplier-delivery-note-files";
 import { fetchAllStockRemediationRows } from "@/lib/stock-remediation-queue";
+import { StockProgressCell } from "@/components/stock-progress-cell";
+import { stockProgressLabel, type StockProgress } from "@/lib/stock-progress";
+import { AppSelect } from "@/components/ui/app-select";
 
-type DocumentRow = { stock_order_id: string; order_number: string; stock_number?: string | null; missing_number_count: number; missing_image_count: number; missing_photo_note_numbers?: string[]; delivery_note_numbers?: string[]; pending_note_number_count?: number; pending_note_photo_count?: number; unlinked_shipped_item_count?: number };
-type LegacyRow = { order: { id: string; order_number: string; stock_number: string; warehouse_reference_number: string | null }; stock_order_item_id: string };
+type DocumentRow = { stock_order_id: string; order_number: string; stock_number?: string | null; progress: StockProgress; missing_number_count: number; missing_image_count: number; missing_photo_note_numbers?: string[]; delivery_note_numbers?: string[]; pending_note_number_count?: number; pending_note_photo_count?: number; unlinked_shipped_item_count?: number };
+type LegacyRow = { order: { id: string; order_number: string; stock_number: string; warehouse_reference_number: string | null; progress: StockProgress }; stock_order_item_id: string };
 type QueueRow = DocumentRow & { legacy_count: number };
 type OrderDetail = { delivery_notes?: SupplierDeliveryNoteView[]; can_upload_delivery_note_files?: boolean };
 
@@ -16,6 +19,7 @@ export function MissingStockDocumentsView({ showLegacySources = false, canEditLe
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [missingType, setMissingType] = useState("all");
+  const [progressFilter, setProgressFilter] = useState("");
   const [expanded, setExpanded] = useState<string | null>(null);
   const [detail, setDetail] = useState<OrderDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -36,7 +40,7 @@ export function MissingStockDocumentsView({ showLegacySources = false, canEditLe
       for (const row of legacy) {
         const existing = byOrder.get(row.order.id);
         if (existing) existing.legacy_count += 1;
-        else byOrder.set(row.order.id, { stock_order_id: row.order.id, order_number: row.order.warehouse_reference_number || row.order.order_number, stock_number: row.order.stock_number,
+        else byOrder.set(row.order.id, { stock_order_id: row.order.id, order_number: row.order.warehouse_reference_number || row.order.order_number, stock_number: row.order.stock_number, progress: row.order.progress,
           missing_number_count: 0, missing_image_count: 0, legacy_count: 1 });
       }
       setRows([...byOrder.values()].sort((a, b) => a.order_number.localeCompare(b.order_number, "zh-CN")));
@@ -69,8 +73,9 @@ export function MissingStockDocumentsView({ showLegacySources = false, canEditLe
       || (missingType === "number" && Boolean(row.pending_note_number_count || row.missing_number_count))
       || (missingType === "photo" && Boolean(row.pending_note_photo_count || row.missing_image_count || row.missing_photo_note_numbers?.length))
       || (missingType === "source" && Boolean(row.legacy_count || row.unlinked_shipped_item_count));
-    return matchesText && matchesType;
+    return matchesText && matchesType && (!progressFilter || stockProgressLabel(row.progress) === progressFilter);
   });
+  const progressOptions = [...new Set(rows.map((row) => stockProgressLabel(row.progress)))].sort((a, b) => a.localeCompare(b, "zh-CN"));
   const visible = filtered.slice((page - 1) * 50, page * 50);
 
   return <main className="mx-auto max-w-7xl p-6">
@@ -88,13 +93,14 @@ export function MissingStockDocumentsView({ showLegacySources = false, canEditLe
     <div className="mt-5 flex flex-wrap items-center gap-2 rounded-xl border bg-white p-3">
       <input type="search" aria-label="搜索 PI、备货单或送货单号" placeholder="搜索 PI / 备货单号 / 送货单号" value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); setExpanded(null); }} className="h-10 min-w-56 flex-1 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-500"/>
       <select aria-label="按待补事项筛选" value={missingType} onChange={(event) => { setMissingType(event.target.value); setPage(1); setExpanded(null); }} className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm"><option value="all">全部待补事项</option><option value="number">缺送货单号</option><option value="photo">缺送货单照片</option><option value="source">历史回货来源待核</option></select>
-      {(search || missingType !== "all") ? <button type="button" onClick={() => { setSearch(""); setMissingType("all"); setPage(1); }} className="h-10 rounded-lg border px-3 text-sm text-slate-600 hover:bg-slate-50">清除筛选</button> : null}
+      <AppSelect aria-label="按备货进度筛选" value={progressFilter} onChange={(event) => { setProgressFilter(event.target.value); setPage(1); setExpanded(null); }} className="h-10 min-w-40 rounded-lg border border-slate-200 bg-white px-3 text-sm"><option value="">全部备货进度</option>{progressOptions.map((label) => <option key={label} value={label}>{label}</option>)}</AppSelect>
+      {(search || missingType !== "all" || progressFilter) ? <button type="button" onClick={() => { setSearch(""); setMissingType("all"); setProgressFilter(""); setPage(1); setExpanded(null); }} className="h-10 rounded-lg border px-3 text-sm text-slate-600 hover:bg-slate-50">清除筛选</button> : null}
     </div>
     <div className="mt-3 overflow-x-auto rounded-xl border bg-white">
-      <table className="w-full min-w-[650px] text-left text-sm">
-        <thead className="bg-slate-50 text-slate-600"><tr><th className="p-3">PI / 备货单号</th><th>待补事项</th><th className="w-36">操作</th></tr></thead>
+      <table className="w-full min-w-[1000px] text-left text-sm">
+        <thead className="bg-slate-50 text-slate-600"><tr><th className="p-3">PI / 备货单号</th><th>待补事项</th><th className="w-[340px]">备货进度</th><th className="w-36">操作</th></tr></thead>
         <tbody>
-          {loading ? <tr><td colSpan={3} className="p-8 text-center">加载中…</td></tr> : visible.length ? visible.map((row) => <Fragment key={row.stock_order_id}>
+          {loading ? <tr><td colSpan={4} className="p-8 text-center">加载中…</td></tr> : visible.length ? visible.map((row) => <Fragment key={row.stock_order_id}>
             <tr className="border-t">
               <td className="p-3 font-medium"><Link href={`/stock-orders/${row.stock_order_id}`} target="_blank" rel="noopener noreferrer" aria-label={`新页签查看备货单 ${row.order_number}`} className="text-blue-700 hover:underline">{row.order_number}</Link></td>
               <td className="py-3"><div className="flex flex-wrap gap-1.5">
@@ -103,9 +109,10 @@ export function MissingStockDocumentsView({ showLegacySources = false, canEditLe
                 {row.legacy_count > 0 ? <span className="rounded bg-rose-50 px-2 py-1 text-rose-800">历史回货来源待归属 {row.legacy_count} 项</span> : row.unlinked_shipped_item_count ? <span className="rounded bg-amber-50 px-2 py-1 text-amber-900">待核送货单来源 {row.unlinked_shipped_item_count} 项</span> : null}
                 {row.missing_photo_note_numbers?.length ? <span className="rounded bg-amber-50 px-2 py-1 text-amber-900">送货单 {row.missing_photo_note_numbers.join("、")} 缺照片</span> : null}
               </div></td>
+              <td className="w-[340px] py-3 pr-4"><span className="mb-1 block text-xs font-medium text-slate-700">{stockProgressLabel(row.progress)}</span><StockProgressCell progress={row.progress}/></td>
               <td className="py-3"><button type="button" aria-expanded={expanded === row.stock_order_id} aria-controls={`remediation-${row.stock_order_id}`} onClick={() => { setDetail(null); setExpanded((value) => value === row.stock_order_id ? null : row.stock_order_id); }} className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-blue-800">{expanded === row.stock_order_id ? "收起" : "展开补录"}</button></td>
             </tr>
-            {expanded === row.stock_order_id ? <tr><td colSpan={3} className="border-t bg-slate-50 p-3 sm:p-4"><div id={`remediation-${row.stock_order_id}`} className="space-y-3">
+            {expanded === row.stock_order_id ? <tr><td colSpan={4} className="border-t bg-slate-50 p-3 sm:p-4"><div id={`remediation-${row.stock_order_id}`} className="space-y-3">
               {detailLoading ? <p>加载送货单…</p> : detailError ? <p role="alert" className="text-rose-700">{detailError}</p> : <>
                 {detail?.delivery_notes?.some((note) => note.number_pending || !note.attachments.length) ? <div><p className="mb-2 font-medium">关联送货单 · 直接补单号与照片</p><div className="grid gap-2 lg:grid-cols-2">
                   {detail.delivery_notes.filter((note) => note.number_pending || !note.attachments.length).map((note) => <SupplierDeliveryNoteFiles key={note.id} note={note} canUpload={detail.can_upload_delivery_note_files} onUploaded={() => { void loadDetail(row.stock_order_id); void load(); }}/>)}
@@ -114,7 +121,7 @@ export function MissingStockDocumentsView({ showLegacySources = false, canEditLe
               {showLegacySources && row.legacy_count > 0 ? <LegacySupplierSourcesView orderId={row.stock_order_id} readOnly={!canEditLegacySources} onUpdated={() => { void load(); void loadDetail(row.stock_order_id); }}/> : null}
               <Link href={`/stock-orders/${row.stock_order_id}`} target="_blank" rel="noopener noreferrer" className="inline-block text-xs text-blue-700 hover:underline">查看完整备货单</Link>
             </div></td></tr> : null}
-          </Fragment>) : <tr><td colSpan={3} className="p-8 text-center text-slate-600">{rows.length ? "没有符合筛选条件的待补录事项" : "当前没有待补录事项"}</td></tr>}
+          </Fragment>) : <tr><td colSpan={4} className="p-8 text-center text-slate-600">{rows.length ? "没有符合筛选条件的待补录事项" : "当前没有待补录事项"}</td></tr>}
         </tbody>
       </table>
     </div>
