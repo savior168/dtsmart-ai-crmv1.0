@@ -8,6 +8,8 @@ const retired = read("supabase/migrations/20261119114000_retire_purchase_price_c
 const shippedMetadata = read("supabase/migrations/20261120014505_allow_verified_cost_metadata_after_shipment.sql");
 const noticeResolution = read("supabase/migrations/20261120014941_resolve_actual_cost_notice_after_seller_correction.sql");
 const stockRoute = read("app/api/stock-orders/[id]/actual-cost/route.ts");
+const stockDetailRoute = read("app/api/stock-orders/[id]/route.ts");
+const stockDetailView = read("components/stock-order-detail-view.tsx");
 const orderRoute = read("app/api/orders/[id]/route.ts");
 const orderView = read("components/order-detail-view.tsx");
 
@@ -19,6 +21,10 @@ assert.match(migration, /p_new_cost_cny > seller_cost/);
 assert.match(migration, /else\s+update public\.system_notifications set action_status = 'RESOLVED'/);
 assert.doesNotMatch(migration, /purchase_unit_price_cny|procurement_cost/);
 assert.match(stockRoute, /requirePermission\("stock\.actual_cost\.edit"\)/);
+assert.match(stockDetailRoute, /canEditActualCost = \["WAREHOUSE", "ADMIN"\][\s\S]*!\["DRAFT", "CANCELLED"\]\.includes\(order\.status\)/, "所有有效备货阶段均应开放仓库最新成本价核实入口");
+assert.match(migration, /stock\.status in \('DRAFT', 'CANCELLED'\)/, "数据库只排除未交仓库的草稿与已取消单");
+assert.doesNotMatch(migration, /stock\.status\s*(?:=|<>|not in)\s*'?(?:WAITING|PREPARING|RECEIVED|SORTING|READY_TO_SHIP|SHIPPED|READY|SHORTAGE)/, "有效备货阶段不应限制最新成本价修改");
+assert.match(stockDetailView, /item\.can_edit_actual_cost \? <button[\s\S]*setActualCostDraft/, "仓库详情按服务端权限展示修改入口");
 assert.match(shipped, /or stock_line\.shipped_quantity>0/);
 assert.match(shippedMetadata, /to_jsonb\(new\) - 'estimated_unit_cost_cny'/);
 assert.match(shippedMetadata, /to_jsonb\(new\) - 'warehouse_actual_unit_cost_cny'/);
