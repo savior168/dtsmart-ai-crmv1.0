@@ -26,9 +26,9 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
       || (supplierId && !UUID.test(supplierId)) || (noteId && !UUID.test(noteId))
       || (type === "PACKAGING" && Number(revised) > 0 && (!supplierId || !noteId))
       || (type !== "PACKAGING" && (supplierId || noteId))
-      || (type === "OTHER" && Number(revised) > 0 && (item.length < 2 || description.length < 2))
+      || (type === "OTHER" && Number(revised) > 0 && item.length < 2)
       || item.length > 100 || description.length > 500 || reason.length < 2 || reason.length > 500) {
-      throw new Error("请核对历史费用金额、关联单据、项目说明及更正原因");
+      throw new Error("请核对历史费用金额、关联单据、费用项目及更正原因");
     }
     const { data, error } = await supabase.rpc("correct_stock_order_shipment_expense", {
       p_stock_order_id: id, p_shipment_id: shipmentId, p_expense_type: type, p_expected_cny: Number(expected),

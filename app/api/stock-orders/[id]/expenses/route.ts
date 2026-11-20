@@ -30,9 +30,9 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
         || (supplierId && !UUID.test(supplierId)) || (noteId && !UUID.test(noteId))
         || (expenseType === "PACKAGING" && (!supplierId || !noteId))
         || (expenseType !== "PACKAGING" && (supplierId || noteId))
-        || (expenseType === "OTHER" && ((expenseItem?.length || 0) < 2 || (description?.length || 0) < 2))
+        || (expenseType === "OTHER" && (expenseItem?.length || 0) < 2)
         || (expenseItem?.length || 0) > 100 || (description?.length || 0) > 500) {
-        throw new Error("请核对费用金额、供应商代码及费用项目说明");
+        throw new Error("请核对费用金额、供应商代码及费用项目");
       }
       return { expense_type: expenseType, amount_cny: Number(amount), supplier_id: supplierId,
         delivery_note_id: noteId, expense_item: expenseItem, description };

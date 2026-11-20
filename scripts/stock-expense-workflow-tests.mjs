@@ -12,6 +12,8 @@ const correctionMigration = read("supabase/migrations/20261120035000_supplier_de
 const photoDedupeMigration = read("supabase/migrations/20261120043000_archive_identical_supplier_paper_photos.sql");
 const documentView = read("components/supplier-delivery-note-files.tsx");
 const photoUploadApi = read("app/api/supplier-delivery-notes/[id]/attachments/route.ts");
+const optionalDescriptionMigration = read("supabase/migrations/20261120060000_other_stock_expense_description_optional.sql");
+const entryCorrectionApi = read("app/api/stock-orders/[id]/expenses/entries/corrections/route.ts");
 
 assert.match(migration, /expense_type='PACKAGING' and supplier_id is not null and delivery_note_id is not null/);
 assert.match(migration, /a\.delivery_note_id=note\.id and i\.stock_order_id=target\.id and a\.quantity>0/);
@@ -26,6 +28,14 @@ assert.match(migration, /stock_order_expense_entry_corrections[\s\S]*revised_cny
 assert.match(detail, /expenseDrafts\.map\([\s\S]*＋ 增加费用项/);
 assert.match(detail, /data\?\.delivery_notes[\s\S]*请选择关联送货单/);
 assert.match(detail, /<option value="PACKAGING">供应商包装费<\/option>/);
+assert.match(detail, /说明（选填）<textarea maxLength=\{500\}/);
+assert.match(detail, /费用说明（选填）<textarea maxLength=\{500\}/);
+assert.match(expenseApi, /expenseType === "OTHER" && \(expenseItem\?\.length \|\| 0\) < 2/);
+assert.doesNotMatch(expenseApi, /description\?\.length \|\| 0\) < 2/);
+assert.match(entryCorrectionApi, /type === "OTHER" && Number\(revised\) > 0 && item\.length < 2/);
+assert.match(correctionApi, /type === "OTHER" && Number\(revised\) > 0 && item\.length < 2/);
+assert.match(optionalDescriptionMigration, /char_length\(btrim\(coalesce\(description,''\)\)\) <= 500/);
+assert.match(optionalDescriptionMigration, /record_stock_order_expense'[\s\S]*correct_stock_order_expense_entry'[\s\S]*correct_stock_order_shipment_expense'/);
 assert.match(detail, /历史金额待核归属[\s\S]*核对更正/);
 assert.match(detail, /openEntryExpense\(entry\)/);
 assert.match(expenseApi, /request_id: requestId/);

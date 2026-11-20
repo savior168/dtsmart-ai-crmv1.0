@@ -515,8 +515,8 @@ export function StockOrderDetailView({ id }: { id: string }) {
         || !(data?.delivery_notes || []).some((note) => !note.number_pending && note.id === draft.noteId && note.supplier_code === draft.supplierCode))) {
         setError("每项包装费须选择当前备货单已关联的供应商及真实送货单"); return;
       }
-      if (draft.type === "OTHER" && (draft.item.trim().length < 2 || draft.description.trim().length < 2)) {
-        setError("每项其他费用须填写费用项目与说明（各至少2字）"); return;
+      if (draft.type === "OTHER" && draft.item.trim().length < 2) {
+        setError("每项其他费用须填写至少2字的费用项目"); return;
       }
       entries.push({ expense_type: draft.type, amount_cny: amount,
         supplier_id: draft.type === "PACKAGING" ? supplier?.supplier_id : null,
@@ -562,8 +562,8 @@ export function StockOrderDetailView({ id }: { id: string }) {
     if (!/^(?:0|[1-9][0-9]{0,11})(?:\.[0-9]{1,2})?$/.test(draft.amount)
       || draft.reason.trim().length < 2
       || draft.type === "PACKAGING" && Number(draft.amount) > 0 && !note?.supplier_id
-      || draft.type === "OTHER" && Number(draft.amount) > 0 && (draft.item.trim().length < 2 || draft.description.trim().length < 2)) {
-      setError("请核对金额、真实送货单、费用项目说明和更正原因"); return;
+      || draft.type === "OTHER" && Number(draft.amount) > 0 && draft.item.trim().length < 2) {
+      setError("请核对金额、真实送货单、费用项目和更正原因"); return;
     }
     const saved = await request(`/api/stock-orders/${id}/expenses/${draft.entryId ? "entries/corrections" : "corrections"}`, "POST", {
       ...(draft.entryId ? { entry_id: draft.entryId } : { shipment_id: draft.shipmentId }),
@@ -1325,7 +1325,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
                     </div>
                   </div> : null}
                   {draft.type === "OTHER" ? <label className="block">费用项目（必填）<input required minLength={2} maxLength={100} value={draft.item} onChange={(event) => update({ item: event.target.value })} className="mt-1 h-10 w-full rounded border px-3"/></label> : null}
-                  <label className="block">说明{draft.type === "OTHER" ? "（必填）" : "（选填）"}<textarea required={draft.type === "OTHER"} minLength={draft.type === "OTHER" ? 2 : undefined} maxLength={500} rows={2} value={draft.description} onChange={(event) => update({ description: event.target.value })} className="mt-1 w-full rounded border px-3 py-2"/></label>
+                  <label className="block">说明（选填）<textarea maxLength={500} rows={2} value={draft.description} onChange={(event) => update({ description: event.target.value })} className="mt-1 w-full rounded border px-3 py-2"/></label>
                 </div>;
               })}</div>
               <button type="button" disabled={busy || expenseDrafts.length >= 20} onClick={() => setExpenseDrafts((current) => current && [...current, newExpenseDraft()])} className="rounded border border-blue-200 px-3 py-2 text-blue-700 disabled:opacity-40">＋ 增加费用项</button>
@@ -1341,7 +1341,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
                 <label className="block">已关联供应商（必填）<AppSelect required forceSearch value={historicalExpenseDraft.supplierCode} onChange={(event) => setHistoricalExpenseDraft((current) => current && { ...current, supplierCode: event.target.value, noteId: "" })} className="mt-1 h-10 w-full"><option value="">请选择供应商</option>{[...new Set((data?.delivery_notes || []).filter((note) => !note.number_pending).map((note) => note.supplier_code))].filter(Boolean).map((code) => <option key={code} value={code}>{code}</option>)}</AppSelect></label>
                 <label className="block">真实送货单（必填）<AppSelect required value={historicalExpenseDraft.noteId} onChange={(event) => setHistoricalExpenseDraft((current) => current && { ...current, noteId: event.target.value })} className="mt-1 h-10 w-full"><option value="">请选择送货单</option>{(data?.delivery_notes || []).filter((note) => !note.number_pending && note.supplier_code === historicalExpenseDraft.supplierCode).map((note) => <option key={note.id} value={note.id}>{note.note_number} · {note.document_date}</option>)}</AppSelect></label>
               </div> : null}
-              {historicalExpenseDraft.type === "OTHER" && Number(historicalExpenseDraft.amount) > 0 ? <><label className="block">费用项目（必填）<input required minLength={2} maxLength={100} value={historicalExpenseDraft.item} onChange={(event) => setHistoricalExpenseDraft((current) => current && { ...current, item: event.target.value })} className="mt-1 h-10 w-full rounded border px-3"/></label><label className="block">费用说明（必填）<textarea required minLength={2} maxLength={500} value={historicalExpenseDraft.description} onChange={(event) => setHistoricalExpenseDraft((current) => current && { ...current, description: event.target.value })} className="mt-1 min-h-20 w-full rounded border px-3 py-2"/></label></> : null}
+              {historicalExpenseDraft.type === "OTHER" && Number(historicalExpenseDraft.amount) > 0 ? <><label className="block">费用项目（必填）<input required minLength={2} maxLength={100} value={historicalExpenseDraft.item} onChange={(event) => setHistoricalExpenseDraft((current) => current && { ...current, item: event.target.value })} className="mt-1 h-10 w-full rounded border px-3"/></label><label className="block">费用说明（选填）<textarea maxLength={500} value={historicalExpenseDraft.description} onChange={(event) => setHistoricalExpenseDraft((current) => current && { ...current, description: event.target.value })} className="mt-1 min-h-20 w-full rounded border px-3 py-2"/></label></> : null}
               <label className="block">更正原因（必填）<textarea required minLength={2} maxLength={500} value={historicalExpenseDraft.reason} onChange={(event) => setHistoricalExpenseDraft((current) => current && { ...current, reason: event.target.value })} className="mt-1 min-h-20 w-full rounded border px-3 py-2"/></label>
               {error ? <p role="alert" className="text-rose-700">{error}</p> : null}<div className="flex justify-end gap-2"><button type="button" disabled={busy} onClick={() => setHistoricalExpenseDraft(null)} className="rounded border px-4 py-2">取消</button><button type="submit" disabled={busy} className="rounded bg-blue-600 px-4 py-2 text-white disabled:opacity-40">确认更正</button></div>
             </form> : null}
