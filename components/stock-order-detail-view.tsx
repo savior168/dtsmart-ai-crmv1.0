@@ -144,6 +144,7 @@ type Payload = {
     pi_preparer?: { name?: string | null; email?: string } | null;
     status: StockOrderStatus;
     stocking_requirements: string | null;
+    order_change_note: string | null;
     status_note: string | null;
     expected_ready_at: string | null;
     created_at: string;
@@ -958,6 +959,11 @@ export function StockOrderDetailView({ id }: { id: string }) {
             </div>
           ) : null}
           {o.status_note?.trim() ? <p className="border-b bg-amber-50 px-5 py-2 text-sm text-amber-900"><b>状态备注：</b>{o.status_note}</p> : null}
+          {o.order_change_note?.trim() ? <section className="border-b border-amber-200 bg-amber-50/70 px-5 py-3" aria-label="PI订单变更说明">
+            <h2 className="text-sm font-semibold text-amber-950">PI订单变更说明 · 仓库请核对</h2>
+            <p className="mt-1 text-xs text-amber-800">以下为制单人填写的当前说明；产品项与数量以本页正式备货明细为准。</p>
+            <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-slate-900">{o.order_change_note}</p>
+          </section> : null}
           <div className="grid gap-3 border-b p-4 lg:grid-cols-2">
             <section className="min-w-0 rounded-xl border border-slate-200 bg-white p-4" aria-labelledby="stock-recipient-heading">
               <h2 id="stock-recipient-heading" className="mb-3 text-sm font-semibold text-slate-900">客户与交货地址核对</h2>
