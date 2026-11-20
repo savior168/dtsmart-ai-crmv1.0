@@ -9,7 +9,9 @@ const correctionApi = read("app/api/stock-orders/[id]/expenses/corrections/route
 const report = read("components/supplier-reconciliation-view.tsx");
 const reuseMigration = read("supabase/migrations/20261120034500_reuse_pending_supplier_delivery_note.sql");
 const correctionMigration = read("supabase/migrations/20261120035000_supplier_delivery_note_corrections.sql");
+const photoDedupeMigration = read("supabase/migrations/20261120043000_archive_identical_supplier_paper_photos.sql");
 const documentView = read("components/supplier-delivery-note-files.tsx");
+const photoUploadApi = read("app/api/supplier-delivery-notes/[id]/attachments/route.ts");
 
 assert.match(migration, /expense_type='PACKAGING' and supplier_id is not null and delivery_note_id is not null/);
 assert.match(migration, /a\.delivery_note_id=note\.id and i\.stock_order_id=target\.id and a\.quantity>0/);
@@ -35,5 +37,9 @@ assert.doesNotMatch(reuseMigration, /delete from public\.supplier_delivery_notes
 assert.match(correctionMigration, /correct_supplier_delivery_note_number[\s\S]*supplier_delivery_note_corrections/);
 assert.match(correctionMigration, /supersede_supplier_delivery_note_photo[\s\S]*paper_total_cny=null/);
 assert.match(documentView, /确认共用该纸单/);
-assert.match(documentView, /查看旧照片/);
+assert.match(documentView, /查看更换或重复上传的照片/);
+assert.match(photoDedupeMigration, /metadata->>'eTag'[\s\S]*supplier_photo_superseded_by = ranked\.keeper_id/);
+assert.match(photoDedupeMigration, /archive_identical_supplier_paper_photos\(existing\.id\)/);
+assert.doesNotMatch(photoDedupeMigration, /delete from public\.attachments/i);
+assert.match(photoUploadApi, /existingFingerprints\.has\(fingerprint\)[\s\S]*内容相同，无需重复上传/);
 console.log("Stock expense workflow contracts passed.");

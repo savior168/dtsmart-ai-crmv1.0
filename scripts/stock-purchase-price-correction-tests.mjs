@@ -17,7 +17,7 @@ assert.match(migration, /exists \(select 1 from public\.supplier_payments where 
 assert.match(migration, /p_expected_price_cny[\s\S]*送货单采购价已变化/, "并发改价须使用原价校验");
 assert.match(migration, /SUPPLIER_RECEIPT_PRICE_CORRECTED[\s\S]*before_cny[\s\S]*after_cny[\s\S]*amount_delta_cny/, "原价、新价、差额及原因须留痕");
 assert.match(endpoint, /requirePermission\("stock\.procurement\.edit"\)[\s\S]*correct_supplier_receipt_purchase_price/, "更正接口须重复核权");
-assert.match(view, /receiptBackedItemIds[\s\S]*已回货 · 在下方送货单更正/, "已回货产品应引导到真实账款来源更正");
+assert.match(view, /receiptBackedItemIds[\s\S]*更正采购价 ↓[\s\S]*stock-receipt-records/, "已回货产品应能直接定位真实账款来源更正");
 assert.match(view, /更正送货单采购价[\s\S]*已登记付款的送货单不能由仓库直接改价/, "已付款限制应在提交前说明");
 
 console.log("Stock purchase price correction contracts passed.");

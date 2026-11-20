@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createHash } from "node:crypto";
 import { hasPermission, requirePermission } from "@/lib/auth/current-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { storageObjectName } from "@/lib/storage-object-key";
@@ -55,17 +56,27 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
     if (files.some((file) => !IMAGE_TYPES.has(file.type) || file.size > IMAGE_LIMIT)) {
       throw new Error("每张照片须为不超过5MB的JPG、PNG或WebP图片");
     }
-    const prior = await admin.from("attachments").select("id", { count: "exact", head: true })
+    const prior = await admin.from("attachments").select("id,storage_path,size_bytes")
       .eq("supplier_delivery_note_id", id).is("supplier_photo_superseded_at", null);
     if (prior.error) throw prior.error;
-    if ((prior.count || 0) + files.length - (replaceId ? 1 : 0) > NOTE_IMAGE_LIMIT) {
+    if ((prior.data?.length || 0) + files.length - (replaceId ? 1 : 0) > NOTE_IMAGE_LIMIT) {
       throw new Error(`该送货单最多保存${NOTE_IMAGE_LIMIT}张照片（每张不超过5MB）`);
     }
+    const existingFingerprints = new Set<string>();
+    const matchingSizes = new Set(files.map((file) => file.size));
+    await Promise.all((prior.data || []).filter((row) => matchingSizes.has(row.size_bytes || 0)).map(async (row) => {
+      const info = await admin.storage.from("crm-attachments").info(row.storage_path);
+      if (info.error) throw info.error;
+      if (info.data.etag) existingFingerprints.add(`${row.size_bytes}:${info.data.etag.replaceAll('"', "").toLowerCase()}`);
+    }));
 
     const rows = [];
     for (const file of files) {
       const content = Buffer.from(await file.arrayBuffer());
       if (!isPiRequirementImage(content, file.type)) throw new Error(`文件“${file.name}”内容与图片格式不符`);
+      const fingerprint = `${file.size}:${createHash("md5").update(content).digest("hex")}`;
+      if (existingFingerprints.has(fingerprint)) throw new Error(`文件“${file.name}”与该纸单已有照片内容相同，无需重复上传`);
+      existingFingerprints.add(fingerprint);
       const attachmentId = crypto.randomUUID();
       const storagePath = `${account.id}/supplier-delivery-notes/${id}/${storageObjectName(attachmentId, file.type)}`;
       const upload = await admin.storage.from("crm-attachments").upload(storagePath, content,
