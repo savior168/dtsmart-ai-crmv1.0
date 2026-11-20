@@ -967,10 +967,10 @@ export function StockOrderDetailView({ id }: { id: string }) {
                         )}
                       </td>
                       <td className="px-2 py-2">{item.estimated_unit_cost_cny === null ? "—" : Number(item.estimated_unit_cost_cny).toFixed(2)}</td>
-                      <td className="px-2 py-2"><div className="flex flex-wrap items-center gap-1">
+                      <td className="min-w-[120px] px-2 py-2"><div className="space-y-1">
                         <span className={`tabular-nums ${item.warehouse_actual_unit_cost_cny !== null && Number(item.warehouse_actual_unit_cost_cny) > Number(item.estimated_unit_cost_cny) ? "font-semibold text-amber-800" : ""}`}>{item.warehouse_actual_unit_cost_cny === null ? item.estimated_unit_cost_cny === null ? "—" : Number(item.estimated_unit_cost_cny).toFixed(2) : Number(item.warehouse_actual_unit_cost_cny).toFixed(2)}</span>
-                        <small className="text-slate-500">{item.warehouse_actual_unit_cost_cny === null ? "默认沿用" : "仓库已核"}</small>
-                        {item.can_edit_actual_cost ? <button type="button" disabled={busy} onClick={() => setActualCostDraft({ item, value: item.warehouse_actual_unit_cost_cny == null && item.estimated_unit_cost_cny == null ? "" : Number(item.warehouse_actual_unit_cost_cny ?? item.estimated_unit_cost_cny).toFixed(2), reason: "" })} className="text-xs text-blue-700 hover:underline disabled:opacity-40">修改</button> : null}
+                        <div className="flex items-center gap-2 whitespace-nowrap"><small className="text-slate-500">{item.warehouse_actual_unit_cost_cny === null ? "默认沿用" : "仓库已核"}</small>
+                        {item.can_edit_actual_cost ? <button type="button" disabled={busy} onClick={() => setActualCostDraft({ item, value: item.warehouse_actual_unit_cost_cny == null && item.estimated_unit_cost_cny == null ? "" : Number(item.warehouse_actual_unit_cost_cny ?? item.estimated_unit_cost_cny).toFixed(2), reason: "" })} className="text-xs text-blue-700 hover:underline disabled:opacity-40">修改</button> : null}</div>
                       </div></td>
                       {canViewProcurement ? <>
                         <td className="px-2 py-2">{canEditProcurement ? <input inputMode="decimal" value={procurementDraft[item.id]?.cost || ""} onChange={(event) => setProcurementDraft((current) => ({ ...current, [item.id]: { cost: event.target.value, note: current[item.id]?.note || "" } }))} placeholder="未录入" aria-label={`第 ${item.line_number} 项采购价（CNY/件）`} className="h-9 w-full min-w-0 rounded border px-2 text-right tabular-nums" /> : item.procurement_cost_confirmed ? Number(item.procurement_cost).toFixed(2) : <span className="text-slate-400">未录入</span>}</td>
