@@ -17,8 +17,9 @@ export type SupplierDeliveryNoteView = {
   superseded_attachments?: SupplierDeliveryNoteFile[];
 };
 
-export function SupplierDeliveryNoteFiles({ note, canUpload = false, onUploaded, compact = false }: {
+export function SupplierDeliveryNoteFiles({ note, relatedNotes = [], canUpload = false, onUploaded, compact = false }: {
   note: SupplierDeliveryNoteView;
+  relatedNotes?: SupplierDeliveryNoteView[];
   canUpload?: boolean;
   onUploaded?: () => void;
   compact?: boolean;
@@ -32,6 +33,9 @@ export function SupplierDeliveryNoteFiles({ note, canUpload = false, onUploaded,
   const [numberCorrection, setNumberCorrection] = useState<{ number: string; reason: string } | null>(null);
   const [photoReplacement, setPhotoReplacement] = useState<{ id: string; reason: string } | null>(null);
   const replacementInput = useRef<HTMLInputElement>(null);
+  const reusableNotes = note.number_pending ? relatedNotes.filter((candidate) =>
+    candidate.id !== note.id && !candidate.number_pending && candidate.supplier_id === note.supplier_id
+    && candidate.document_date === note.document_date) : [];
 
   async function correctNumber() {
     if (!numberCorrection || !note.updated_at || busy) return;
@@ -126,6 +130,7 @@ export function SupplierDeliveryNoteFiles({ note, canUpload = false, onUploaded,
     {note.number_pending && canUpload ? <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-950">
       <p>回货已登记，送货单号待补；补录前不可核对送货单金额或登记付款。</p>
       <div className="mt-2 flex flex-wrap gap-2"><input aria-label="补录送货单号" maxLength={100} value={numberDraft} onChange={(event) => { setNumberDraft(event.target.value); setReuseCandidate(null); }} className="h-8 min-w-40 flex-1 rounded border border-amber-300 bg-white px-2" placeholder="输入真实送货单号"/><button type="button" disabled={busy || !numberDraft.trim()} onClick={() => void completeNumber()} className="rounded bg-amber-800 px-3 text-white disabled:opacity-40">补录单号</button></div>
+      {reusableNotes.length ? <div className="mt-2 flex flex-wrap items-center gap-1.5 text-amber-950"><span>若与已有纸单相同，可选单号核对后共用：</span>{reusableNotes.map((candidate) => <button key={candidate.id} type="button" disabled={busy} onClick={() => { setNumberDraft(candidate.note_number); setReuseCandidate(null); }} className="rounded border border-amber-300 bg-white px-2 py-1 font-medium hover:bg-amber-100 disabled:opacity-40">{candidate.note_number}</button>)}<span className="text-amber-800">同日同供应商不代表同一张纸单，请核对实物。</span></div> : null}
       {reuseCandidate ? <div className="mt-2 rounded border border-amber-300 bg-white p-2"><p>同供应商已有送货单 {reuseCandidate.note_number}（{reuseCandidate.document_date}）。确认这批产品确实使用同一张纸单后，可将 {reuseCandidate.allocation_count} 条回货关联及 {reuseCandidate.attachment_count} 张照片归到该单；列表将只显示一张纸单。</p><div className="mt-2 flex gap-2"><button type="button" disabled={busy} onClick={() => void completeNumber(true)} className="rounded bg-amber-800 px-2 py-1 text-white disabled:opacity-40">确认共用该纸单</button><button type="button" onClick={() => setReuseCandidate(null)} className="rounded border px-2 py-1">取消</button></div></div> : null}
     </div> : null}
     {note.attachments.length ? <div className={`${compact ? "" : "mt-2"} flex min-w-0 flex-wrap gap-2`}>{note.attachments.map((file) => <div key={file.id} className="inline-flex min-w-0 max-w-full items-center rounded-md border bg-slate-50 text-xs"><button type="button" onClick={() => setPreview(file)} className="inline-flex min-w-0 items-center gap-2 px-2 py-1.5 hover:text-blue-700"><FileImage size={15} className="shrink-0 text-blue-600"/><span className="min-w-0 max-w-52 truncate" title={file.filename}>{file.filename}</span><span className="shrink-0 text-slate-400">预览</span></button>{canUpload ? <button type="button" onClick={() => { setPhotoReplacement({ id: file.id, reason: "" }); setError(""); }} className="border-l px-2 py-1.5 text-blue-700 hover:underline">更换</button> : null}</div>)}</div> : <p className="mt-2 text-xs text-amber-700">尚未上传送货单照片</p>}
