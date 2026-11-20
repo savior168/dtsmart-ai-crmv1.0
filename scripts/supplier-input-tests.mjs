@@ -46,7 +46,21 @@ assert.equal(matchActiveSupplierCode(activeSuppliers, "1007"), undefined,
   "不存在的代码不能映射成供应商档案或登记回货");
 const stockView = readFileSync(new URL("../components/stock-order-detail-view.tsx", import.meta.url), "utf8");
 assert.match(stockView, /在此新增供应商档案/);
+assert.match(stockView, /!receiptDraft\.supplierId && supplierCodeInput\.trim\(\) && data\.can_manage_suppliers/,
+  "未输入供应商时不得显示新增档案区域");
+assert.match(stockView, /data-search-text=\{\[supplier\.system_code, supplier\.short_name, supplier\.english_short_name\]/,
+  "有名称查看权限的用户可用名称搜索，但选中后仍以供应商代码关联");
+assert.match(stockView, /return matches\.length === 1 \? matches\[0\] : undefined/,
+  "同名档案不得自动误匹配");
 assert.match(stockView, /selectedSupplier\.id !== receiptDraft\.supplierId/);
+const deliveryFilesView = readFileSync(new URL("../components/supplier-delivery-note-files.tsx", import.meta.url), "utf8");
+assert.match(deliveryFilesView, /replacementInput\.current\?\.click\(\)/,
+  "替代照片应由系统样式按钮选择，不露出浏览器原生文件控件");
+assert.match(deliveryFilesView, /ref=\{replacementInput\} type="file".*className="sr-only"/);
+const customerWorkspaceView = readFileSync(new URL("../components/customer-workspace-panels-v2.tsx", import.meta.url), "utf8");
+assert.match(customerWorkspaceView, /file\?\.name\|\|"选择跟进凭证"/,
+  "续期凭证须显示选中的文件名");
+assert.match(customerWorkspaceView, /required type="file".*className="sr-only"/);
 const supplierUpdateRoute = readFileSync(new URL("../app/api/suppliers/[id]/route.ts", import.meta.url), "utf8");
 assert.match(supplierUpdateRoute, /linked\.count && \(changingCode \|\| changingLegacyCode\)/,
   "已有送货单只锁定供应商代码，不锁定商务条件变更");

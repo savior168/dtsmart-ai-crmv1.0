@@ -30,12 +30,22 @@ assert.match(view, /产品第 \{item\.line_number\} 项 · 来源 \{sourceIndex\
   "同一 PI 产品拆分多条来源时必须标明这是来源分配而非新增订单产品");
 assert.match(view, /title="为同一 PI 产品增加一条供应商\/送货单分配，不会增加订单产品数量"/,
   "添加来源操作必须明确说明仅增加来源分配，不增加订单产品数量");
-assert.match(view, /rowId: crypto\.randomUUID\(\)[\s\S]*setBatchReceiptDraft\(\(current\) => current \? \[\.\.\.current, \{/,
+assert.match(view, /function addBatchReceiptSource\(itemId: string\)[\s\S]*setBatchReceiptDraft\(\(current\) => \{[\s\S]*rowId: crypto\.randomUUID\(\), itemId/,
   "重复产品来源必须拥有独立行标识并可分别编辑");
+assert.match(view, /const prior = \[\.\.\.current\]\.reverse\(\)\.find\(\(line\) => line\.itemId === itemId\)[\s\S]*supplierId: prior\?\.supplierId[\s\S]*supplierCode: prior\?\.supplierCode[\s\S]*noteNumber: ""/,
+  "新增同一产品送货单时沿用上一行供应商，但必须重新填写单号和单价");
 assert.match(view, /const invalidAggregate = batchReceiptDraft\.some\([\s\S]*total > item\.quantity - item\.received_quantity/,
   "前端必须按产品汇总校验多供应来源数量不超过剩余未回数");
 assert.match(view, /＋ 拆分来源/,
   "仓库员必须能直观添加同一产品的其他供应商或送货单");
+assert.match(view, /function splitSingleReceipt\(\)[\s\S]*setBatchReceiptDraft\(\[[\s\S]*rowId: crypto\.randomUUID\(\), itemId: item\.id,[\s\S]*rowId: crypto\.randomUUID\(\), itemId: item\.id,/,
+  "单项登记应保留已填来源，并为同一产品增加第二条来源");
+assert.match(view, /onClick=\{splitSingleReceipt\}[\s\S]*拆分供应商 \/ 送货单/,
+  "单项登记弹窗须提供直观的多供应商或多送货单拆分入口");
+assert.match(view, /singleReceiptItem \? "单项产品分来源登记回货"[\s\S]*!singleReceiptItem \? <div/,
+  "单项拆分应复用原子批量提交表单，但不显示多产品统一来源区");
+assert.match(view, /本次已分配 \{singleReceiptQuantity\} \/ 剩余可回 \{singleReceiptItem\.quantity - singleReceiptItem\.received_quantity\}/,
+  "单项拆分须实时显示各来源数量合计和剩余可回数量");
 assert.match(view, /supplierCodeSearchOptions[\s\S]*搜索或输入供应商代码/,
   "供应商代码搜索候选必须只展示代码并提供空值占位");
 assert.equal((view.match(/<AppSelect aria-label=.*供应商代码[\s\S]*?allowCustomValue/g) || []).length, 3,
