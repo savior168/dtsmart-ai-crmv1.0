@@ -71,6 +71,8 @@ assert.match(reports, /<UserScopeSelect permission=\{mode === "performance" \? "
 assert.match(reports, /setUserId\(value\)/, "团队筛选必须将选定范围传给业绩接口");
 assert.match(reports, /function TeamLeaderboard[\s\S]*团队销售业绩排名[\s\S]*成交金额[\s\S]*onSelectOwner\(row\.user_id\)/, "紧凑团队榜须呈现成交额并支持下钻到销售员明细");
 assert.match(reports, /function TeamLeaderboard[\s\S]*团队成交贡献[\s\S]*团队毛利贡献[\s\S]*rows\.map/, "团队排名须显示每个成员的成交与毛利贡献占比");
+assert.match(reports, /<TeamLeaderboard[^>]*showActualProfit=\{!!performance\.actual_totals\}/, "实际利润列须由服务端授权数据控制");
+assert.match(reports, /showActualProfit \? <th[^>]*>实际毛利 \/ 纯利<\/th> : null/, "无实际利润权限时不应显示列标题");
 assert.match(performanceApi, /account\.role === "SUPERVISOR" && \(request\.nextUrl\.searchParams\.get\("scope"\) === "team" \|\| request\.nextUrl\.searchParams\.get\("user_id"\) === "all"\)/, "团队范围只能由主管请求");
 assert.match(performanceApi, /teamScopeRequested && \(!account\.supervisor_can_view_subordinates \|\| !hasPermission\(account, "sales\.performance\.data_all"\)\)/, "主管团队业绩必须同时校验直属下级能力与数据权限");
 assert.match(performanceApi, /teamOwnerIds = await activeDescendantIds\(account\.id\)/, "主管团队聚合仅限本人及有效下属层级");
