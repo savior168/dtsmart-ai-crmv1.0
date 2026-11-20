@@ -183,7 +183,7 @@ export async function GET(request: NextRequest) {
           if (allShipped) actualTotals.shipped_orders++;
           const actual = stockId ? actualOrderProfit(order.items.map((item) => ({
             stock_order_item_id: stockItemByLine.get(stockId + ":" + String(item.line_number))?.id || "",
-            quantity: item.quantity, sales_cny: item.sales_cny,
+            quantity: item.quantity, sales_cny: item.sales_cny, latest_cost_cny: item.cost_cny,
           })), receipts, expensesByStock.get(stockId) || null,
           allShipped) : null;
           if (!actual) { actualTotals.pending_orders++; continue; }

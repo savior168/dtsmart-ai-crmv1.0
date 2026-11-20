@@ -11,6 +11,7 @@ const NOTE_IMAGE_LIMIT = 10;
 
 export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   const uploadedPaths: string[] = [];
+  const insertedIds: string[] = [];
   try {
     const { supabase, account } = await requirePermission("stock.update");
     assertSupplierRoleAllowed(account.role);
@@ -37,15 +38,27 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
     if (!visibleItems.data?.length) throw new Error("FORBIDDEN");
 
     const form = await request.formData();
+    const replaceId = typeof form.get("replace_attachment_id") === "string" ? String(form.get("replace_attachment_id")) : "";
+    const replaceReason = typeof form.get("replace_reason") === "string" ? String(form.get("replace_reason")).trim() : "";
+    const expectedUpdatedAt = typeof form.get("expected_updated_at") === "string" ? String(form.get("expected_updated_at")) : "";
     const files = form.getAll("files").filter((value): value is File => value instanceof File && value.size > 0);
     if (!files.length || files.length > NOTE_IMAGE_LIMIT) throw new Error(`请选择1至${NOTE_IMAGE_LIMIT}张送货单照片`);
+    if (replaceId) {
+      if (!/^[0-9a-f-]{36}$/i.test(replaceId) || files.length !== 1
+        || replaceReason.length < 2 || replaceReason.length > 500
+        || !Number.isFinite(Date.parse(expectedUpdatedAt))) throw new Error("请选择一张替代照片并填写更换原因");
+      const old = await admin.from("attachments").select("id").eq("id", replaceId)
+        .eq("supplier_delivery_note_id", id).is("supplier_photo_superseded_at", null).maybeSingle();
+      if (old.error) throw old.error;
+      if (!old.data) throw new Error("原照片已变更，请刷新后重试");
+    }
     if (files.some((file) => !IMAGE_TYPES.has(file.type) || file.size > IMAGE_LIMIT)) {
       throw new Error("每张照片须为不超过5MB的JPG、PNG或WebP图片");
     }
     const prior = await admin.from("attachments").select("id", { count: "exact", head: true })
-      .eq("supplier_delivery_note_id", id);
+      .eq("supplier_delivery_note_id", id).is("supplier_photo_superseded_at", null);
     if (prior.error) throw prior.error;
-    if ((prior.count || 0) + files.length > NOTE_IMAGE_LIMIT) {
+    if ((prior.count || 0) + files.length - (replaceId ? 1 : 0) > NOTE_IMAGE_LIMIT) {
       throw new Error(`该送货单最多保存${NOTE_IMAGE_LIMIT}张照片（每张不超过5MB）`);
     }
 
@@ -61,13 +74,24 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
       uploadedPaths.push(storagePath);
       rows.push({ id: attachmentId, supplier_delivery_note_id: id, uploaded_by: account.id,
         filename: file.name.slice(0, 240), original_filename: file.name.slice(0, 240), storage_path: storagePath,
-        mime_type: file.type, size_bytes: file.size, kind: "SUPPLIER_DELIVERY_NOTE" });
+        mime_type: file.type, size_bytes: file.size, kind: "SUPPLIER_DELIVERY_NOTE",
+        supplier_photo_replaces_id: replaceId || null });
     }
     const inserted = await admin.from("attachments").insert(rows)
       .select("id,filename,mime_type,size_bytes,created_at,supplier_delivery_note_id");
     if (inserted.error) throw inserted.error;
+    insertedIds.push(...(inserted.data || []).map((row) => row.id));
+    if (replaceId) {
+      const correction = await supabase.rpc("supersede_supplier_delivery_note_photo", {
+        p_delivery_note_id: id, p_old_attachment_id: replaceId,
+        p_new_attachment_id: insertedIds[0], p_expected_updated_at: expectedUpdatedAt,
+        p_reason: replaceReason,
+      });
+      if (correction.error) throw correction.error;
+    }
     return NextResponse.json({ data: inserted.data || [] }, { status: 201 });
   } catch (error) {
+    if (insertedIds.length) await createAdminClient().from("attachments").delete().in("id", insertedIds);
     if (uploadedPaths.length) await createAdminClient().storage.from("crm-attachments").remove(uploadedPaths);
     const message = error instanceof Error ? error.message : "送货单照片上传失败";
     return NextResponse.json({ error: message }, { status: message === "FORBIDDEN" ? 403 : 400 });

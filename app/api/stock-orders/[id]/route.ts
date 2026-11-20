@@ -117,23 +117,35 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
       note: noteByEventId.get(event.id) || null,
       creator: actors.get(event.created_by) || null }));
     let expenses = null;
+    let expenseEntries: Array<{ id: string; expense_type: string; amount_cny: number; supplier_id: string | null; delivery_note_id: string | null; expense_item: string | null; description: string | null; created_at: string }> = [];
+    let expenseEntryCorrections: Array<{ id: string; entry_id: string; previous_cny: number; revised_cny: number; supplier_id: string | null; delivery_note_id: string | null; expense_item: string | null; description: string | null; reason: string; created_at: string }> = [];
+    let expenseCorrections: Array<{ id: string; shipment_id: string; expense_type: string; previous_cny: number; revised_cny: number; supplier_id: string | null; delivery_note_id: string | null; expense_item: string | null; description: string | null; reason: string; created_at: string }> = [];
     let shipments = null;
     let receipts: Array<{ id: string; stock_order_item_id: string; quantity: number; purchase_unit_price_cny: number; note_number: string; number_pending: boolean; document_date: string; supplier_code: string; correction_of: string | null; remaining_quantity: number }> = [];
     let deliveryNotes: Array<{ id: string; supplier_code: string; note_number: string; number_pending: boolean; updated_at: string; document_date: string; attachments: Array<{ id: string; filename: string; mime_type: string | null; size_bytes: number | null; created_at: string }> }> = [];
     let shipmentFeatureReady = false;
     if (!hideSupplierCode && hasPermission(account, "stock.update")) {
-      const [expenseResult, shipmentResult] = await Promise.all([
+      const [expenseResult, shipmentResult, entriesResult, correctionsResult, entryCorrectionsResult] = await Promise.all([
         supabase.from("stock_order_expenses")
           .select("packaging_cost_cny,procurement_expenses_cny,shipping_expenses_cny,updated_at")
           .eq("stock_order_id", id).maybeSingle(),
         supabase.from("stock_order_shipments")
           .select("id,item_ids,shipment_lines,packaging_cost_cny,procurement_expenses_cny,shipping_expenses_cny,handoff_note,created_by,created_at")
           .eq("stock_order_id", id).order("created_at", { ascending: false }),
+        supabase.rpc("stock_order_expense_entries_for_detail", { p_stock_order_id: id }),
+        supabase.rpc("stock_order_shipment_expense_corrections_for_detail", { p_stock_order_id: id }),
+        supabase.rpc("stock_order_expense_entry_corrections_for_detail", { p_stock_order_id: id }),
       ]);
       if (expenseResult.error) throw expenseResult.error;
       if (shipmentResult.error && !["42P01", "PGRST205"].includes(shipmentResult.error.code || "")) throw shipmentResult.error;
       expenses = expenseResult.data;
       shipments = shipmentResult.data || [];
+      if (entriesResult.error && !["42883", "PGRST202"].includes(entriesResult.error.code || "")) throw entriesResult.error;
+      expenseEntries = (entriesResult.data || []) as typeof expenseEntries;
+      if (correctionsResult.error && !["42883", "PGRST202"].includes(correctionsResult.error.code || "")) throw correctionsResult.error;
+      expenseCorrections = (correctionsResult.data || []) as typeof expenseCorrections;
+      if (entryCorrectionsResult.error && !["42883", "PGRST202"].includes(entryCorrectionsResult.error.code || "")) throw entryCorrectionsResult.error;
+      expenseEntryCorrections = (entryCorrectionsResult.data || []) as typeof expenseEntryCorrections;
       shipmentFeatureReady = !shipmentResult.error;
     }
     if ((canViewProcurement || canViewDocuments) && visibleItems.length) {
@@ -152,8 +164,8 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
         .select("id,system_code").in("id", supplierIds) : { data: [], error: null };
       if (suppliers.error) throw suppliers.error;
       const noteAttachments = noteIds.length ? await admin.from("attachments")
-        .select("id,supplier_delivery_note_id,filename,mime_type,size_bytes,created_at")
-        .in("supplier_delivery_note_id", noteIds).order("created_at") : { data: [] as Array<{ id: string; supplier_delivery_note_id: string | null; filename: string; mime_type: string; size_bytes: number; created_at: string }>, error: null };
+        .select("id,supplier_delivery_note_id,filename,mime_type,size_bytes,created_at,supplier_photo_superseded_at")
+        .in("supplier_delivery_note_id", noteIds).order("created_at") : { data: [] as Array<{ id: string; supplier_delivery_note_id: string | null; filename: string; mime_type: string; size_bytes: number; created_at: string; supplier_photo_superseded_at: string | null }>, error: null };
       if (noteAttachments.error) throw noteAttachments.error;
       const notesById = new Map((notes.data || []).map((row) => [row.id, row]));
       const codesById = new Map((suppliers.data || []).map((row) => [row.id, row.system_code]));
@@ -176,10 +188,12 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
           note_number: !canViewDocuments ? "无权查看" : note?.number_pending ? "待补送货单号" : note?.note_number || "", number_pending: canViewDocuments && Boolean(note?.number_pending), document_date: note?.document_date || "",
           supplier_code: note ? codesById.get(note.supplier_id) || "" : "" };
       }) : [];
-      deliveryNotes = canViewDocuments ? (notes.data || []).map((note) => ({ id: note.id,
+      deliveryNotes = canViewDocuments ? (notes.data || []).map((note) => ({ id: note.id, supplier_id: note.supplier_id,
         supplier_code: codesById.get(note.supplier_id) || "", note_number: note.number_pending ? "待补送货单号" : note.note_number,
         number_pending: note.number_pending, updated_at: note.updated_at,
-        document_date: note.document_date, attachments: attachmentsByNoteId.get(note.id) || [] })) : [];
+        document_date: note.document_date,
+        attachments: (attachmentsByNoteId.get(note.id) || []).filter((file) => !file.supplier_photo_superseded_at),
+        superseded_attachments: (attachmentsByNoteId.get(note.id) || []).filter((file) => Boolean(file.supplier_photo_superseded_at)) })) : [];
     }
     const warehouseEditor = !hideSupplierCode && (hasPermission(account, "stock.update")
       || hasPermission(account, "stock.prepare") || hasPermission(account, "stock.submit"));
@@ -188,7 +202,7 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
     const privateOrderNote = !hideSupplierCode ? await createAdminClient().from("stock_orders")
       .select("status_note").eq("id", id).single() : null;
     if (privateOrderNote?.error) throw privateOrderNote.error;
-    return NextResponse.json({ order: { ...order, status_note: privateOrderNote?.data?.status_note || null, customer_name_snapshot: piDelivery.data?.customer_name_snapshot || null, forwarder_address: piDelivery.data?.forwarder_address || null, forwarder_recipient: piDelivery.data?.forwarder_recipient || null, forwarder_phone: piDelivery.data?.forwarder_phone || null, pi_created_at: piDelivery.data?.created_at || null, pi_preparer: piPreparer?.data || null, customer_name: customerNames.get(order.sales_order_id) || null, sales: order.sales || salesOwner?.data || null }, items: visibleItems, cancelled_items: (items || []).filter((item) => Boolean(item.pi_amendment_cancelled_at)).map((item) => redactWarehouseNote ? { ...item, internal_note: null } : item), amendment_highlights: amendmentHighlights, requirement_attachments: resolvePiRequirementAttachments(requirementAttachments.data || [], activePiItems.data || []), receipts, delivery_notes: deliveryNotes, amendments, events: scopedEvents, event_count: eventCount || 0, ...(warehouseEditor ? { expenses, shipments, shipment_feature_ready: shipmentFeatureReady } : {}), can_export: hasPermission(account, "stock.export") && !["DRAFT", "CANCELLED"].includes(order.status), can_preview: hasPermission(account, "stock.preview"), can_view_pi: account.role !== "WAREHOUSE" && hasPermission(account,"orders.view"), recalled_pi: recalledPi, can_prepare: warehouseEditor && hasPermission(account,"stock.prepare") && order.status==="DRAFT" && !recalledPi, can_submit: warehouseEditor && hasPermission(account, "stock.submit") && order.status==="DRAFT" && !recalledPi, can_update: warehouseEditor && hasPermission(account, "stock.update") && order.status!=="DRAFT", can_edit_receiving: warehouseEditor && hasPermission(account,"stock.update") && ["WAITING","PREPARING","RECEIVED","SORTING","SHORTAGE"].includes(order.status), can_view_procurement: canViewProcurement, can_view_documents: canViewDocuments, can_view_supplier_code: !hideSupplierCode, can_edit_procurement: canViewProcurement && !order.archived_at && !["DRAFT", "CANCELLED"].includes(order.status), can_upload_delivery_note_files: canManageDocuments, can_manage_suppliers: hasPermission(account, "suppliers.manage"), allowed_statuses:transitions[order.status]||[] });
+    return NextResponse.json({ order: { ...order, status_note: privateOrderNote?.data?.status_note || null, customer_name_snapshot: piDelivery.data?.customer_name_snapshot || null, forwarder_address: piDelivery.data?.forwarder_address || null, forwarder_recipient: piDelivery.data?.forwarder_recipient || null, forwarder_phone: piDelivery.data?.forwarder_phone || null, pi_created_at: piDelivery.data?.created_at || null, pi_preparer: piPreparer?.data || null, customer_name: customerNames.get(order.sales_order_id) || null, sales: order.sales || salesOwner?.data || null }, items: visibleItems, cancelled_items: (items || []).filter((item) => Boolean(item.pi_amendment_cancelled_at)).map((item) => redactWarehouseNote ? { ...item, internal_note: null } : item), amendment_highlights: amendmentHighlights, requirement_attachments: resolvePiRequirementAttachments(requirementAttachments.data || [], activePiItems.data || []), receipts, delivery_notes: deliveryNotes, amendments, events: scopedEvents, event_count: eventCount || 0, ...(warehouseEditor ? { expenses, expense_entries: expenseEntries, expense_entry_corrections: expenseEntryCorrections, expense_corrections: expenseCorrections, shipments, shipment_feature_ready: shipmentFeatureReady } : {}), can_export: hasPermission(account, "stock.export") && !["DRAFT", "CANCELLED"].includes(order.status), can_preview: hasPermission(account, "stock.preview"), can_view_pi: account.role !== "WAREHOUSE" && hasPermission(account,"orders.view"), recalled_pi: recalledPi, can_prepare: warehouseEditor && hasPermission(account,"stock.prepare") && order.status==="DRAFT" && !recalledPi, can_submit: warehouseEditor && hasPermission(account, "stock.submit") && order.status==="DRAFT" && !recalledPi, can_update: warehouseEditor && hasPermission(account, "stock.update") && order.status!=="DRAFT", can_edit_receiving: warehouseEditor && hasPermission(account,"stock.update") && ["WAITING","PREPARING","RECEIVED","SORTING","SHORTAGE"].includes(order.status), can_view_procurement: canViewProcurement, can_view_documents: canViewDocuments, can_view_supplier_code: !hideSupplierCode, can_record_expense: ["WAREHOUSE", "ADMIN"].includes(account.role) && warehouseEditor && hasPermission(account, "stock.update") && !order.archived_at && !["DRAFT", "CANCELLED"].includes(order.status), can_edit_procurement: canViewProcurement && !order.archived_at && !["DRAFT", "CANCELLED"].includes(order.status), can_upload_delivery_note_files: canManageDocuments, can_manage_suppliers: hasPermission(account, "suppliers.manage"), allowed_statuses:transitions[order.status]||[] });
   } catch (error) {
     const message = sqlErrorMessage(error, "备货单详情加载失败");
     return NextResponse.json({ error: message }, { status: authErrorStatus(message) || 400 });

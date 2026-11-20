@@ -36,22 +36,25 @@ export function completeActualCost(
 }
 
 export function actualOrderProfit(
-  lines: Array<{ stock_order_item_id: string; quantity: number; sales_cny: number | null }>,
+  lines: Array<{ stock_order_item_id: string; quantity: number; sales_cny: number | null; latest_cost_cny: number | null }>,
   receipts: Map<string, { quantity: number; amount_cny: number }>,
   expenses: { packaging_cny: number; shipping_cny: number; other_cny: number } | null,
   allShipped: boolean,
 ) {
-  if (!lines.length || lines.some((line) => line.sales_cny === null
-    || !Number.isFinite(line.sales_cny) || line.sales_cny < 0)) return null;
+  if (!lines.length || lines.some((line) => line.sales_cny === null || line.latest_cost_cny === null
+    || !Number.isFinite(line.sales_cny) || line.sales_cny < 0
+    || !Number.isFinite(line.latest_cost_cny) || line.latest_cost_cny < 0)) return null;
   let salesCents = 0;
-  let costCents = 0;
+  let purchaseCents = 0;
+  let latestCostCents = 0;
   for (const line of lines) {
     const cost = completeActualCost(line.quantity, receipts.get(line.stock_order_item_id));
     if (cost === null) return null;
     salesCents += Math.round(Number(line.sales_cny) * 100);
-    costCents += Math.round(cost * 100);
+    purchaseCents += Math.round(cost * 100);
+    latestCostCents += Math.round(Number(line.latest_cost_cny) * 100);
   }
-  const grossCents = salesCents - costCents;
+  const grossCents = salesCents - latestCostCents;
   if (expenses && [expenses.packaging_cny, expenses.shipping_cny, expenses.other_cny]
     .some((value) => !Number.isFinite(value) || value < 0
       || Math.abs(value * 100 - Math.round(value * 100)) > 1e-7)) return null;
@@ -63,12 +66,12 @@ export function actualOrderProfit(
   if (expenseCents !== null && (!Number.isSafeInteger(expenseCents) || expenseCents < 0)) return null;
   return {
     product_sales_cny: salesCents / 100,
-    purchase_cost_cny: costCents / 100,
+    purchase_cost_cny: purchaseCents / 100,
     actual_gross_profit_cny: grossCents / 100,
     actual_gross_margin: salesCents > 0 ? grossCents / salesCents * 100 : null,
-    actual_net_profit_cny: expenseCents === null ? null : (grossCents - expenseCents) / 100,
+    actual_net_profit_cny: expenseCents === null ? null : (salesCents - purchaseCents - expenseCents) / 100,
     actual_net_margin: expenseCents === null || salesCents <= 0
-      ? null : (grossCents - expenseCents) / salesCents * 100,
+      ? null : (salesCents - purchaseCents - expenseCents) / salesCents * 100,
   };
 }
 

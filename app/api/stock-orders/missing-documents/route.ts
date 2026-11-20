@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
     const noteIds = [...new Set((allocations.data || []).map((allocation) => allocation.delivery_note_id))];
     const [notes, photos] = await Promise.all([
       noteIds.length ? admin.from("supplier_delivery_notes").select("id,note_number,number_pending").in("id", noteIds) : Promise.resolve({ data: [], error: null }),
-      noteIds.length ? admin.from("attachments").select("supplier_delivery_note_id").in("supplier_delivery_note_id", noteIds) : Promise.resolve({ data: [], error: null }),
+      noteIds.length ? admin.from("attachments").select("supplier_delivery_note_id").in("supplier_delivery_note_id", noteIds).is("supplier_photo_superseded_at", null) : Promise.resolve({ data: [], error: null }),
     ]);
     if (notes.error) throw notes.error;
     if (photos.error) throw photos.error;

@@ -20,6 +20,7 @@ const batchLegacyMigration = read("supabase/migrations/20261118183000_batch_lega
 const cron = read("app/api/cron/stock-document-reminders/route.ts");
 const optionalFieldsMigration = read("supabase/migrations/20261119050000_admin_legacy_remediation_optional_reconciliation_fields.sql");
 const pendingPaymentMigration = read("supabase/migrations/20261119080000_supplier_document_pending_payment.sql");
+const expenseMigration = read("supabase/migrations/20261120033144_stock_expense_entries_and_supplier_packaging.sql");
 
 assert.match(migration, /record_supplier_receipt_pending[\s\S]*public\.record_supplier_receipt\([\s\S]*number_pending = true/);
 assert.match(migration, /record_supplier_receipts_batch_with_pending[\s\S]*public\.record_supplier_receipts_batch\([\s\S]*number_pending = true/);
@@ -71,14 +72,16 @@ assert.match(reconciliationView, /groupAllocations\(note\.allocations\)\.slice\(
 assert.match(reconciliationView, /notes\.map\(\(note\) => <Fragment key=\{note\.id\}>[\s\S]*<tr className="bg-slate-50"><td colSpan=\{13\} className="p-3"><NoteDetails note=\{note\}\/>/, "PI 与产品核对详情须紧跟当前送货单行显示");
 assert.match(reconciliationView, /搜索送货单号、供应商代码或PI订单号[\s\S]*按所选送货日期范围查找/);
 assert.match(reconciliationView, /核对说明（选填）<textarea maxLength=\{500\}/, "纸单核对说明应选填");
-assert.match(reconciliationView, /documentsPending \? "付款依据 \/ 流水号（必填）" : "付款凭证号（选填）"/, "正常付款凭证号选填，缺件付款须填写依据");
+assert.match(reconciliationView, /付款凭证号／流水号（选填）/, "付款凭证号在缺件时也应选填");
+assert.match(reconciliationView, /payment\.documentsPending && !payment\.reference\.trim\(\) && !payment\.confirmedPending/, "缺件且无凭证号须明确确认真实付款");
 assert.match(pendingPaymentMigration, /documents_pending_at_payment boolean[\s\S]*pending_number or pending_photo[\s\S]*payment_reference[\s\S]*new\.documents_pending_at_payment/, "单据待补付款须有可追溯依据，并标记付款时状态");
+assert.match(expenseMigration, /create or replace function public\.reject_pending_supplier_note_payment\(\)[\s\S]*new\.documents_pending_at_payment := pending_number or pending_photo/, "新口径保留缺件付款时状态且允许凭证号选填");
 assert.doesNotMatch(read("app/api/supplier-reconciliation/notes/[id]/route.ts"), /!reason \|\|/, "纸单核对接口不可强制说明");
 assert.doesNotMatch(read("app/api/supplier-reconciliation/payments/route.ts"), /!reference \|\|/, "付款接口不可强制凭证号");
 assert.match(optionalFieldsMigration, /where btrim\(payment_reference\) <> ''/, "有凭证号的付款仍须保留唯一性");
 assert.match(optionalFieldsMigration, /if nullif\(btrim\(coalesce\(p_payment_reference/, "未填凭证号应跳过跨供应商编号校验");
 assert.match(reconciliationView, /<AppSelect aria-label="按供应商筛选送货单"[^\r\n]*supplierOptions\.map/, "对账供应商筛选须展示日期范围内有送货单的去重供应商");
-assert.match(reconciliationView, /送货单 <strong[\s\S]*供应商 <strong[\s\S]*实收 <strong[\s\S]*cash_paid_reported_cny > 0[\s\S]*<SummaryMetric label="应付货款"[\s\S]*<SummaryMetric label="已登记付款"[\s\S]*<SummaryMetric label="未付货款"/, "对账概览须突出三项金额，计数与非零现场报付降级展示");
+assert.match(reconciliationView, /送货单 <strong[\s\S]*供应商 <strong[\s\S]*实收 <strong[\s\S]*cash_paid_reported_cny > 0[\s\S]*<SummaryMetric label="应付金额"[\s\S]*<SummaryMetric label="已登记付款"[\s\S]*<SummaryMetric label="未付货款"/, "对账概览须突出三项金额，计数与非零现场报付降级展示");
 assert.match(report, /search\.length > 80[\s\S]*supplier_reconciliation_report_search[\s\S]*p_search: search/);
 assert.match(searchMigration, /supplier_reconciliation_report_search[\s\S]*where_clause \|\| chr\(10\)[\s\S]*d\.note_number[\s\S]*s\.system_code[\s\S]*so\.order_number[\s\S]*so\.warehouse_reference_number/);
 assert.match(searchMigration, /revoke all on function public\.supplier_reconciliation_report_search[\s\S]*from public, anon/);

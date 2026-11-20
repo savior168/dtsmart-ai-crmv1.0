@@ -1,0 +1,37 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+
+const read = (path) => readFileSync(path, "utf8");
+const migration = read("supabase/migrations/20261120033144_stock_expense_entries_and_supplier_packaging.sql");
+const detail = read("components/stock-order-detail-view.tsx");
+const expenseApi = read("app/api/stock-orders/[id]/expenses/route.ts");
+const correctionApi = read("app/api/stock-orders/[id]/expenses/corrections/route.ts");
+const report = read("components/supplier-reconciliation-view.tsx");
+const reuseMigration = read("supabase/migrations/20261120034500_reuse_pending_supplier_delivery_note.sql");
+const correctionMigration = read("supabase/migrations/20261120035000_supplier_delivery_note_corrections.sql");
+const documentView = read("components/supplier-delivery-note-files.tsx");
+
+assert.match(migration, /expense_type='PACKAGING' and supplier_id is not null and delivery_note_id is not null/);
+assert.match(migration, /a\.delivery_note_id=note\.id and i\.stock_order_id=target\.id and a\.quantity>0/);
+assert.match(migration, /create function public\.record_stock_order_expenses_batch[\s\S]*jsonb_array_length\(p_entries\) not between 1 and 20/);
+assert.match(migration, /on conflict\(request_id\) do nothing[\s\S]*prior\.payload<>p_entries/);
+assert.match(migration, /stock_order_shipment_expense_corrections[\s\S]*previous_cny[\s\S]*revised_cny[\s\S]*reason/);
+assert.match(migration, /paid_cny>due_cny \+ public\.supplier_note_packaging_cny/);
+assert.match(migration, /supplier_note_packaging_cny\(delivery\.id\)/);
+assert.match(migration, /supplier_note_packaging_cny\(note\.id\)/);
+assert.match(migration, /create function public\.correct_stock_order_expense_entry[\s\S]*paid_cny>due_cny\+public\.supplier_note_packaging_cny/);
+assert.match(migration, /stock_order_expense_entry_corrections[\s\S]*revised_cny/);
+assert.match(detail, /expenseDrafts\.map\([\s\S]*＋ 增加费用项/);
+assert.match(detail, /data\?\.delivery_notes[\s\S]*请选择本备货单关联的送货单/);
+assert.match(detail, /历史金额待核归属[\s\S]*核对更正/);
+assert.match(detail, /openEntryExpense\(entry\)/);
+assert.match(expenseApi, /request_id: requestId/);
+assert.match(correctionApi, /p_stock_order_id: id[\s\S]*p_shipment_id: shipmentId/);
+assert.match(report, /goods_allocated_cny \?\? note\.allocated_cny/);
+assert.match(reuseMigration, /confirm_reuse[\s\S]*update public\.supplier_receipt_allocations set delivery_note_id=existing\.id/);
+assert.match(reuseMigration, /insert into public\.supplier_delivery_note_merges/);
+assert.match(correctionMigration, /correct_supplier_delivery_note_number[\s\S]*supplier_delivery_note_corrections/);
+assert.match(correctionMigration, /supersede_supplier_delivery_note_photo[\s\S]*paper_total_cny=null/);
+assert.match(documentView, /确认共用该纸单/);
+assert.match(documentView, /查看旧照片/);
+console.log("Stock expense workflow contracts passed.");

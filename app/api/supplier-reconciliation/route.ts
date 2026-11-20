@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
     const pendingById = new Map((pendingResult.data || []).map((row) => [row.id, row]));
     const attachmentResult = canViewDocuments && notes.length ? await admin.from("attachments")
       .select("id,supplier_delivery_note_id,filename,mime_type,size_bytes,created_at")
-      .in("supplier_delivery_note_id", notes.map((note) => note.id)).order("created_at") : { data: [] as Array<{ id: string; supplier_delivery_note_id: string | null; filename: string; mime_type: string; size_bytes: number; created_at: string }>, error: null };
+      .in("supplier_delivery_note_id", notes.map((note) => note.id)).is("supplier_photo_superseded_at", null).order("created_at") : { data: [] as Array<{ id: string; supplier_delivery_note_id: string | null; filename: string; mime_type: string; size_bytes: number; created_at: string }>, error: null };
     if (attachmentResult.error) throw attachmentResult.error;
     const paymentFlags = notes.length ? await admin.from("supplier_payments")
       .select("id,documents_pending_at_payment").in("delivery_note_id", notes.map((note) => note.id))

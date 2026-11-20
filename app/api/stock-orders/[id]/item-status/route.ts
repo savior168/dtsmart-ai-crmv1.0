@@ -7,6 +7,9 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     const { supabase } = await requirePermission("stock.update");
     const { id } = await context.params;
     const body = await request.json() as Record<string, unknown>;
+    if (["packaging_cost_cny", "procurement_expenses_cny", "shipping_expenses_cny"].some((key) => body[key] != null && Number(body[key]) !== 0)) {
+      throw new Error("费用请在备货单的独立费用入口登记");
+    }
     const changes = body.changes;
     if (!Array.isArray(changes) || changes.length < 1 || changes.length > 500 ||
       changes.some((item) => !item || typeof item !== "object" ||

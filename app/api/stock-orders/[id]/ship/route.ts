@@ -26,6 +26,9 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     if (costFields.some((key) => typeof body[key] !== "string" || !CNY.test(body[key]))) {
       throw new Error("包装费用、出货费用、其他费用均须填写人民币金额；无费用填0，最多两位小数");
     }
+    if (costFields.some((key) => Number(body[key]) !== 0)) {
+      throw new Error("费用请在备货单的独立费用入口登记，并填写关联送货单、付款责任或费用说明");
+    }
     const { data, error } = await supabase.rpc("record_stock_shipment_quantities", {
       p_stock_order_id: id,
       p_lines: lines,
