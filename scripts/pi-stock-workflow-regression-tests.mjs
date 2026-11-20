@@ -13,7 +13,7 @@ const stockDetailView = read("components/stock-order-detail-view.tsx");
 assert.match(piDetailView, /销售单价（CNY）.*销售成本（CNY）.*销售毛利率/, "PI 人民币金额列应使用统一币种代码");
 assert.match(piDetailView, /`单价（\$\{o\.currency\}）`[\s\S]*`金额（\$\{o\.currency\}）`/, "PI 外币金额列应标出订单付款币种");
 assert.match(piDetailView, /whitespace-nowrap px-3 py-3 font-medium/, "PI 金额表头不应换行");
-assert.match(stockDetailView, /销售成本价（CNY\/件）[\s\S]*实际成本价（CNY\/件）[\s\S]*采购价（CNY\/件）/, "备货单成本与采购价应区分并使用统一币种代码");
+assert.match(stockDetailView, /销售成本价（CNY\/件）[\s\S]*最新成本价（CNY\/件）[\s\S]*采购价（CNY\/件）/, "备货单成本与采购价应区分并使用统一币种代码");
 assert.match(stockDetailView, /x === "操作" \? "sticky right-0 z-20/, "备货表格操作表头应固定在右侧");
 assert.match(stockDetailView, /canExecute \? <td className=\{`sticky right-0 z-10/, "备货表格操作按钮应随横向滚动保持可见");
 const migration = read("supabase/migrations/20261013090000_stock_receiving_workflow.sql");

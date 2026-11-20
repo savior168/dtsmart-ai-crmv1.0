@@ -117,7 +117,7 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   { code: "stock.data_all", label: "查看全部备货单", group: "采购管理", description: "按归属人查看全部采购备货进度", kind: "DATA" },
   { code: "stock.update", label: "更新备货状态", group: "采购管理", description: "采购备货人员更新备货状态与备注", kind: "ACTION" },
   { code: "stock.procurement.edit", label: "确认实际采购价", group: "采购管理", description: "指定采购人员核实并维护备货单实际采购单价；可与备货状态权限分别授权", kind: "ACTION" },
-  { code: "stock.actual_cost.edit", label: "核实仓库实际成本价", group: "采购管理", description: "仓库按最新报价核实成本价；与真实采购价分离，销售只读", kind: "ACTION" },
+  { code: "stock.actual_cost.edit", label: "核实仓库最新成本价", group: "采购管理", description: "仓库按最新报价核实成本价；与真实采购价分离，销售只读", kind: "ACTION" },
   { code: "supplier.documents.view", label: "送货单凭证与待补清单", group: "采购管理", description: "查看关联送货单号与纸单影像；销售员和制单员始终禁止", kind: "PAGE" },
   { code: "supplier.documents.manage", label: "补录供应商送货单凭证", group: "采购管理", description: "仓库登记后补录真实纸单号与上传影像；须同时有查看凭证权限", kind: "ACTION" },
   { code: "stock.prepare", label: "完善备货信息", group: "采购管理", description: "仓库员完善历史报价产生的备货草稿；PI明细由销售在PI订单中修改", kind: "ACTION" },

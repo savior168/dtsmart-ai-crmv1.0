@@ -18,7 +18,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     if (!uuid.test(id) || !uuid.test(itemId)
       || (expected !== null && !validMoney(expected)) || !validMoney(revised)
       || reason.length < 2 || reason.length > 500) {
-      return NextResponse.json({ error: "请核对产品项、实际成本价及2至500字修改原因" }, { status: 400 });
+      return NextResponse.json({ error: "请核对产品项、最新成本价及2至500字修改原因" }, { status: 400 });
     }
     const { error } = await supabase.rpc("update_stock_warehouse_actual_cost", {
       p_stock_order_id: id,
@@ -30,7 +30,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     if (error) throw error;
     return NextResponse.json({ ok: true });
   } catch (error) {
-    const message = sqlErrorMessage(error, "实际成本价保存失败");
+    const message = sqlErrorMessage(error, "最新成本价保存失败").replaceAll("实际成本价", "最新成本价");
     return NextResponse.json({ error: message }, { status: authErrorStatus(message) || 400 });
   }
 }

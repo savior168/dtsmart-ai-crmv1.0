@@ -912,7 +912,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
                       "产品描述",
                       "中文质量/描述（仓库）",
                       "销售成本价（CNY/件）",
-                      "实际成本价（CNY/件）",
+                      "最新成本价（CNY/件）",
                       ...(canViewProcurement ? ["采购价（CNY/件）", "成本差价（CNY/件）"] : []),
                       "数量",
                       canViewProcurement ? "回货来源（供应商 · 送货单）" : data.can_view_supplier_code ? "供应商编码" : "回货进度",
@@ -967,9 +967,9 @@ export function StockOrderDetailView({ id }: { id: string }) {
                         )}
                       </td>
                       <td className="px-2 py-2">{item.estimated_unit_cost_cny === null ? "—" : Number(item.estimated_unit_cost_cny).toFixed(2)}</td>
-                      <td className="min-w-[120px] px-2 py-2"><div className="space-y-1">
-                        <span className={`tabular-nums ${item.warehouse_actual_unit_cost_cny !== null && Number(item.warehouse_actual_unit_cost_cny) > Number(item.estimated_unit_cost_cny) ? "font-semibold text-amber-800" : ""}`}>{item.warehouse_actual_unit_cost_cny === null ? item.estimated_unit_cost_cny === null ? "—" : Number(item.estimated_unit_cost_cny).toFixed(2) : Number(item.warehouse_actual_unit_cost_cny).toFixed(2)}</span>
-                        <div className="flex items-center gap-2 whitespace-nowrap"><small className="text-slate-500">{item.warehouse_actual_unit_cost_cny === null ? "默认沿用" : "仓库已核"}</small>
+                      <td className="min-w-[145px] px-2 py-2"><div className="space-y-1">
+                        <span className={`tabular-nums ${item.warehouse_actual_unit_cost_cny !== null && Number(item.warehouse_actual_unit_cost_cny) > Number(item.estimated_unit_cost_cny) ? "font-semibold text-amber-800" : item.warehouse_actual_unit_cost_cny !== null && Number(item.warehouse_actual_unit_cost_cny) < Number(item.estimated_unit_cost_cny) ? "font-semibold text-emerald-700" : ""}`}>{item.warehouse_actual_unit_cost_cny === null ? item.estimated_unit_cost_cny === null ? "—" : Number(item.estimated_unit_cost_cny).toFixed(2) : Number(item.warehouse_actual_unit_cost_cny).toFixed(2)}</span>
+                        <div className="flex items-center gap-2 whitespace-nowrap"><small className={item.warehouse_actual_unit_cost_cny !== null && Number(item.warehouse_actual_unit_cost_cny) > Number(item.estimated_unit_cost_cny) ? "text-amber-800" : item.warehouse_actual_unit_cost_cny !== null && Number(item.warehouse_actual_unit_cost_cny) < Number(item.estimated_unit_cost_cny) ? "text-emerald-700" : "text-slate-500"}>{item.warehouse_actual_unit_cost_cny === null ? "默认沿用" : Number(item.warehouse_actual_unit_cost_cny) === Number(item.estimated_unit_cost_cny) ? "已核 · 一致" : `${Number(item.warehouse_actual_unit_cost_cny) > Number(item.estimated_unit_cost_cny) ? "↑ 涨" : "↓ 降"} ${Math.abs(Number(item.warehouse_actual_unit_cost_cny) - Number(item.estimated_unit_cost_cny)).toFixed(2)}`}</small>
                         {item.can_edit_actual_cost ? <button type="button" disabled={busy} onClick={() => setActualCostDraft({ item, value: item.warehouse_actual_unit_cost_cny == null && item.estimated_unit_cost_cny == null ? "" : Number(item.warehouse_actual_unit_cost_cny ?? item.estimated_unit_cost_cny).toFixed(2), reason: "" })} className="text-xs text-blue-700 hover:underline disabled:opacity-40">修改</button> : null}</div>
                       </div></td>
                       {canViewProcurement ? <>
@@ -1035,11 +1035,11 @@ export function StockOrderDetailView({ id }: { id: string }) {
                 </tbody>
               </table>
             </div>
-            <AppDialog open={actualCostDraft !== null} title="核实实际成本价" description="默认沿用 PI 销售成本价；仓库核实新报价后修改。这里不是送货单真实采购价，修改会同步显示在有权限的 PI 详情并保留审计记录。" onClose={() => { if (!busy) { setActualCostDraft(null); setError(""); } }}>
+            <AppDialog open={actualCostDraft !== null} title="核实最新成本价" description="默认沿用 PI 销售成本价；仓库核实新报价后修改。这里不是送货单真实采购价，修改会同步显示在有权限的 PI 详情并保留审计记录。" onClose={() => { if (!busy) { setActualCostDraft(null); setError(""); } }}>
               {actualCostDraft ? <form className="space-y-3 text-sm" onSubmit={async (event) => {
                 event.preventDefault();
                 const value = parseProcurementCost(actualCostDraft.value);
-                if (value === null) { setError("实际成本价须为非负金额，最多两位小数"); return; }
+                if (value === null) { setError("最新成本价须为非负金额，最多两位小数"); return; }
                 const item = actualCostDraft.item;
                 const saved = await request(`/api/stock-orders/${id}/actual-cost`, "PATCH", {
                   item_id: item.id, expected_cost_cny: item.warehouse_actual_unit_cost_cny ?? item.estimated_unit_cost_cny,
@@ -1048,7 +1048,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
                 if (saved) setActualCostDraft(null);
               }}>
                 <p>第 {actualCostDraft.item.line_number} 项 · 销售成本价 {actualCostDraft.item.estimated_unit_cost_cny == null ? "未留存" : `¥${Number(actualCostDraft.item.estimated_unit_cost_cny).toFixed(2)}`}</p>
-                <label className="block">实际成本价（CNY/件）<input inputMode="decimal" value={actualCostDraft.value} onChange={(event) => setActualCostDraft((current) => current ? { ...current, value: event.target.value } : null)} className="mt-1 block h-10 w-full rounded border px-3" required /></label>
+                <label className="block">最新成本价（CNY/件）<input inputMode="decimal" value={actualCostDraft.value} onChange={(event) => setActualCostDraft((current) => current ? { ...current, value: event.target.value } : null)} className="mt-1 block h-10 w-full rounded border px-3" required /></label>
                 <label className="block">修改原因<input value={actualCostDraft.reason} onChange={(event) => setActualCostDraft((current) => current ? { ...current, reason: event.target.value } : null)} maxLength={500} minLength={2} className="mt-1 block h-10 w-full rounded border px-3" required /></label>
                 {error ? <p role="alert" className="text-rose-700">{error}</p> : null}
                 <div className="flex justify-end gap-2"><button type="button" onClick={() => setActualCostDraft(null)} className="rounded border px-3 py-2">取消</button><button type="submit" disabled={busy} className="rounded bg-blue-600 px-3 py-2 text-white disabled:opacity-50">确认修改</button></div>
