@@ -223,4 +223,5 @@ const reportView = read("components/sales-reports-view.tsx");
 assert.match(reportView, /breakdowns[\s\S]*trend/, "报表中心必须使用真实数据库聚合结果");
 assert.doesNotMatch(reportView, /\[35,\s*29,\s*21,\s*15\]|\[82,\s*70,\s*61,\s*48,\s*41\]/, "报表中心不得保留静态演示数据");
 
+await import("./stock-purchase-price-correction-tests.mjs");
 console.log("销售闭环、仓库数据最小化及四角色跨用户权限回归测试通过。");

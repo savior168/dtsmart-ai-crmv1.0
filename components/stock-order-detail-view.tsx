@@ -205,6 +205,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
   const [batchReceiptDraft, setBatchReceiptDraft] = useState<BatchReceiptLine[] | null>(null);
   const [batchReceiptSourceDraft, setBatchReceiptSourceDraft] = useState<BatchReceiptSourceDraft>({ supplierId: "", supplierCode: "", noteNumber: "", documentDate: new Date().toLocaleDateString("en-CA") });
   const [reverseDraft, setReverseDraft] = useState<{ receipt: Receipt; quantity: string; reason: string } | null>(null);
+  const [receiptPriceDraft, setReceiptPriceDraft] = useState<{ receipt: Receipt; price: string; reason: string } | null>(null);
   const [supplierOptions, setSupplierOptions] = useState<SupplierOption[]>([]);
   const [supplierCodeInput, setSupplierCodeInput] = useState("");
   const [quickSupplier, setQuickSupplier] = useState<{ mainProducts: string; settlementCycle: string; settlementDays: string } | null>(null);
@@ -766,6 +767,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
   const canExecute = data.can_update && ITEM_STAGES.includes(o.status) && o.status !== "SHIPPED" && !data.recalled_pi;
   const canViewProcurement = data.can_view_procurement;
   const canEditProcurement = data.can_edit_procurement;
+  const receiptBackedItemIds = new Set((data.receipts || []).filter((receipt) => !receipt.correction_of && receipt.remaining_quantity > 0).map((receipt) => receipt.stock_order_item_id));
   const procurementRows = items.map((item) => {
     const price = canEditProcurement
       ? parseProcurementCost(procurementDraft[item.id]?.cost || "")
@@ -884,10 +886,11 @@ export function StockOrderDetailView({ id }: { id: string }) {
             </div> : null}
             {canViewProcurement ? <section className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-100 bg-amber-50/60 px-3 py-2.5 text-sm" aria-label="采购金额汇总">
               <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1">
-                <span className="font-medium text-slate-700">{missingProcurementCount ? "已录采购金额" : "采购总金额"}：<strong className="text-amber-900">¥{procurementTotal.toFixed(2)}</strong></span>
+                <span className="font-medium text-slate-700">{missingProcurementCount ? "已录行参考采购金额" : "备货行参考采购金额"}：<strong className="text-amber-900">¥{procurementTotal.toFixed(2)}</strong></span>
                 <span className="font-medium text-slate-700">成本差价总额：<strong className={costDifferenceTotal !== null && costDifferenceTotal < 0 ? "text-rose-700" : "text-emerald-800"}>{costDifferenceTotal === null ? "待全部核价" : `¥${costDifferenceTotal.toFixed(2)}`}</strong></span>
                 {missingProcurementCount ? <span className="text-xs text-amber-800">还有 {missingProcurementCount} 项未录采购价，当前采购金额为已录部分小计，差价待全部核价后计算</span> : null}
                 <span className="text-xs text-slate-600">差价总额 =（PI 成本单价 − 采购单价）× 数量后汇总</span>
+                {data.receipts?.length ? <span className="text-xs text-slate-600">已回货部分的正式应付以各张送货单的产品分配金额为准。</span> : null}
               </div>
               {canEditProcurement ? <button type="button" disabled={busy} onClick={() => void saveProcurement()} className="inline-flex h-9 items-center gap-2 rounded-lg bg-amber-700 px-3 text-sm font-medium text-white disabled:opacity-50"><Save size={15}/>{busy ? "正在保存…" : "保存采购信息"}</button> : null}
             </section> : null}
@@ -970,7 +973,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
                         {item.can_edit_actual_cost ? <button type="button" disabled={busy} onClick={() => setActualCostDraft({ item, value: item.warehouse_actual_unit_cost_cny == null && item.estimated_unit_cost_cny == null ? "" : Number(item.warehouse_actual_unit_cost_cny ?? item.estimated_unit_cost_cny).toFixed(2), reason: "" })} className="text-xs text-blue-700 hover:underline disabled:opacity-40">修改</button> : null}</div>
                       </div></td>
                       {canViewProcurement ? <>
-                        <td className="px-2 py-2">{canEditProcurement ? <input inputMode="decimal" value={procurementDraft[item.id]?.cost || ""} onChange={(event) => setProcurementDraft((current) => ({ ...current, [item.id]: { cost: event.target.value, note: current[item.id]?.note || "" } }))} placeholder="未录入" aria-label={`第 ${item.line_number} 项采购价（CNY/件）`} className="h-9 w-full min-w-0 rounded border px-2 text-right tabular-nums" /> : item.procurement_cost_confirmed ? Number(item.procurement_cost).toFixed(2) : <span className="text-slate-400">未录入</span>}</td>
+                        <td className="px-2 py-2">{canEditProcurement && !receiptBackedItemIds.has(item.id) ? <input inputMode="decimal" value={procurementDraft[item.id]?.cost || ""} onChange={(event) => setProcurementDraft((current) => ({ ...current, [item.id]: { cost: event.target.value, note: current[item.id]?.note || "" } }))} placeholder="未录入" aria-label={`第 ${item.line_number} 项采购价（CNY/件）`} className="h-9 w-full min-w-0 rounded border px-2 text-right tabular-nums" /> : <><span className={item.procurement_cost_confirmed ? "tabular-nums" : "text-slate-400"}>{item.procurement_cost_confirmed ? Number(item.procurement_cost).toFixed(2) : "未录入"}</span>{canEditProcurement && receiptBackedItemIds.has(item.id) ? <small className="mt-1 block text-amber-800">已回货 · 在下方送货单更正</small> : null}</>}</td>
                         <td className={`px-2 py-2 text-right tabular-nums ${procurementRows[index]?.difference !== null && (procurementRows[index]?.difference ?? 0) < 0 ? "text-rose-700" : "text-emerald-700"}`}>{procurementRows[index]?.difference === null ? "—" : Number(procurementRows[index]?.difference).toFixed(2)}</td>
                       </> : null}
                       <td className="px-2 py-2">{item.quantity}</td>
@@ -1096,9 +1099,29 @@ export function StockOrderDetailView({ id }: { id: string }) {
           {data.can_view_documents && !canViewProcurement && data.delivery_notes?.length ? <section className="mx-5 mb-5 rounded-xl border bg-white p-4 text-sm"><h2 className="font-semibold">送货单纸单凭证</h2><div className="mt-3 grid gap-2 xl:grid-cols-2">{data.delivery_notes.map((note) => <SupplierDeliveryNoteFiles key={note.id} note={note} canUpload={data.can_upload_delivery_note_files} onUploaded={() => void load()}/>)}</div></section> : null}
           {canViewProcurement && data.receipts?.length ? <section id="receipt-history" className="mx-5 mb-5 rounded-xl border bg-white p-4 text-sm">
             <h2 className="font-semibold">回货送货单记录</h2>
-            <p className="mt-1 text-xs text-slate-500">同一送货单可关联多个 PI 和产品；下表仅显示本备货单的分配记录。</p>
-            <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[860px] text-left text-xs"><thead><tr className="border-b text-slate-500"><th className="py-2">产品行</th><th>供应商代码</th><th>送货单号</th><th>送货日期</th><th>本次回货</th><th>采购单价</th><th>金额</th><th>操作</th></tr></thead><tbody>{data.receipts.map((receipt) => <tr key={receipt.id} className={`border-b last:border-0 ${receipt.correction_of ? "text-rose-700" : ""}`}><td className="py-2">第 {items.find((item) => item.id === receipt.stock_order_item_id)?.line_number || "—"} 项</td><td>{receipt.supplier_code}</td><td>{receipt.note_number}</td><td>{receipt.document_date}</td><td>{receipt.quantity}{receipt.correction_of ? "（冲正）" : ""}</td><td>¥{Number(receipt.purchase_unit_price_cny).toFixed(2)}</td><td>¥{(receipt.quantity * Number(receipt.purchase_unit_price_cny)).toFixed(2)}</td><td>{data.can_edit_procurement && !receipt.correction_of && receipt.remaining_quantity > 0 ? <button type="button" disabled={busy || hasUnsavedQuantity} onClick={() => { setError(""); setReverseDraft({ receipt, quantity: String(receipt.remaining_quantity), reason: "" }); }} className="text-rose-700 hover:underline disabled:opacity-40">冲正</button> : "—"}</td></tr>)}</tbody></table></div>
+            <p className="mt-1 text-xs text-slate-500">同一送货单可关联多个 PI 和产品；采购价更正按送货单产品行留痕，已付款的单据须由财务处理差额。</p>
+            <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[860px] text-left text-xs"><thead><tr className="border-b text-slate-500"><th className="py-2">产品行</th><th>供应商代码</th><th>送货单号</th><th>送货日期</th><th>本次回货</th><th>采购单价</th><th>金额</th><th>操作</th></tr></thead><tbody>{data.receipts.map((receipt) => <tr key={receipt.id} className={`border-b last:border-0 ${receipt.correction_of ? "text-rose-700" : ""}`}><td className="py-2">第 {items.find((item) => item.id === receipt.stock_order_item_id)?.line_number || "—"} 项</td><td>{receipt.supplier_code}</td><td>{receipt.note_number}</td><td>{receipt.document_date}</td><td>{receipt.quantity}{receipt.correction_of ? "（冲正）" : ""}</td><td>¥{Number(receipt.purchase_unit_price_cny).toFixed(2)}</td><td>¥{(receipt.quantity * Number(receipt.purchase_unit_price_cny)).toFixed(2)}</td><td>{data.can_edit_procurement && !receipt.correction_of && receipt.remaining_quantity > 0 ? <div className="flex gap-2"><button type="button" disabled={busy} onClick={() => { setError(""); setReceiptPriceDraft({ receipt, price: Number(receipt.purchase_unit_price_cny).toFixed(2), reason: "" }); }} className="whitespace-nowrap text-blue-700 hover:underline disabled:opacity-40">更正价格</button><button type="button" disabled={busy || hasUnsavedQuantity} onClick={() => { setError(""); setReverseDraft({ receipt, quantity: String(receipt.remaining_quantity), reason: "" }); }} className="text-rose-700 hover:underline disabled:opacity-40">冲正</button></div> : "—"}</td></tr>)}</tbody></table></div>
           </section> : null}
+          <AppDialog open={receiptPriceDraft !== null} title="更正送货单采购价" description="仅更正所选产品分配行；保存后应付金额即时重算，原价、原因和操作者留痕。已登记付款的送货单不能由仓库直接改价。" onClose={() => { if (!busy) { setReceiptPriceDraft(null); setError(""); } }}>
+            {receiptPriceDraft ? <form className="space-y-3 text-sm" onSubmit={async (event) => {
+              event.preventDefault();
+              const price = parseProcurementCost(receiptPriceDraft.price);
+              if (price === null || receiptPriceDraft.reason.trim().length < 2) { setError("请填写有效采购价及至少2字更正原因"); return; }
+              const saved = await request(`/api/stock-orders/${id}/receipt-price`, "PATCH", {
+                allocation_id: receiptPriceDraft.receipt.id,
+                expected_price_cny: receiptPriceDraft.receipt.purchase_unit_price_cny,
+                new_price_cny: price,
+                reason: receiptPriceDraft.reason.trim(),
+              });
+              if (saved) setReceiptPriceDraft(null);
+            }}>
+              <p>供应商 {receiptPriceDraft.receipt.supplier_code} · 送货单 {receiptPriceDraft.receipt.note_number} · 原价 ¥{Number(receiptPriceDraft.receipt.purchase_unit_price_cny).toFixed(2)}/件</p>
+              <label className="block">更正后采购价（CNY/件）<input required inputMode="decimal" value={receiptPriceDraft.price} onChange={(event) => setReceiptPriceDraft((current) => current && { ...current, price: event.target.value })} className="mt-1 h-10 w-full rounded border px-3"/></label>
+              <label className="block">更正原因（必填）<textarea required minLength={2} maxLength={500} value={receiptPriceDraft.reason} onChange={(event) => setReceiptPriceDraft((current) => current && { ...current, reason: event.target.value })} className="mt-1 min-h-20 w-full rounded border px-3 py-2"/></label>
+              {error ? <p role="alert" className="text-rose-700">{error}</p> : null}
+              <div className="flex justify-end gap-2"><button type="button" disabled={busy} onClick={() => setReceiptPriceDraft(null)} className="rounded border px-4 py-2">取消</button><button type="submit" disabled={busy} className="rounded bg-blue-600 px-4 py-2 text-white disabled:opacity-40">{busy ? "正在保存…" : "确认更正"}</button></div>
+            </form> : null}
+          </AppDialog>
           <AppDialog open={reverseDraft !== null} title="冲正回货送货单记录" description="保留原始记录并追加反向账目；已理货或交货代的数量不可冲正。请先核对实物、纸质单据及财务付款。" onClose={() => { if (!busy) { setReverseDraft(null); setError(""); } }}>
             {reverseDraft ? <form onSubmit={(event) => { event.preventDefault(); void confirmReverseReceipt(); }} className="space-y-3 text-sm">
               <p>供应商 {reverseDraft.receipt.supplier_code} · 送货单 {reverseDraft.receipt.note_number} · 当前可冲正 {reverseDraft.receipt.remaining_quantity} 件</p>
