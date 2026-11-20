@@ -416,7 +416,7 @@ export function OrderDetailView({ id }: { id: string }) {
                         const verified = stockCostByLine.get(i.line_number)?.warehouse_actual_unit_cost_cny;
                         const effective = verified ?? i.estimated_unit_cost_cny;
                         const delta = verified === null || verified === undefined ? 0 : Number(verified) - Number(i.estimated_unit_cost_cny);
-                        return <><span className={delta > 0 ? "font-semibold text-amber-800" : delta < 0 ? "font-medium text-emerald-700" : ""}>{effective === null ? "—" : `¥${Number(effective).toFixed(2)}`}</span><small className={`mt-1 block ${delta > 0 ? "text-amber-800" : delta < 0 ? "text-emerald-700" : "text-slate-500"}`}>{verified == null ? "沿用销售报价" : delta === 0 ? "仓库已核 · 一致" : `仓库已核 · ${delta > 0 ? "↑ 涨" : "↓ 降"} ¥${Math.abs(delta).toFixed(2)}`}</small></>;
+                        return <><span className={delta > 0 ? "font-semibold text-amber-800" : delta < 0 ? "font-medium text-emerald-700" : ""}>{effective === null ? "—" : `¥${Number(effective).toFixed(2)}`}</span>{verified != null ? <small className={`mt-1 block ${delta > 0 ? "text-amber-800" : delta < 0 ? "text-emerald-700" : "text-slate-500"}`}>{delta === 0 ? "已核 · 一致" : `${delta > 0 ? "↑ 涨" : "↓ 降"} ¥${Math.abs(delta).toFixed(2)}`}</small> : null}</>;
                       })()}</td>
                       <td className="whitespace-nowrap px-3 py-3">{i.pi_amendment_cancelled_at ? "不计入" : Number(i.unit_price_cny) > 0 ? `${((Number(i.unit_price_cny) - Number(stockCostByLine.get(i.line_number)?.warehouse_actual_unit_cost_cny ?? i.estimated_unit_cost_cny)) / Number(i.unit_price_cny) * 100).toFixed(2)}%` : "—"}{canCorrectLine ? <button type="button" onClick={() => { setError(""); setPriceCorrection({ itemId: i.id, lineNumber: i.line_number, expectedSale: Number(i.unit_price_cny), expectedCost: Number(i.estimated_unit_cost_cny), revisedSale: Number(i.unit_price_cny).toFixed(2), revisedCost: Number(i.estimated_unit_cost_cny).toFixed(2), reason: "" }); }} className="mt-1 block whitespace-nowrap text-xs text-blue-700 hover:underline">更正价格</button> : null}</td>
                     </> : null}
@@ -516,7 +516,7 @@ export function OrderDetailView({ id }: { id: string }) {
             </footer>
           )}
         </section>
-        <AppDialog open={priceCorrection !== null} title="更正产品售价与销售成本" description="已交货代产品也可更正；提交后同步PI金额、报价快照与销售成本基准，不改采购价、仓库已核实际成本或交货记录。已发出的PI需另行告知客户使用新版，原值及原因永久留痕。" onClose={() => { if (!busy) setPriceCorrection(null); }} width="max-w-md">
+        <AppDialog open={priceCorrection !== null} title="更正产品售价与销售成本" description="已交货代产品也可更正；提交后同步PI金额、报价快照与销售成本基准，不改采购价、仓库已核最新成本价或交货记录。已发出的PI需另行告知客户使用新版，原值及原因永久留痕。" onClose={() => { if (!busy) setPriceCorrection(null); }} width="max-w-md">
           {priceCorrection ? <form onSubmit={(event) => { event.preventDefault(); void submitPriceCorrection(); }} className="space-y-3 text-sm">
             <p className="font-medium">第 {priceCorrection.lineNumber} 项 · 只需修改有变化的一项，另一项保持原值</p>
             <div className="grid gap-3 sm:grid-cols-2"><label className="block">销售单价 ¥/件<small className="mt-1 block text-slate-500">原值 ¥{priceCorrection.expectedSale.toFixed(2)}</small><input required type="number" min="0" max="999999999999.99" step="0.01" value={priceCorrection.revisedSale} onChange={(event) => setPriceCorrection((current) => current && { ...current, revisedSale: event.target.value })} className="mt-1 h-10 w-full rounded-lg border px-3" /></label>

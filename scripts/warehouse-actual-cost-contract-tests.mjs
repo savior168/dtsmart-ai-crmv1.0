@@ -28,7 +28,7 @@ assert.match(noticeResolution, /new\.estimated_unit_cost_cny >= stock_line\.ware
 assert.match(noticeResolution, /create trigger resolve_actual_cost_notice_after_seller_correction/);
 assert.match(retired, /drop trigger if exists pi_seller_cost_review_after_handoff/);
 assert.match(orderRoute, /!\["DRAFT", "CANCELLED"\]\.includes\(order\.data\.status\)/);
-assert.match(orderView, /仓库已核 · \$\{delta > 0 \? "↑ 涨" : "↓ 降"\}/);
+assert.match(orderView, /verified != null \? <small[\s\S]*delta > 0 \? "↑ 涨" : "↓ 降"/);
 assert.match(orderView, /更正后毛利率：[\s\S]*stockCostByLine\.get\(priceCorrection\.lineNumber\)\?\.warehouse_actual_unit_cost_cny \?\? priceCorrection\.revisedCost/);
 assert.doesNotMatch(orderRoute, /supplier_receipt_allocations/);
 console.log("Warehouse actual cost and shipped PI correction contracts passed.");
