@@ -30,6 +30,8 @@ assert.match(correctionApi, /p_stock_order_id: id[\s\S]*p_shipment_id: shipmentI
 assert.match(report, /goods_allocated_cny \?\? note\.allocated_cny/);
 assert.match(reuseMigration, /confirm_reuse[\s\S]*update public\.supplier_receipt_allocations set delivery_note_id=existing\.id/);
 assert.match(reuseMigration, /insert into public\.supplier_delivery_note_merges/);
+assert.match(reuseMigration, /merged_into_id=existing\.id/);
+assert.doesNotMatch(reuseMigration, /delete from public\.supplier_delivery_notes/i);
 assert.match(correctionMigration, /correct_supplier_delivery_note_number[\s\S]*supplier_delivery_note_corrections/);
 assert.match(correctionMigration, /supersede_supplier_delivery_note_photo[\s\S]*paper_total_cny=null/);
 assert.match(documentView, /确认共用该纸单/);

@@ -92,10 +92,14 @@ begin
   v_result:=public.complete_or_reuse_supplier_delivery_note_number(
     v_pending_note,(select note_number from public.supplier_delivery_notes where id=v_note),
     (select updated_at from public.supplier_delivery_notes where id=v_pending_note),true);
-  if v_result->>'status'<>'reused' or exists(select 1 from public.supplier_delivery_notes where id=v_pending_note)
+  if v_result->>'status'<>'reused' or not exists(select 1 from public.supplier_delivery_notes
+    where id=v_pending_note and merged_into_id=v_note)
     or (select count(*) from public.supplier_receipt_allocations where delivery_note_id=v_note)<>2
     or not exists(select 1 from public.supplier_delivery_note_merges where pending_note_id=v_pending_note and target_note_id=v_note) then
     raise exception 'pending receipt was not safely reused'; end if;
+  v_report:=public.supplier_reconciliation_report(current_date,current_date,v_supplier,20,0);
+  if (v_report->'summary'->>'note_count')::integer<>1 then
+    raise exception 'merged provisional note remained in reconciliation'; end if;
   perform public.correct_supplier_delivery_note_number(v_note,'CODEX_ROLLBACK_CORRECTED',
     (select updated_at from public.supplier_delivery_notes where id=v_note),'测试号码更正');
   if not exists(select 1 from public.supplier_delivery_note_corrections

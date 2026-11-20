@@ -18,6 +18,11 @@ create table public.supplier_delivery_note_merges (
 alter table public.supplier_delivery_note_merges enable row level security;
 revoke all on public.supplier_delivery_note_merges from public, anon, authenticated;
 
+alter table public.supplier_delivery_notes
+  add column merged_into_id uuid references public.supplier_delivery_notes(id) on delete restrict;
+create index supplier_delivery_notes_active_idx on public.supplier_delivery_notes(document_date,supplier_id)
+  where merged_into_id is null;
+
 alter table public.attachments
   add column supplier_photo_superseded_at timestamptz,
   add column supplier_photo_superseded_by uuid references public.attachments(id) on delete restrict,
@@ -70,7 +75,7 @@ begin
   end if;
   select * into pending from public.supplier_delivery_notes
     where id=p_delivery_note_id for update;
-  if pending.id is null or not pending.number_pending
+  if pending.id is null or not pending.number_pending or pending.merged_into_id is not null
     or pending.updated_at is distinct from p_expected_updated_at then
     raise exception '待补送货单已变更，请刷新后重试';
   end if;
@@ -132,6 +137,8 @@ begin
     where supplier_delivery_note_id=pending.id;
   update public.supplier_delivery_note_corrections set delivery_note_id=existing.id
     where delivery_note_id=pending.id;
+  update public.supplier_delivery_notes set merged_into_id=existing.id,updated_at=now()
+    where id=pending.id;
   insert into public.supplier_delivery_note_merges(
     pending_note_id,target_note_id,supplier_id,provisional_number,
     document_date,allocation_count,attachment_count,merged_by)
@@ -142,10 +149,30 @@ begin
       jsonb_build_object('pending_note_id',pending.id,
         'provisional_number',pending.note_number,'note_number',existing.note_number,
         'allocation_count',allocation_count,'attachment_count',attachment_count));
-  delete from public.supplier_delivery_notes where id=pending.id;
   return jsonb_build_object('status','reused','delivery_note_id',existing.id);
 end;
 $$;
 revoke all on function public.complete_or_reuse_supplier_delivery_note_number(uuid,text,timestamptz,boolean) from public,anon;
 grant execute on function public.complete_or_reuse_supplier_delivery_note_number(uuid,text,timestamptz,boolean) to authenticated;
+revoke execute on function public.complete_supplier_delivery_note_number(uuid,text,timestamptz)
+  from authenticated;
+
+-- An archived provisional row remains for audit, but is not another payable
+-- document. Keep both the normal and searchable reports on this same rule.
+do $migration$
+declare signature regprocedure; definition text;
+  marker text := 'where d.document_date between p_date_from and p_date_to';
+begin
+  foreach signature in array array[
+    'public.supplier_reconciliation_report(date,date,uuid,integer,integer)'::regprocedure,
+    'public.supplier_reconciliation_report_search(date,date,uuid,integer,integer,text)'::regprocedure
+  ] loop
+    definition:=pg_get_functiondef(signature);
+    if strpos(definition,marker)=0 then
+      raise exception '对账报表过滤条件已变化，请人工核对'; end if;
+    definition:=replace(definition,marker,marker||E'\n        and d.merged_into_id is null');
+    execute definition;
+  end loop;
+end;
+$migration$;
 commit;
