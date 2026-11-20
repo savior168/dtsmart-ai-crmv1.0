@@ -38,18 +38,22 @@ assert.match(view, /const invalidAggregate = batchReceiptDraft\.some\([\s\S]*tot
   "前端必须按产品汇总校验多供应来源数量不超过剩余未回数");
 assert.match(view, /＋ 拆分来源/,
   "仓库员必须能直观添加同一产品的其他供应商或送货单");
-assert.match(view, /function splitSingleReceipt\(\)[\s\S]*setBatchReceiptDraft\(\[[\s\S]*rowId: crypto\.randomUUID\(\), itemId: item\.id,[\s\S]*rowId: crypto\.randomUUID\(\), itemId: item\.id,/,
-  "单项登记应保留已填来源，并为同一产品增加第二条来源");
-assert.match(view, /onClick=\{splitSingleReceipt\}[\s\S]*拆分供应商 \/ 送货单/,
-  "单项登记弹窗须提供直观的多供应商或多送货单拆分入口");
+assert.match(view, /async function openReceipt\(item: Item\)[\s\S]*setBatchReceiptDraft\(\[\{ rowId: crypto\.randomUUID\(\), itemId: item\.id/,
+  "单项入口须直接打开可拆分来源的统一登记表单");
+assert.doesNotMatch(view, /splitSingleReceipt|receiptDraft/,
+  "单项登记不得保留需要二次跳转的旧弹框");
 assert.match(view, /singleReceiptItem \? "单项产品分来源登记回货"[\s\S]*!singleReceiptItem \? <div/,
   "单项拆分应复用原子批量提交表单，但不显示多产品统一来源区");
 assert.match(view, /本次已分配 \{singleReceiptQuantity\} \/ 剩余可回 \{singleReceiptItem\.quantity - singleReceiptItem\.received_quantity\}/,
   "单项拆分须实时显示各来源数量合计和剩余可回数量");
 assert.match(view, /supplierCodeSearchOptions[\s\S]*搜索或输入供应商代码/,
   "供应商代码搜索候选必须只展示代码并提供空值占位");
-assert.equal((view.match(/<AppSelect aria-label=.*供应商代码[\s\S]*?allowCustomValue/g) || []).length, 3,
-  "单项登记、本批统一来源及产品来源行必须复用系统 AppSelect 搜索匹配控件并允许手工输入");
+assert.equal((view.match(/<AppSelect aria-label=.*供应商代码[^>]*allowCustomValue/g) || []).length, 2,
+  "本批统一来源及产品来源行必须复用系统 AppSelect 搜索匹配控件并允许手工输入");
+assert.match(view, /findLastIndex\(\(line\) => line\.itemId === itemId\) \+ 1[\s\S]*next\.splice\(insertAt, 0/,
+  "拆分来源须插在同一产品最后一条来源之后，不得甩到整批末尾");
+assert.doesNotMatch(view, /现场现金金额|cashPaidReported/,
+  "回货登记表单暂不展示现场现金金额");
 assert.doesNotMatch(view, /<datalist|list="(?:receipt|batch-receipt)-supplier-codes"/,
   "供应商代码选择不得退回浏览器原生 datalist 控件");
 const appSelect = readFileSync("components/ui/app-select.tsx", "utf8");

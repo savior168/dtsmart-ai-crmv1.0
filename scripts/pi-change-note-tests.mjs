@@ -12,6 +12,8 @@ const stockDetailView = readFileSync(new URL("../components/stock-order-detail-v
 assert.match(stockDetailApi, /prepared_by,confirmation_note,created_at/,
   "备货详情应读取当前PI变更说明，而非只在列表和导出中展示");
 assert.match(stockDetailApi, /order_change_note: piDelivery\.data\?\.confirmation_note \|\| null/);
+assert.match(readFileSync(new URL("../components/stock-order-detail-view.tsx", import.meta.url), "utf8"), /PI订单变更说明 · 仓库请核对[\s\S]*border-l-2 border-amber-500[\s\S]*text-amber-950/,
+  "仓库详情须将撤回重提后的PI变更说明醒目标记");
 assert.match(stockDetailView, /PI订单变更说明 · 仓库请核对/);
 assert.match(stockDetailView, /产品项与数量以本页正式备货明细为准/,
   "变更说明不得替代已生效的产品和数量");

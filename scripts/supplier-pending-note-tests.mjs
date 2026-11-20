@@ -31,7 +31,7 @@ assert.match(single, /noteNumber \? "record_supplier_receipt" : "record_supplier
 assert.match(batch, /record_supplier_receipts_batch_with_pending/);
 assert.match(complete, /assertSupplierRoleAllowed\(account\.role\)/);
 assert.doesNotMatch(stock, /!receiptDraft\.noteNumber\.trim\(\)|!line\.noteNumber\.trim\(\)/);
-assert.match(stock, /纸质送货单号（选填，可后补）/);
+assert.match(stock, /送货单号（可后补）/);
 assert.match(stock, /recentNotes = \(data\.receipts \|\| \[\]\)\.filter\(\(receipt\) => \{[\s\S]*receipt\.remaining_quantity <= 0/, "已全额冲正的送货单不得再作为回货复用候选");
 assert.match(cutover, /legacy_quantity < 0[\s\S]*supplier_receipt_legacy_baselines[\s\S]*stock_receipt_requires_supplier_document/, "历史实收应先对齐来源基线再启用数量校验");
 assert.match(missingDocumentsView, /fetchAllStockRemediationRows<DocumentRow>[\s\S]*fetchAllStockRemediationRows<LegacyRow>[\s\S]*new Map<string, QueueRow>[\s\S]*<LegacySupplierSourcesView orderId=/, "仓库待补信息须按 PI 合并并在本页补录");
