@@ -8,6 +8,7 @@ import { UserScopeSelect } from "@/components/user-scope-select";
 import { AppFilterBar, AppStatusBadge, appFieldClass } from "@/components/ui/app-list";
 import { AppPagination } from "@/components/ui/app-pagination";
 import { AppSelect } from "@/components/ui/app-select";
+import { SearchableMultiSelectFilter } from "@/components/ui/searchable-multi-select-filter";
 import { QUOTE_CURRENCIES } from "@/lib/currencies";
 import { canOpenListRow } from "@/lib/ui/list-row-navigation";
 import { ConfirmDialog } from "@/components/ui/app-dialog";
@@ -16,12 +17,13 @@ import { CountryLabel } from "@/components/country-label";
 import { downloadFilteredExport } from "@/lib/ui/download-filtered-export";
 import { RowActionItem, RowActionMenu } from "@/components/ui/row-action-menu";
 import { StockProgressCell } from "@/components/stock-progress-cell";
-import { PI_EXECUTING_STATUSES, piOrderStatusLabel, stockProgressLabel, stockProgressTone } from "@/lib/stock-progress";
+import { PI_EXECUTING_STATUSES, piOrderStatusLabel } from "@/lib/stock-progress";
 import { CompactDateRange } from "@/components/ui/compact-date-range";
 import type { StockProgress } from "@/lib/stock-progress";
 import { batchExportFilename, documentExportFilename } from "@/lib/export-file-name";
 type StockLink = { id: string; stock_number: string; status: string; progress: StockProgress };
-const CURRENT_PI_STATUSES = ["DRAFT", "STOCK_DRAFT", "ACTIVE", "WAITING_STOCK", "PREPARING", "RECEIVED", "SORTING", "READY_TO_SHIP", "SHIPPED", "SHORTAGE", "CANCELLED"] as const;
+const PI_FILTER_STATUSES: SalesOrderStatus[] = ["DRAFT", "STOCK_DRAFT", "WAITING_STOCK", "PREPARING", "RECEIVED", "SORTING", "READY_TO_SHIP", "SHIPPED", "SHORTAGE", "CANCELLED", "CONFIRMED", "READY"];
+const initialPiStatuses = (value: string): string[] => value === "ACTIVE" ? [...PI_EXECUTING_STATUSES] : PI_FILTER_STATUSES.includes(value as SalesOrderStatus) ? [value] : [];
 type Row = {
   id: string;
   order_number: string;
@@ -53,7 +55,7 @@ export function OrdersView({ initialFilters = {}, canFilterOwner = false, initia
   const [error, setError] = useState("");
   const [sessionExpired, setSessionExpired] = useState(false);
   const [q, setQ] = useState("");
-  const [status, setStatus] = useState(initialFilters.status || "");
+  const [statuses, setStatuses] = useState<string[]>(() => initialPiStatuses(initialFilters.status || ""));
   const [currency, setCurrency] = useState("");
   const [country, setCountry] = useState("");
   const [sortBy, setSortBy] = useState("created_at");
@@ -83,7 +85,7 @@ export function OrdersView({ initialFilters = {}, canFilterOwner = false, initia
     try {
       const params = new URLSearchParams({ export: "1", type: "PI", sort_by: sortBy, sort_dir: sortDir });
       if (q) params.set("q", q);
-      if (status) params.set("status", status);
+      statuses.forEach((value) => params.append("statuses", value));
       if (currency) params.set("currency", currency);
       if (country) params.set("country", country);
       if (dateFrom) params.set("date_from", dateFrom);
@@ -143,7 +145,7 @@ export function OrdersView({ initialFilters = {}, canFilterOwner = false, initia
     if (!silent) setLoading(true);
     const p = new URLSearchParams({ page: String(page), page_size: String(pageSize), type: "PI" });
     if (q) p.set("q", q);
-    if (status) p.set("status", status);
+    statuses.forEach((value) => p.append("statuses", value));
     if (currency) p.set("currency", currency);
     if (country) p.set("country", country);
     p.set("sort_by", sortBy);
@@ -183,8 +185,8 @@ export function OrdersView({ initialFilters = {}, canFilterOwner = false, initia
       setLoading(false); setData([]); setCount(0);
       setError("PI订单加载失败，请稍后重试");
     }
-  }, [page, pageSize, q, status, currency, country, sortBy, sortDir, dateFrom, dateTo, userId, creatorId]);
-  useEffect(() => { setSelectedIds([]); }, [q, status, currency, country, dateFrom, dateTo, userId, creatorId]);
+  }, [page, pageSize, q, statuses, currency, country, sortBy, sortDir, dateFrom, dateTo, userId, creatorId]);
+  useEffect(() => { setSelectedIds([]); }, [q, statuses, currency, country, dateFrom, dateTo, userId, creatorId]);
   const selectableIds = data.filter((row) => row.confirmation_method === "DIRECT_PI" && !["DRAFT", "CANCELLED"].includes(row.status)).map((row) => row.id);
   const pageSelection = selectableIds.slice(0, 50);
   const allPageSelected = pageSelection.length > 0 && pageSelection.every((id) => selectedIds.includes(id));
@@ -238,19 +240,7 @@ export function OrdersView({ initialFilters = {}, canFilterOwner = false, initia
               className={`${appFieldClass} w-full pl-9`}
             />
           </label>
-          <AppSelect
-            value={CURRENT_PI_STATUSES.includes(status as typeof CURRENT_PI_STATUSES[number]) ? status : ""}
-            onChange={(e) => { setStatus(e.target.value); setPage(1); }}
-            className={`${appFieldClass} xl:w-[148px]`}
-            aria-label="按订单状态筛选"
-          >
-            <option value="">全部订单状态</option>
-            {CURRENT_PI_STATUSES.map((k) => (
-              <option key={k} value={k}>
-                {k === "ACTIVE" ? "仓库处理中（所有在途阶段）" : k === "STOCK_DRAFT" ? "备货草稿（待完善）" : piOrderStatusLabel(k)}
-              </option>
-            ))}
-          </AppSelect>
+          <SearchableMultiSelectFilter label="PI流程状态" value={statuses} onChange={(value) => { setStatuses(value); setPage(1); }} options={PI_FILTER_STATUSES.map((key) => ({ value: key, label: key === "STOCK_DRAFT" ? "备货草稿（待完善）" : piOrderStatusLabel(key) }))} className="w-44 shrink-0"/>
           <AppSelect value={country} onChange={(e) => { setCountry(e.target.value); setPage(1); }} className={`${appFieldClass} xl:w-[132px]`} aria-label="按目的国家筛选" forceSearch>
             <option value="">全部目的国家</option>{COUNTRY_OPTIONS.map((option) => <option key={option.code} value={option.code}>{option.name}</option>)}
           </AppSelect>
@@ -263,7 +253,7 @@ export function OrdersView({ initialFilters = {}, canFilterOwner = false, initia
           <button
             onClick={() => {
               setQ("");
-              setStatus("");
+              setStatuses([]);
               setCurrency("");
               setCountry("");
               setSortBy("created_at");
@@ -303,7 +293,7 @@ export function OrdersView({ initialFilters = {}, canFilterOwner = false, initia
                     <SortHeader label="公司名称" column="customer_name"/>
                     <th className="px-4 py-3 font-medium">目的国家</th>
                     <SortHeader label="总金额" column="amount"/>
-                    <SortHeader label="状态" column="status" className="min-w-[150px] whitespace-nowrap"/>
+                    <SortHeader label="流程状态" column="status" className="min-w-[150px] whitespace-nowrap"/>
                     <th className="w-[360px] min-w-[352px] px-4 py-3 font-medium">备货进度</th>
                     <th className="min-w-[96px] whitespace-nowrap px-4 py-3 font-medium">所属销售员</th>
                     <th className="min-w-[96px] whitespace-nowrap px-4 py-3 font-medium">制单人</th>
@@ -316,11 +306,7 @@ export function OrdersView({ initialFilters = {}, canFilterOwner = false, initia
                     const stock = Array.isArray(row.stock)
                       ? row.stock[0]
                       : row.stock;
-                    const statusLabel = row.confirmation_method === "DIRECT_PI"
-                      ? stock && (PI_EXECUTING_STATUSES as readonly string[]).includes(row.status)
-                        ? stockProgressLabel(stock.progress)
-                        : piOrderStatusLabel(row.status)
-                      : SALES_ORDER_STATUS_LABELS[row.status];
+                    const statusLabel = row.confirmation_method === "DIRECT_PI" ? piOrderStatusLabel(row.status) : SALES_ORDER_STATUS_LABELS[row.status];
                     return (
                       <tr key={row.id} onDoubleClick={(event) => { if (canOpenListRow(event.target)) router.push(`/orders/${row.id}`); }} className="group cursor-pointer border-t hover:bg-blue-50/30">
                         {canExport ? <td className="px-3 py-3"><input type="checkbox" aria-label={`选择订单 ${row.warehouse_reference_number || row.order_number}`} checked={selectedIds.includes(row.id)} disabled={!selectableIds.includes(row.id) || (selectedIds.length >= 50 && !selectedIds.includes(row.id))} onChange={() => toggleSelection(row.id)} className="size-4 accent-blue-600"/></td> : null}
@@ -335,7 +321,7 @@ export function OrdersView({ initialFilters = {}, canFilterOwner = false, initia
                         <td className="whitespace-nowrap px-4 py-3 font-medium tabular-nums text-slate-900">
                           {row.currency} {Number(row.total_amount).toFixed(2)}
                         </td>
-                        <td className="whitespace-nowrap px-3 py-3"><AppStatusBadge status={row.status} tone={stock && (PI_EXECUTING_STATUSES as readonly string[]).includes(row.status) ? stockProgressTone(stock.progress) : undefined}>{statusLabel}</AppStatusBadge></td>
+                        <td className="whitespace-nowrap px-3 py-3"><AppStatusBadge status={row.status}>{statusLabel}</AppStatusBadge></td>
                         <td className="min-w-[352px] px-4 py-3">{row.confirmation_method === "DIRECT_PI" && row.status === "DRAFT"
                           ? <span className="text-xs text-slate-500">{stock ? "已撤回（历史）" : "未提交"}</span>
                           : stock ? <StockProgressCell progress={stock.progress}/> : "—"}</td>

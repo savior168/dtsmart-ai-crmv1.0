@@ -6,6 +6,7 @@ import { Info } from "lucide-react";
 import { AppDialog } from "@/components/ui/app-dialog";
 import { SupplierDeliveryNoteFiles, type SupplierDeliveryNoteView } from "@/components/supplier-delivery-note-files";
 import { SupplierMonthlyMatrix } from "@/components/supplier-monthly-matrix";
+import { SupplierAccountLedger } from "@/components/supplier-account-ledger";
 import { CompactDateRange } from "@/components/ui/compact-date-range";
 import { AppSelect } from "@/components/ui/app-select";
 import { AppPagination } from "@/components/ui/app-pagination";
@@ -15,7 +16,7 @@ import { settlementDisplay } from "@/lib/suppliers/settlement";
 type Allocation = { id: string; pi_number: string; system_pi_number: string; pi_id: string; product: string; quantity: number;
   unit_price_cny: number; amount_cny: number; cash_paid_reported_cny: number | null;
   correction_of: string | null; correction_reason: string | null; recorded_at: string };
-type Payment = { id: string; amount_cny: number; paid_on: string; method: string; reference: string; documents_pending_at_payment: boolean | null };
+type Payment = { id: string; amount_cny: number; paid_on: string; method: string; reference: string; documents_pending_at_payment: boolean | null; source?: "ACCOUNT" };
 type Note = { id: string; supplier_id: string; supplier_code: string; supplier_name: string;
   number_pending: boolean;
   settlement_cycle: string; settlement_days: number | null; settlement_terms_original?: string | null; note_number: string; document_date: string; updated_at: string;
@@ -77,11 +78,11 @@ function NoteDetails({ note }: { note: Note }) {
     {Number(note.packaging_charges_cny || 0) > 0 ? <p className="mt-2 rounded bg-amber-50 px-3 py-2 text-amber-900">本送货单关联包装费用：{money(note.packaging_charges_cny || 0)} · 已计入应付金额</p> : null}
     {groups.length === 0 ? <p className="mt-2 text-xs text-amber-700">这张送货单尚未关联 PI。</p> : null}
     <h4 className="mt-4 font-medium">付款流水</h4>
-    {note.payments.length ? note.payments.map((entry) => <p key={entry.id} className="mt-1 text-xs">{entry.paid_on} · {money(entry.amount_cny)} · {entry.method} · 依据 {entry.reference || "未填写"}{entry.documents_pending_at_payment ? <span className="ml-2 rounded bg-amber-50 px-1.5 py-0.5 text-amber-800">付款时单据待补</span> : null}</p>) : <p className="mt-1 text-xs text-slate-500">暂无已确认付款</p>}
+    {note.payments.length ? note.payments.map((entry) => <p key={entry.id} className="mt-1 text-xs">{entry.paid_on} · {money(entry.amount_cny)} · {entry.method} · 依据 {entry.reference || "未填写"}{entry.source === "ACCOUNT" ? <span className="ml-2 rounded bg-blue-50 px-1.5 py-0.5 text-blue-800">供应商总账付款分配，未重复付款</span> : null}{entry.documents_pending_at_payment ? <span className="ml-2 rounded bg-amber-50 px-1.5 py-0.5 text-amber-800">付款时单据待补</span> : null}</p>) : <p className="mt-1 text-xs text-slate-500">暂无已确认付款</p>}
   </div>;
 }
 const localDate = (value: Date) => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
-export function SupplierReconciliationView({ canRecordPayment }: { canRecordPayment: boolean }) {
+export function SupplierReconciliationView({ canRecordPayment, canViewAccount = false }: { canRecordPayment: boolean; canViewAccount?: boolean }) {
   const initial = businessDatePreset("month");
   const [from, setFrom] = useState(initial.from);
   const [to, setTo] = useState(initial.to);
@@ -278,7 +279,7 @@ export function SupplierReconciliationView({ canRecordPayment }: { canRecordPaym
     await load();
   }
   return <main className="p-4 lg:p-6"><div className="mx-auto max-w-[1600px] space-y-4">
-    <div><h1 className="text-xl font-semibold">供应商对账</h1><p className="mt-1 text-sm text-slate-600">按送货日期汇总实收分配；一张纸质送货单可关联多张 PI。现金结也纳入应付，只有财务已登记付款才冲减未付。</p></div>
+    <div><h1 className="text-xl font-semibold">供应商对账</h1><p className="mt-1 text-sm text-slate-600">{canViewAccount ? "供应商总账显示当前余额；" : ""}送货单报表按送货日期归属，未分配到单据的总账付款不会伪装成某张单据已结清。</p></div>
     <section className="rounded-xl border bg-white p-4 shadow-sm"><div className="flex flex-wrap items-center gap-2 text-sm">
       <CompactDateRange label="送货日期" fromLabel="送货开始日期" toLabel="送货结束日期" from={from} to={to} onFromChange={(value) => { setFrom(value); setSelectedPreset(""); }} onToChange={(value) => { setTo(value); setSelectedPreset(""); }} presets={BUSINESS_DATE_PRESETS} selectedPreset={selectedPreset} onPresetChange={selectPreset} onMonthRangeApply={(range) => { setFrom(range.from); setTo(range.to); setSelectedPreset(""); setMatrixOrigin(null); setPage(1); setExpanded(null); setExpandedSupplier(null); setFilters({ ...range, supplierId, search: searchText.trim() }); }}/>
       <AppSelect aria-label="按供应商筛选送货单" value={supplierId} onChange={(event) => setSupplierId(event.target.value)} className="h-10 min-w-44 rounded-lg border border-slate-200 bg-white px-3 text-slate-700" forceSearch><option value="">全部供应商</option>{supplierOptions.map((option) => <option key={option.supplier_id} value={option.supplier_id}>{option.system_code}{option.supplier_name ? ` · ${option.supplier_name}` : ""}</option>)}{supplierId && !supplierOptions.some((option) => option.supplier_id === supplierId) ? <option value={supplierId}>当前选定供应商</option> : null}</AppSelect>
@@ -287,6 +288,8 @@ export function SupplierReconciliationView({ canRecordPayment }: { canRecordPaym
       <button type="button" onClick={reset} className="h-10 rounded-lg border px-3 text-slate-700">重置</button>
     </div><p className="mt-2 text-xs text-slate-500">按所选送货日期范围查找；搜索结果的汇总、月度数据和明细使用同一范围。</p></section>
     {error && !payment ? <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</p> : null}
+    {canViewAccount ? <SupplierAccountLedger canRecordPayment={canRecordPayment}
+      selectedSupplierId={filters.supplierId} onLedgerChange={() => { void load(); }} /> : null}
     <section className="space-y-2" aria-label="供应商对账概览">
       <div className="flex flex-wrap items-center gap-x-5 gap-y-1 rounded-xl border bg-white px-4 py-2.5 text-xs text-slate-600">
         <span>送货单 <strong className="ml-1 text-sm text-slate-900 tabular-nums">{loading || !summary ? "—" : `${summary.note_count} 张`}</strong></span>
@@ -296,8 +299,8 @@ export function SupplierReconciliationView({ canRecordPayment }: { canRecordPaym
       </div>
       <div className="grid gap-2 sm:grid-cols-3">
         <SummaryMetric label="应付金额" value={money(summary?.allocated_cny || 0)} loading={loading || !summary} hint="含已关联供应商送货单的包装费；查看采购明细" onClick={() => document.getElementById("supplier-delivery-notes")?.scrollIntoView({ behavior: "smooth" })} tone="text-blue-700"/>
-        <SummaryMetric label="已登记付款" value={money(summary?.paid_cny || 0)} loading={loading || !summary} hint="查看付款流水" onClick={() => document.getElementById("supplier-delivery-notes")?.scrollIntoView({ behavior: "smooth" })} tone="text-emerald-700"/>
-        <SummaryMetric label="未付货款" value={money(summary?.unpaid_cny || 0)} loading={loading || !summary} hint="查看待付明细" onClick={() => document.getElementById("supplier-delivery-notes")?.scrollIntoView({ behavior: "smooth" })} tone="text-rose-700"/>
+        <SummaryMetric label="已分配至送货单付款" value={money(summary?.paid_cny || 0)} loading={loading || !summary} hint="查看付款流水" onClick={() => document.getElementById("supplier-delivery-notes")?.scrollIntoView({ behavior: "smooth" })} tone="text-emerald-700"/>
+        <SummaryMetric label="送货单未付余额" value={money(summary?.unpaid_cny || 0)} loading={loading || !summary} hint="查看待付明细" onClick={() => document.getElementById("supplier-delivery-notes")?.scrollIntoView({ behavior: "smooth" })} tone="text-rose-700"/>
       </div>
     </section>
     <section id="supplier-purchase-summary" className="scroll-mt-20 rounded-xl border bg-white p-4" aria-label="供应商采购货款汇总">

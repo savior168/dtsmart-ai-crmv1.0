@@ -60,6 +60,7 @@ export async function GET(request: NextRequest) {
     const requestedPageSize = Number(params.get("page_size") || 20);
     const pageSize = [10, 20, 50, 100, 300, 500].includes(requestedPageSize) ? requestedPageSize : 20;
     const status = params.get("status")?.trim() || "";
+    const statuses = params.getAll("statuses");
     const country = params.get("country")?.trim().toUpperCase() || "";
     const sortBy = params.get("sort_by") || "created_at";
     const sortDir = params.get("sort_dir") || "desc";
@@ -67,6 +68,8 @@ export async function GET(request: NextRequest) {
     const dateTo = params.get("date_to")?.trim() || "";
     const q = normalizeDocumentSearch(params.get("q"));
     if (status && !["ACTIVE", "OTHER"].includes(status) && !(status in STOCK_STATUS_LABELS)) throw new Error("备货状态无效");
+    if (statuses.length > Object.keys(STOCK_STATUS_LABELS).length || new Set(statuses).size !== statuses.length
+      || statuses.some((value) => !(value in STOCK_STATUS_LABELS)) || status && statuses.length) throw new Error("备货状态筛选无效");
     if (country && !COUNTRY_OPTIONS.some((option) => option.code === country)) throw new Error("目的国家无效");
     if (!(sortBy in SORT_COLUMNS) || !["asc", "desc"].includes(sortDir)) throw new Error("排序参数无效");
     if ([dateFrom, dateTo].some((value) => value && !/^\d{4}-\d{2}-\d{2}$/.test(value))) throw new Error("日期格式无效");
@@ -80,7 +83,8 @@ export async function GET(request: NextRequest) {
         .order("id", { ascending: true }).range(rangeStart, rangeEnd);
       if (ownerId) query = query.eq("sales_user_id", ownerId);
       if (selectedIds.length) query = query.in("id", selectedIds);
-      if (status === "ACTIVE") query = query.in("status", [...STOCK_EXECUTING_STATUSES]);
+      if (statuses.length) query = query.in("status", statuses);
+      else if (status === "ACTIVE") query = query.in("status", [...STOCK_EXECUTING_STATUSES]);
       else if (status === "OTHER") query = query.in("status", ["DRAFT", "CANCELLED", "READY"]);
       else if (status) query = query.eq("status", status);
       if (country) query = query.in("destination_country", countryFilterRawValues([country]));

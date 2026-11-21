@@ -83,6 +83,28 @@ export async function POST(request: NextRequest) {
   try {
     const { supabase } = await warehouseAccess();
     const body = await request.json();
+    if (body.split_lines) {
+      const lines = body.split_lines;
+      const version = String(body.expected_stock_updated_at || "");
+      const validId = (value: unknown) => typeof value === "string"
+        && /^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(value);
+      if (!Number.isFinite(Date.parse(version)) || !Array.isArray(lines)
+        || lines.length < 1 || lines.length > 50
+        || lines.some((line) => !line || !validId(line.stock_order_item_id)
+          || !validId(line.supplier_id)
+          || typeof line.note_number !== "string" || !line.note_number.trim()
+          || line.note_number.trim().length > 100
+          || !/^\d{4}-\d{2}-\d{2}$/.test(String(line.document_date || ""))
+          || !Number.isSafeInteger(line.quantity) || line.quantity < 1
+          || !/^(?:0|[1-9]\d{0,11})(?:\.\d{1,2})?$/.test(String(line.purchase_unit_price_cny)))) {
+        throw new Error("请逐行核对供应商、真实送货单、日期、数量及采购价");
+      }
+      const result = await supabase.rpc("link_legacy_supplier_receipt_sources_split", {
+        p_expected_stock_updated_at: version, p_lines: lines,
+      });
+      if (result.error) throw result.error;
+      return NextResponse.json({ data: result.data }, { headers: { "Cache-Control": "private, no-store" } });
+    }
     if ("lines" in body) {
       const supplierId = String(body.supplier_id || "");
       const noteNumber = String(body.note_number || "").trim();

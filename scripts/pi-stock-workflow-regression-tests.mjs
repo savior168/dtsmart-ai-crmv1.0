@@ -237,12 +237,12 @@ assert.match(piForm, /清空明细[\s\S]*<ConfirmDialog[\s\S]*确认清空/, "�
 assert.match(piForm, /1 \{currency \|\| "付款币种"\} = 多少人民币/, "PI汇率展示应使用外币兑人民币方向");
 assert.match(paymentAccountsApi, /export async function GET\(\)[\s\S]*can_manage:[^\n]*hasPermission\(account, "pi\.accounts\.manage"\)/, "PI基础资料接口必须返回实际可配置的维护权限");
 const piTableHead = orderListView.split('<thead className="bg-slate-50 text-xs">')[1]?.split("</thead>")[0] || "";
-assert.match(piTableHead, /label="订单编号"[\s\S]*备货单号[\s\S]*label="公司名称"[\s\S]*目的国家[\s\S]*label="总金额"[\s\S]*label="状态"[\s\S]*备货进度[\s\S]*所属销售员[\s\S]*制单人[\s\S]*label="创建时间"[\s\S]*操作/, "PI列表须依次展示所属销售员与制单人，时间列仅显示创建时间");
+assert.match(piTableHead, /label="订单编号"[\s\S]*备货单号[\s\S]*label="公司名称"[\s\S]*目的国家[\s\S]*label="总金额"[\s\S]*label="流程状态"[\s\S]*备货进度[\s\S]*所属销售员[\s\S]*制单人[\s\S]*label="创建时间"[\s\S]*操作/, "PI列表须依次展示所属销售员与制单人，时间列仅显示创建时间");
 assert.match(piTableHead, /min-w-\[96px\] whitespace-nowrap px-4 py-3 font-medium">所属销售员/, "PI列表所属销售员标题应完整显示在一行");
-assert.match(orderListView, /CURRENT_PI_STATUSES = \["DRAFT", "STOCK_DRAFT", "ACTIVE", "WAITING_STOCK", "PREPARING", "RECEIVED", "SORTING", "READY_TO_SHIP", "SHIPPED", "SHORTAGE", "CANCELLED"\]/, "PI主要筛选应与备货进度一致并明确区分仓库处理阶段");
+assert.match(orderListView, /PI_FILTER_STATUSES: SalesOrderStatus\[\] = \["DRAFT", "STOCK_DRAFT", "WAITING_STOCK", "PREPARING", "RECEIVED", "SORTING", "READY_TO_SHIP", "SHIPPED", "SHORTAGE", "CANCELLED", "CONFIRMED", "READY"\]/, "PI多选筛选须覆盖明确流程状态和历史状态，不混入聚合选项");
 assert.doesNotMatch(orderListView, /历史\/异常筛选|按订单类型筛选|包含历史销售订单/, "PI列表不应再提供冗余历史及单据类型筛选");
 assert.match(orderListView, /new URLSearchParams\(\{ page: String\(page\), page_size: String\(pageSize\), type: "PI" \}\)/, "PI列表移除类型选项后仍必须仅查询PI单据");
-assert.match(stockListView, /STOCK_FILTER_STATUSES = \["DRAFT", "WAITING", "ACTIVE", "SHIPPED", "SHORTAGE", "OTHER", "CANCELLED", "READY"\]/, "备货单单一状态筛选必须覆盖当前、异常与历史状态");
+assert.match(stockListView, /STOCK_FILTER_STATUSES: StockOrderStatus\[\] = \["DRAFT", "WAITING", "PREPARING", "RECEIVED", "SORTING", "READY_TO_SHIP", "SHIPPED", "SHORTAGE", "CANCELLED", "READY"\]/, "备货单多选筛选须覆盖明确流程状态，不混入重叠的聚合选项");
 assert.doesNotMatch(stockListView, /历史\/异常筛选|按历史或异常备货状态筛选/, "备货单不应重复设置历史异常筛选入口");
 for (const view of [orderListView, stockListView]) {
   assert.match(view, /搜索客户名称、公司、PI\/备货单号、电话或邮箱/, "两张单据列表都应明确多字段搜索范围");
@@ -256,7 +256,7 @@ for (const api of [orderListApi, stockListApi]) {
   assert.match(api, /normalizeDocumentSearch\(params\.get\("q"\)\)/, "列表和导出须共用规范化搜索词");
   assert.match(api, /documentSearchFilter\(q,[\s\S]*"warehouse_reference_number"[\s\S]*"order_number"[\s\S]*"customer_short_name"[\s\S]*"delivery_phone"[\s\S]*"delivery_email"/, "单据搜索须覆盖PI号、备货单号、公司快照和收货联系方式");
 }
-assert.match(orderListView, /stock && \(PI_EXECUTING_STATUSES as readonly string\[\]\)\.includes\(row\.status\)[\s\S]*stockProgressLabel\(stock\.progress\)/, "PI订单状态应显示实时备货阶段而不再笼统显示执行中");
+assert.match(orderListView, /const statusLabel = row\.confirmation_method === "DIRECT_PI" \? piOrderStatusLabel\(row\.status\)/, "PI流程状态应与筛选状态一致，实物进度独立显示");
 assert.match(orderListView, /piOrderStatusLabel\(row\.status\)/, "PI列表单据状态不得被混合实物阶段覆盖");
 assert.match(orderDetailView, /piOrderStatusLabel\(o\.status\)/, "PI详情状态应与列表使用相同业务口径");
 assert.match(orderDetailView, /"金额",[\s\S]*\["理货要求", "销售备注"\][\s\S]*PiInternalTextCell text=\{i\.preparation_requirement\}[\s\S]*PiInternalTextCell text=\{i\.internal_note\}/, "内部PI详情应将逐项理货要求和销售备注放在产品明细最后两列");
@@ -269,8 +269,12 @@ assert.match(orderDetailView, /导出\{directPi \? " PI"[\s\S]*导出 Excel[\s\S
 const batchPdfPage = read("components/batch-order-print-preview.tsx");
 assert.match(batchPdfPage, /ids\.length > 50[\s\S]*new Set\(ids\)\.size !== ids\.length/, "批量PDF必须限制数量与重复ID");
 assert.match(batchPdfPage, /!payload\.can_export[\s\S]*"DRAFT", "CANCELLED"[\s\S]*confirmation_method !== "DIRECT_PI"/, "批量PDF必须逐张核对正式PI导出权限");
-assert.match(orderListApi, /status === "ACTIVE"\) query = query\.in\("status", \[\.\.\.PI_EXECUTING_STATUSES\]\)/, "PI执行中筛选必须使用与列表状态一致的共享状态集合");
-assert.match(stockListApi, /status === "ACTIVE"\) query = query\.in\("status", \[\.\.\.STOCK_EXECUTING_STATUSES\]\)/, "备货执行中筛选必须使用与PI同步的共享状态集合");
+assert.match(orderListApi, /status === "ACTIVE"\) query = query\.in\("status", \[\.\.\.PI_EXECUTING_STATUSES\]\)/, "旧PI执行中深链接仍须兼容");
+assert.match(stockListApi, /status === "ACTIVE"\) query = query\.in\("status", \[\.\.\.STOCK_EXECUTING_STATUSES\]\)/, "旧备货执行中深链接仍须兼容");
+assert.match(orderListApi, /if \(statuses\.length\) query = query\.in\("status", statuses\)/, "PI多选状态须在服务端分页前按或关系筛选");
+assert.match(stockListApi, /if \(statuses\.length\) query = query\.in\("status", statuses\)/, "备货多选状态须在服务端分页前按或关系筛选");
+assert.match(orderListView, /statuses\.forEach\(\(value\) => params\.append\("statuses", value\)\)/, "PI导出应沿用多选状态筛选");
+assert.match(stockListView, /statuses\.forEach\(value=>params\.append\("statuses",value\)\)/, "备货导出应沿用多选状态筛选");
 const contactLookup = read("lib/order-customer-name.ts");
 assert.match(contactLookup, /sales_orders[\s\S]*customer_name_snapshot,customer:customers\(contact_name\)/, "PI和备货单应优先使用创建时客户名称快照");
 assert.match(contactLookup, /historicalOnly \? null : customer\?\.contact_name/, "正式备货导出不能拿当前档案冒充历史客户名称");
@@ -305,7 +309,7 @@ for (const [view, api] of [[orderListView, orderListApi], [stockListView, stockL
 }
 assert.match(orderListApi, /currency[\s\S]*type === "PI"/, "PI列表必须按币种和业务类型筛选");
 assert.doesNotMatch(stockListView, /报价编号|quote_number/, "备货单列表不得继续展示旧报价编号");
-assert.match(stockListView, /label="备货单号"[\s\S]*label="关联订单号"[\s\S]*label="公司名称"[\s\S]*目的国家[\s\S]*label="状态"[\s\S]*>备货进度<\/th>[\s\S]*所属销售员[\s\S]*制单人[\s\S]*label="创建时间"[\s\S]*操作/, "备货单列表须依次展示所属销售员与制单人，时间列仅显示创建时间");
+assert.match(stockListView, /label="备货单号"[\s\S]*label="关联订单号"[\s\S]*label="公司名称"[\s\S]*目的国家[\s\S]*label="流程状态"[\s\S]*>备货进度<\/th>[\s\S]*所属销售员[\s\S]*制单人[\s\S]*label="创建时间"[\s\S]*操作/, "备货单列表须依次展示所属销售员与制单人，时间列仅显示创建时间");
 assert.match(stockListView, /<th[^>]*>所属销售员<\/th>[\s\S]*<th[^>]*>制单人<\/th>/, "所有可查看备货单的角色都应看到所属销售员和制单人列");
 assert.match(orderListView, /<th[^>]*>所属销售员<\/th>[\s\S]*<th[^>]*>制单人<\/th>/, "所有可查看PI的角色都应看到所属销售员和制单人列");
 assert.match(stockListView, /row\.warehouse_reference_number \|\| row\.order_number/, "仓库列表必须优先显示销售填写的业务订单编号");

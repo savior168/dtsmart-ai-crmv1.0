@@ -45,6 +45,26 @@ export async function GET(request: NextRequest) {
       : { data: [], error: null };
     if (paymentFlags.error) throw paymentFlags.error;
     const pendingAtPayment = new Map((paymentFlags.data || []).map((payment) => [payment.id, payment.documents_pending_at_payment]));
+    const accountAllocations = notes.length && ["FINANCE", "ADMIN"].includes(account.role) ? await admin.from("supplier_account_payment_allocations")
+      .select("id,delivery_note_id,account_payment_id,amount_cny")
+      .in("delivery_note_id", notes.map((note) => note.id)).is("reversed_at", null)
+      : { data: [], error: null };
+    if (accountAllocations.error) throw accountAllocations.error;
+    const accountPaymentIds = [...new Set((accountAllocations.data || []).map((allocation) => allocation.account_payment_id))];
+    const accountPayments = accountPaymentIds.length ? await admin.from("supplier_account_payments")
+      .select("id,paid_on,payment_method,payment_reference").in("id", accountPaymentIds)
+      : { data: [], error: null };
+    if (accountPayments.error) throw accountPayments.error;
+    const accountPaymentById = new Map((accountPayments.data || []).map((payment) => [payment.id, payment]));
+    const accountPaymentsByNote = new Map<string, Array<{ id: string; amount_cny: number; paid_on: string; method: string; reference: string; source: string }>>();
+    for (const allocation of accountAllocations.data || []) {
+      const payment = accountPaymentById.get(allocation.account_payment_id);
+      if (!payment) throw new Error("供应商总账付款分配缺少付款流水，请联系财务核对");
+      const list = accountPaymentsByNote.get(allocation.delivery_note_id) || [];
+      list.push({ id: allocation.id, amount_cny: Number(allocation.amount_cny), paid_on: payment.paid_on,
+        method: payment.payment_method, reference: payment.payment_reference, source: "ACCOUNT" });
+      accountPaymentsByNote.set(allocation.delivery_note_id, list);
+    }
     const attachmentsByNote = new Map<string, NonNullable<typeof attachmentResult.data>>();
     for (const attachment of attachmentResult.data || []) {
       const list = attachmentsByNote.get(attachment.supplier_delivery_note_id!) || [];
@@ -58,9 +78,10 @@ export async function GET(request: NextRequest) {
       number_pending: Boolean(pendingById.get(note.id)?.number_pending),
       updated_at: pendingById.get(note.id)?.updated_at || (note as { updated_at?: string }).updated_at,
       attachments: attachmentsByNote.get(note.id) || [],
-      payments: ((note as { payments?: Array<{ id: string }> }).payments || []).map((payment) => ({
+      payments: [...((note as { payments?: Array<{ id: string }> }).payments || []).map((payment) => ({
         ...payment, documents_pending_at_payment: pendingAtPayment.get(payment.id) ?? null,
-      })),
+      })), ...(accountPaymentsByNote.get(note.id) || [])].sort((a, b) =>
+        String((a as { paid_on?: string }).paid_on || "").localeCompare(String((b as { paid_on?: string }).paid_on || ""))),
     })) });
   } catch (error) {
     const message = sqlErrorMessage(error, "供应商对账加载失败");

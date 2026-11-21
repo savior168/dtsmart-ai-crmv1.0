@@ -43,6 +43,7 @@ export async function GET(request: NextRequest) {
     const requestedPageSize = Number(params.get("page_size") || 20);
     const pageSize = [10, 20, 50, 100, 300, 500].includes(requestedPageSize) ? requestedPageSize : 20;
     const status = params.get("status")?.trim() || "";
+    const statuses = params.getAll("statuses");
     const currency = params.get("currency")?.trim().toUpperCase() || "";
     const country = params.get("country")?.trim().toUpperCase() || "";
     const type = params.get("type")?.trim() || "";
@@ -52,6 +53,8 @@ export async function GET(request: NextRequest) {
     const dateTo = params.get("date_to")?.trim() || "";
     const q = normalizeDocumentSearch(params.get("q"));
     if (status && status !== "ACTIVE" && !(status in SALES_ORDER_STATUS_LABELS)) throw new Error("订单状态无效");
+    if (statuses.length > Object.keys(SALES_ORDER_STATUS_LABELS).length || new Set(statuses).size !== statuses.length
+      || statuses.some((value) => !(value in SALES_ORDER_STATUS_LABELS)) || status && statuses.length) throw new Error("订单状态筛选无效");
     if (currency && !QUOTE_CURRENCY_CODES.has(currency)) throw new Error("付款币种无效");
     if (country && !COUNTRY_OPTIONS.some((option) => option.code === country)) throw new Error("目的国家无效");
     if (type && type !== "PI") throw new Error("订单类型无效");
@@ -77,7 +80,8 @@ export async function GET(request: NextRequest) {
       if (ownerId) query = query.eq("sales_user_id", ownerId);
       if (creatorId) query = query.eq("prepared_by", creatorId);
       if (selectedIds.length) query = query.in("id", selectedIds);
-      if (status === "ACTIVE") query = query.in("status", [...PI_EXECUTING_STATUSES]);
+      if (statuses.length) query = query.in("status", statuses);
+      else if (status === "ACTIVE") query = query.in("status", [...PI_EXECUTING_STATUSES]);
       else if (status) query = query.eq("status", status);
       if (currency) query = query.eq("currency", currency);
       if (country) query = query.in("destination_country", countryFilterRawValues([country]));

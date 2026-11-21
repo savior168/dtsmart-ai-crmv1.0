@@ -646,7 +646,8 @@ export function StockOrderDetailView({ id }: { id: string }) {
     const item = items.find((row) => row.id === itemId);
     if (!item) return;
     setBatchReceiptDraft((current) => {
-      if (!current || current.length >= 500) return current;
+      if (!current || current.length >= 500
+        || current.filter((line) => line.itemId === itemId).length >= item.quantity - item.received_quantity) return current;
       const prior = [...current].reverse().find((line) => line.itemId === itemId);
       const next = [...current];
       const insertAt = next.findLastIndex((line) => line.itemId === itemId) + 1;
@@ -1242,7 +1243,7 @@ export function StockOrderDetailView({ id }: { id: string }) {
                       })() : null}</td>
                       <td className="px-2 py-2"><input aria-label={`第 ${item.line_number} 项送货日期`} required type="date" max={new Date().toLocaleDateString("en-CA")} value={line.documentDate} onChange={(event) => updateBatchReceiptLine(line.rowId, { documentDate: event.target.value })} className="h-9 w-36 rounded border px-2"/></td>
                       <td className="px-2 py-2"><input aria-label={`第 ${item.line_number} 项采购单价`} required inputMode="decimal" value={line.unitPrice} onChange={(event) => updateBatchReceiptLine(line.rowId, { unitPrice: event.target.value })} className="h-9 w-28 rounded border px-2 text-right"/></td>
-                      <td className="px-2 py-2"><div className="flex flex-col items-start gap-1"><button type="button" title="为同一 PI 产品增加一条供应商/送货单分配，不会增加订单产品数量" onClick={() => addBatchReceiptSource(item.id)} disabled={busy || batchReceiptDraft.length >= 500} className="whitespace-nowrap text-blue-700 hover:underline disabled:opacity-40">＋ 拆分来源</button><small className="max-w-32 text-slate-500">新增行沿用供应商，可修改；单号、数量及单价逐行填写</small>{itemSourceRows.length > 1 ? <button type="button" onClick={() => removeBatchReceiptSource(line.rowId)} disabled={busy} className="whitespace-nowrap text-rose-700 hover:underline disabled:opacity-40">移除此来源</button> : null}</div></td>
+                      <td className="px-2 py-2"><div className="flex flex-col items-start gap-1">{sourceIndex === itemSourceRows.length && itemSourceRows.length < item.quantity - item.received_quantity ? <><button type="button" title="为同一 PI 产品增加一条供应商/送货单分配，不会增加订单产品数量" onClick={() => addBatchReceiptSource(item.id)} disabled={busy || batchReceiptDraft.length >= 500} className="whitespace-nowrap text-blue-700 hover:underline disabled:opacity-40">＋ 拆分来源</button><small className="max-w-32 text-slate-500">新增行沿用供应商，可修改；单号、数量及单价逐行填写</small></> : null}{itemSourceRows.length > 1 ? <button type="button" onClick={() => removeBatchReceiptSource(line.rowId)} disabled={busy} className="whitespace-nowrap text-rose-700 hover:underline disabled:opacity-40">移除此来源</button> : null}</div></td>
                     </tr>;
                   })}</tbody>
                 </table>

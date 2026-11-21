@@ -81,7 +81,7 @@ assert.doesNotMatch(read("app/api/supplier-reconciliation/payments/route.ts"), /
 assert.match(optionalFieldsMigration, /where btrim\(payment_reference\) <> ''/, "有凭证号的付款仍须保留唯一性");
 assert.match(optionalFieldsMigration, /if nullif\(btrim\(coalesce\(p_payment_reference/, "未填凭证号应跳过跨供应商编号校验");
 assert.match(reconciliationView, /<AppSelect aria-label="按供应商筛选送货单"[^\r\n]*supplierOptions\.map/, "对账供应商筛选须展示日期范围内有送货单的去重供应商");
-assert.match(reconciliationView, /送货单 <strong[\s\S]*供应商 <strong[\s\S]*实收 <strong[\s\S]*cash_paid_reported_cny > 0[\s\S]*<SummaryMetric label="应付金额"[\s\S]*<SummaryMetric label="已登记付款"[\s\S]*<SummaryMetric label="未付货款"/, "对账概览须突出三项金额，计数与非零现场报付降级展示");
+assert.match(reconciliationView, /送货单 <strong[\s\S]*供应商 <strong[\s\S]*实收 <strong[\s\S]*cash_paid_reported_cny > 0[\s\S]*<SummaryMetric label="应付金额"[\s\S]*<SummaryMetric label="已分配至送货单付款"[\s\S]*<SummaryMetric label="送货单未付余额"/, "对账概览须准确区分送货单付款与供应商账户付款，计数与非零现场报付降级展示");
 assert.match(report, /search\.length > 80[\s\S]*supplier_reconciliation_report_search[\s\S]*p_search: search/);
 assert.match(searchMigration, /supplier_reconciliation_report_search[\s\S]*where_clause \|\| chr\(10\)[\s\S]*d\.note_number[\s\S]*s\.system_code[\s\S]*so\.order_number[\s\S]*so\.warehouse_reference_number/);
 assert.match(searchMigration, /revoke all on function public\.supplier_reconciliation_report_search[\s\S]*from public, anon/);

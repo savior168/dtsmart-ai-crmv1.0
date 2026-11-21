@@ -9,6 +9,7 @@ import { UserScopeSelect } from "@/components/user-scope-select";
 import { AppFilterBar, AppStatusBadge, appFieldClass } from "@/components/ui/app-list";
 import { AppPagination } from "@/components/ui/app-pagination";
 import { AppSelect } from "@/components/ui/app-select";
+import { SearchableMultiSelectFilter } from "@/components/ui/searchable-multi-select-filter";
 import { CompactDateRange } from "@/components/ui/compact-date-range";
 import { canOpenListRow } from "@/lib/ui/list-row-navigation";
 import { CountryLabel } from "@/components/country-label";
@@ -16,13 +17,14 @@ import { COUNTRY_OPTIONS } from "@/lib/countries";
 import { downloadFilteredExport } from "@/lib/ui/download-filtered-export";
 import { RowActionItem, RowActionMenu } from "@/components/ui/row-action-menu";
 import { StockProgressCell } from "@/components/stock-progress-cell";
-import { stockProgressLabel, stockProgressTone, type StockProgress } from "@/lib/stock-progress";
+import { STOCK_EXECUTING_STATUSES, type StockProgress } from "@/lib/stock-progress";
 import { batchExportFilename, documentExportFilename } from "@/lib/export-file-name";
 import { fetchAllStockRemediationRows } from "@/lib/stock-remediation-queue";
 
 type Row = { id:string; sales_order_id:string; stock_number:string; order_number:string; warehouse_reference_number:string|null; customer_short_name:string; customer_name:string|null; customer_detail_id:string|null; destination_country:string|null; status:StockOrderStatus; progress:StockProgress; status_note:string|null; stocking_requirements:string|null; expected_ready_at:string; created_at:string; updated_at:string; sales?:{name?:string|null;email?:string}|null; preparer?:{name?:string|null;email?:string}|null };
 type Payload = { data:Row[]; count:number; profile:{role:string}; can_view_all:boolean; can_view_pi:boolean; can_export:boolean; can_preview:boolean; can_view_documents:boolean };
-const STOCK_FILTER_STATUSES = ["DRAFT", "WAITING", "ACTIVE", "SHIPPED", "SHORTAGE", "OTHER", "CANCELLED", "READY"] as const;
+const STOCK_FILTER_STATUSES: StockOrderStatus[] = ["DRAFT", "WAITING", "PREPARING", "RECEIVED", "SORTING", "READY_TO_SHIP", "SHIPPED", "SHORTAGE", "CANCELLED", "READY"];
+const initialStockStatuses = (value: string): string[] => value === "ACTIVE" ? [...STOCK_EXECUTING_STATUSES] : value === "OTHER" ? ["DRAFT", "CANCELLED", "READY"] : STOCK_FILTER_STATUSES.includes(value as StockOrderStatus) ? [value] : [];
 
 export function StockOrdersView({initialFilters={},canFilterOwner=false}:{initialFilters?:{status?:string;dateFrom?:string;dateTo?:string;creatorId?:string};canFilterOwner?:boolean}) {
   const router=useRouter();
@@ -33,7 +35,7 @@ export function StockOrdersView({initialFilters={},canFilterOwner=false}:{initia
   const [error,setError]=useState("");
   const [sessionExpired,setSessionExpired]=useState(false);
   const [q,setQ]=useState("");
-  const [status,setStatus]=useState(initialFilters.status||"");
+  const [statuses,setStatuses]=useState<string[]>(()=>initialStockStatuses(initialFilters.status||""));
   const [country,setCountry]=useState("");
   const [sortBy,setSortBy]=useState("created_at");
   const [sortDir,setSortDir]=useState<"asc"|"desc">("desc");
@@ -68,7 +70,7 @@ export function StockOrdersView({initialFilters={},canFilterOwner=false}:{initia
     setExportBusy(true);setError("");
     try {
       const params=new URLSearchParams({export:"1",sort_by:sortBy,sort_dir:sortDir});
-      if(q.trim())params.set("q",q.trim());if(status)params.set("status",status);if(country)params.set("country",country);if(userId)params.set("user_id",userId);
+      if(q.trim())params.set("q",q.trim());statuses.forEach(value=>params.append("statuses",value));if(country)params.set("country",country);if(userId)params.set("user_id",userId);
       if(creatorId)params.set("creator_id",creatorId);
       if(dateFrom)params.set("date_from",dateFrom);if(dateTo)params.set("date_to",dateTo);
       selectedIds.forEach(id=>params.append("id",id));
@@ -96,7 +98,7 @@ export function StockOrdersView({initialFilters={},canFilterOwner=false}:{initia
     lastListRequestAt.current=Date.now();
     if(!silent)setLoading(true); setError("");
     const params=new URLSearchParams({page:String(page),page_size:String(pageSize)});
-    if(q.trim())params.set("q",q.trim()); if(status)params.set("status",status); if(country)params.set("country",country); if(userId)params.set("user_id",userId);
+    if(q.trim())params.set("q",q.trim()); statuses.forEach(value=>params.append("statuses",value)); if(country)params.set("country",country); if(userId)params.set("user_id",userId);
     if(creatorId)params.set("creator_id",creatorId);
     params.set("sort_by",sortBy); params.set("sort_dir",sortDir);
     if(dateFrom)params.set("date_from",dateFrom); if(dateTo)params.set("date_to",dateTo);
@@ -115,8 +117,8 @@ export function StockOrdersView({initialFilters={},canFilterOwner=false}:{initia
       if(requestVersion!==listRequestVersion.current)return;
       setLoading(false);setData(null);setError("备货单加载失败，请稍后重试");
     }
-  },[page,pageSize,q,status,country,userId,creatorId,dateFrom,dateTo,sortBy,sortDir]);
-  useEffect(()=>{setSelectedIds([])},[q,status,country,userId,creatorId,dateFrom,dateTo]);
+  },[page,pageSize,q,statuses,country,userId,creatorId,dateFrom,dateTo,sortBy,sortDir]);
+  useEffect(()=>{setSelectedIds([])},[q,statuses,country,userId,creatorId,dateFrom,dateTo]);
   const selectableIds=(data?.data||[]).filter(row=>!["DRAFT","CANCELLED"].includes(row.status)).map(row=>row.id);
   const pageSelection=selectableIds.slice(0,50);
   const allPageSelected=pageSelection.length>0&&pageSelection.every(id=>selectedIds.includes(id));
@@ -132,12 +134,12 @@ export function StockOrdersView({initialFilters={},canFilterOwner=false}:{initia
     <header><h1 className="flex items-center gap-2 text-2xl font-bold"><ShoppingCart className="text-blue-600"/>采购管理</h1><div className="mt-1 flex flex-wrap items-center justify-between gap-x-3 gap-y-2"><p className="text-sm text-slate-500">销售员通过PI订单提交备货需求；仓库员完善备货信息并更新备货进度。备货状态不记录库存。</p>{pendingRemediationCount > 0 ? <Link href="/stock-orders/missing-documents" className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1 text-sm font-medium text-amber-900 hover:bg-amber-100">待补录备货单 {pendingRemediationCount} 张</Link> : null}</div></header>
     <AppFilterBar>
       <label className="relative min-w-60 flex-1 xl:min-w-[240px]"><Search className="absolute left-3 top-3 text-slate-400" size={17}/><input value={q} onChange={e=>{setQ(e.target.value);setPage(1)}} placeholder="搜索客户名称、公司、PI/备货单号、电话或邮箱" className={`${appFieldClass} w-full pl-9`}/></label>
-      <AppSelect value={status} onChange={e=>{setStatus(e.target.value);setPage(1)}} className={`${appFieldClass} xl:w-[148px]`} aria-label="按备货状态筛选"><option value="">全部备货状态</option>{STOCK_FILTER_STATUSES.map(key=><option key={key} value={key}>{key==="DRAFT"?"备货草稿（待完善）":key==="ACTIVE"?"仓库处理中（所有在途阶段）":key==="OTHER"?"其他状态（草稿／取消／历史）":STOCK_STATUS_LABELS[key]}</option>)}</AppSelect>
+      <SearchableMultiSelectFilter label="备货流程状态" value={statuses} onChange={value=>{setStatuses(value);setPage(1)}} options={STOCK_FILTER_STATUSES.map(key=>({value:key,label:key==="DRAFT"?"备货草稿（待完善）":STOCK_STATUS_LABELS[key]}))} className="w-44 shrink-0"/>
       <AppSelect value={country} onChange={e=>{setCountry(e.target.value);setPage(1)}} className={`${appFieldClass} xl:w-[132px]`} aria-label="按目的国家筛选" forceSearch><option value="">全部目的国家</option>{COUNTRY_OPTIONS.map(option=><option key={option.code} value={option.code}>{option.name}</option>)}</AppSelect>
       {canFilterOwner?<UserScopeSelect permission="stock.data_all" kind="sales_owner" value={userId} onChange={value=>{setUserId(value);setPage(1)}} className={`${appFieldClass} xl:w-[176px]`} filterLabel="所属销售员" preserveImplicitDefault reserveWhileLoading custom/>:null}
       {canFilterCreator ? <UserScopeSelect permission="stock.data_all" kind="pi_creator" value={creatorId} onChange={value=>{setCreatorId(value);setPage(1)}} className={`${appFieldClass} xl:w-[176px]`} filterLabel="制单人" allLabel="全部制单人" preserveImplicitDefault reserveWhileLoading custom/> : null}
       <CompactDateRange label="创建日期" fromLabel="备货单创建开始日期" toLabel="备货单创建结束日期" from={dateFrom} to={dateTo} onFromChange={value=>{setDateFrom(value);setPage(1)}} onToChange={value=>{setDateTo(value);setPage(1)}} onMonthRangeApply={({ from, to }) => { setDateFrom(from); setDateTo(to); setPage(1); }}/>
-      <button onClick={()=>{setQ("");setStatus("");setCountry("");setUserId("");setCreatorId("");setDateFrom("");setDateTo("");setSortBy("created_at");setSortDir("desc");setPage(1)}} className="h-10 rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-50">重置</button>
+      <button onClick={()=>{setQ("");setStatuses([]);setCountry("");setUserId("");setCreatorId("");setDateFrom("");setDateTo("");setSortBy("created_at");setSortDir("desc");setPage(1)}} className="h-10 rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-50">重置</button>
     </AppFilterBar>
     {data?.can_export?<div className="mt-3 flex flex-wrap items-center justify-end gap-2"><span className="text-xs text-slate-500">勾选指定正式备货单；可跨页选择，最多50张</span><RowActionMenu ariaLabel={`批量导出备货单，已选 ${selectedIds.length} 张`} label={`批量导出（${selectedIds.length}张）`}><RowActionItem disabled={exportBusy||selectedIds.length===0} onClick={()=>void exportSelected()}>{exportBusy?"正在导出…":"导出 Excel"}</RowActionItem><RowActionItem disabled={exportBusy||selectedIds.length===0} onClick={()=>window.open(`/stock-orders/batch-preview?${selectedIds.map(id=>`id=${encodeURIComponent(id)}`).join("&")}`,"_blank","noopener,noreferrer")}>导出 PDF</RowActionItem></RowActionMenu></div>:null}
     {error?<div className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{error}{sessionExpired?<Link href="/login?next=%2Fstock-orders" className="ml-2 font-semibold underline">前往登录</Link>:null}</div>:null}
@@ -150,7 +152,7 @@ export function StockOrdersView({initialFilters={},canFilterOwner=false}:{initia
           <th className="min-w-[110px] px-4 py-3 font-medium">客户名称</th>
           <SortHeader label="公司名称" column="customer_name"/>
           <th className="px-4 py-3 font-medium">目的国家</th>
-          <SortHeader label="状态" column="status"/>
+          <SortHeader label="流程状态" column="status"/>
           <th className="w-[360px] min-w-[352px] px-4 py-3 font-medium">备货进度</th>
           <th className="px-4 py-3 font-medium">所属销售员</th>
           <th className="px-4 py-3 font-medium">制单人</th>
@@ -165,7 +167,7 @@ export function StockOrdersView({initialFilters={},canFilterOwner=false}:{initia
             <td className="px-4 py-3 font-medium text-slate-900">{row.customer_name ? row.customer_detail_id ? <Link href={`/customers/${row.customer_detail_id}`} onClick={event=>event.stopPropagation()} className="text-blue-700 hover:underline">{row.customer_name}</Link> : row.customer_name : <span className="font-normal text-slate-400">未填写</span>}</td>
             <td className="max-w-52 px-4 py-3" title={row.customer_short_name}>{row.customer_detail_id && row.customer_short_name ? <Link href={`/customers/${row.customer_detail_id}`} onClick={event=>event.stopPropagation()} className="text-blue-700 hover:underline">{row.customer_short_name}</Link> : row.customer_short_name}</td>
             <td className="px-4 py-3"><CountryLabel value={row.destination_country}/></td>
-            <td className="px-4 py-3"><AppStatusBadge status={row.status} tone={stockProgressTone(row.progress)}>{row.status==="DRAFT"&&row.warehouse_reference_number?"已撤回，待重新提交":row.status==="DRAFT"?"备货草稿（待完善）":stockProgressLabel(row.progress)}</AppStatusBadge></td>
+            <td className="px-4 py-3"><AppStatusBadge status={row.status}>{row.status==="DRAFT"&&row.warehouse_reference_number?"已撤回，待重新提交":row.status==="DRAFT"?"备货草稿（待完善）":STOCK_STATUS_LABELS[row.status]}</AppStatusBadge></td>
             <td className="w-[360px] min-w-[352px] px-4 py-3">{row.status==="DRAFT"?<span className="text-xs text-slate-500">{row.warehouse_reference_number?"已撤回（历史）":"未提交"}</span>:<StockProgressCell progress={row.progress}/>}</td>
             <td className="px-4 py-3">{row.sales?.name||row.sales?.email||"-"}</td>
             <td className="px-4 py-3">{row.preparer?.name||row.preparer?.email||"未记录"}</td>
