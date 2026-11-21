@@ -5,6 +5,7 @@ const view = readFileSync(new URL("../components/supplier-reconciliation-view.ts
 const api = readFileSync(new URL("../app/api/supplier-reconciliation/route.ts", import.meta.url), "utf8");
 const migration = readFileSync(new URL("../supabase/migrations/20261121150000_supplier_note_detail_filters.sql", import.meta.url), "utf8");
 const statuses = readFileSync(new URL("../lib/suppliers/note-check-status.ts", import.meta.url), "utf8");
+const paperMigration = readFileSync(new URL("../supabase/migrations/20261121173000_supplier_paper_total_includes_packaging.sql", import.meta.url), "utf8");
 
 for (const status of ["NUMBER_PENDING", "PHOTO_MISSING", "AMOUNT_PENDING", "AMOUNT_MISMATCH", "MATCHED", "NEEDS_ATTENTION"]) {
   assert.match(statuses, new RegExp(status));
@@ -23,4 +24,11 @@ assert.match(migration, /from \(select \* from matching_notes order by document_
 assert.match(migration, /''detail_count'', \(select count\(\*\) from matching_notes\)/);
 assert.match(migration, /definition := pg_get_functiondef\(source_signature::regprocedure\)/);
 assert.match(migration, /definition := replace\(definition,\s*'from \(select \* from report_notes order by document_date desc,id desc'/);
+assert.match(view, /basis === "total" \? "含包装费 · 与应付一致"/);
+assert.match(view, /paperMatchBasis\(note\) === "mismatch"/);
+assert.match(paperMigration, /abs\(n\.paper_total_cny - n\.goods_allocated_cny\) > 0\.005 and abs\(n\.paper_total_cny - n\.allocated_cny\) > 0\.005/);
+assert.match(paperMigration, /abs\(n\.paper_total_cny - n\.goods_allocated_cny\) <= 0\.005 or abs\(n\.paper_total_cny - n\.allocated_cny\) <= 0\.005/);
+for (const [goods, packaging, paper, match] of [[6515, 175, 6690, true], [6515, 175, 6515, true], [6515, 175, 6600, false]]) {
+  assert.equal(Math.abs(paper - goods) <= 0.005 || Math.abs(paper - (goods + packaging)) <= 0.005, match);
+}
 console.log("supplier note status and amount focus contracts passed");

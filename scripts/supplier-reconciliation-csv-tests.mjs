@@ -40,7 +40,7 @@ assert.match(reconciliationView, /<h2 className="font-semibold">采购明细<\/h
   "delivery-note-level rows must be clearly identified as purchase details");
 assert.match(reconciliationView, /setFilters\(\(current\) => \(\{ \.\.\.current, supplierId: id \}\)\)/,
   "supplier drill-down must apply the server-side supplier filter, not only filter one loaded page");
-assert.match(reconciliationView, /缺纸单图片[\s\S]*?待录纸单金额[\s\S]*?金额有差异/,
+assert.match(reconciliationView, /缺纸单图片[\s\S]*?待录纸单金额[\s\S]*?纸单金额与应付不符/,
   "purchase details must flag missing paper evidence and amount discrepancies separately");
 assert.match(reconciliationView, /groups\.map\(\(group\)[\s\S]*?group\.items\.map/,
   "one physical delivery note must group multiple product allocations by PI without merging separate notes");
