@@ -57,6 +57,13 @@ assert.doesNotMatch(view, /现场现金金额|cashPaidReported/,
 assert.doesNotMatch(view, /<datalist|list="(?:receipt|batch-receipt)-supplier-codes"/,
   "供应商代码选择不得退回浏览器原生 datalist 控件");
 const appSelect = readFileSync("components/ui/app-select.tsx", "utf8");
+const aliasFix = readFileSync("supabase/migrations/20261121090000_fix_supplier_batch_receipt_alias.sql", "utf8");
+assert.match(aliasFix, /supplier_lookup\.id = grouped\.supplier_id/,
+  "批量回货的供应商联接别名不得与 PL/pgSQL 记录变量重名");
+assert.match(aliasFix, /then supplier_lookup\.system_code else null end/,
+  "备货进度的单供应商代码须从明确的表别名读取");
+assert.match(aliasFix, /版本不匹配，未修改/,
+  "修复迁移须先核对生产函数结构，避免意外改写不同版本");
 assert.match(appSelect, /allowCustomValue = false[\s\S]*chooseCustomValue[\s\S]*使用输入代码/,
   "系统统一下拉必须支持确认使用手动输入代码");
 assert.match(appSelect, /onKeyDown=\{\(event\) => event\.stopPropagation\(\)\}[\s\S]*使用输入代码/,
