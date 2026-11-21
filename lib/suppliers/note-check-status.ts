@@ -8,7 +8,7 @@ export const SUPPLIER_NOTE_CHECK_LABELS: Record<SupplierNoteCheckStatus, string>
   NUMBER_PENDING: "待补送货单号",
   PHOTO_MISSING: "缺纸单图片",
   AMOUNT_PENDING: "待录纸单金额",
-  AMOUNT_MISMATCH: "货款金额有差异",
+  AMOUNT_MISMATCH: "纸单金额与应付不符",
   MATCHED: "已核对 · 金额一致",
   NEEDS_ATTENTION: "任一待核事项",
 };
