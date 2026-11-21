@@ -16,6 +16,6 @@ for (const component of ["orders-view", "sales-reports-view", "stock-orders-view
 const compactRange = readFileSync(new URL("../components/ui/compact-date-range.tsx", import.meta.url), "utf8");
 assert.match(compactRange, /<MonthRangeShortcut from=\{from\} to=\{to\} onApply=\{onMonthRangeApply\} embedded\/>/);
 const reconciliation = readFileSync(new URL("../components/supplier-reconciliation-view.tsx", import.meta.url), "utf8");
-assert.match(reconciliation, /onMonthRangeApply=\{\(range\) => \{[\s\S]*?setFilters\(\{ \.\.\.range, supplierId, search: searchText\.trim\(\) \}\)/,
+assert.match(reconciliation, /onMonthRangeApply=\{\(range\) => \{[\s\S]*?setFilters\(\{ \.\.\.range, supplierId, search: searchText\.trim\(\), checkStatus, amountFocus: filters\.amountFocus \}\)/,
   "supplier reconciliation month selection must update the applied server-side filters");
 console.log("Month range shortcut checks passed");

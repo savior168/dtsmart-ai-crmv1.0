@@ -3,6 +3,7 @@ import { authErrorStatus, hasPermission, requirePermission } from "@/lib/auth/cu
 import { sqlErrorMessage } from "@/lib/sales-flow";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { assertSupplierRoleAllowed } from "@/lib/auth/supplier-role-boundary";
+import { checkStatusRequiresDocuments, isSupplierNoteCheckStatus } from "@/lib/suppliers/note-check-status";
 
 export async function GET(request: NextRequest) {
   try {
@@ -14,6 +15,8 @@ export async function GET(request: NextRequest) {
     const to = params.get("to") || "";
     const supplierId = params.get("supplier_id") || null;
     const search = (params.get("search") || "").trim();
+    const checkStatus = params.get("check_status") || "";
+    const amountFocus = params.get("amount_focus") || "";
     const page = Number(params.get("page") || 1);
     const pageSize = Number(params.get("page_size") || 50);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)
@@ -21,12 +24,19 @@ export async function GET(request: NextRequest) {
       || ![10, 20, 50, 100].includes(pageSize)
       || supplierId && !/^[0-9a-f]{8}-[0-9a-f-]{27,}$/.test(supplierId)
       || search.length > 80
+      || checkStatus && !isSupplierNoteCheckStatus(checkStatus)
+      || amountFocus && !["PAID", "UNPAID"].includes(amountFocus)
       || params.has("format")) {
       throw new Error("请选择有效日期范围、供应商和搜索词");
     }
-    const { data, error } = await supabase.rpc(search ? "supplier_reconciliation_report_search" : "supplier_reconciliation_report", {
+    if (checkStatus && isSupplierNoteCheckStatus(checkStatus) && checkStatusRequiresDocuments(checkStatus) && !canViewDocuments) {
+      throw new Error("无纸单查看权限，不能按此核对状态筛选");
+    }
+    const { data, error } = await supabase.rpc(search ? "supplier_reconciliation_report_search_checked" : "supplier_reconciliation_report_checked", {
       p_date_from: from, p_date_to: to, p_supplier_id: supplierId,
       p_limit: pageSize, p_offset: (page - 1) * pageSize,
+      p_check_status: checkStatus || null,
+      p_amount_focus: amountFocus || null,
       ...(search ? { p_search: search } : {}),
     });
     if (error) throw error;

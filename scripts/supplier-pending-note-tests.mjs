@@ -70,7 +70,7 @@ assert.match(files, /note\.updated_at[\s\S]*补录单号/);
 assert.match(report, /number_pending[\s\S]*待补送货单号/);
 assert.match(reconciliationView, /groupAllocations\(note\.allocations\)\.slice\(0, 2\)[\s\S]*href=\{`\/orders\/\$\{group\.piId\}`\}/, "送货单行须直接显示关联 PI 编号并能打开对应订单");
 assert.match(reconciliationView, /notes\.map\(\(note\) => <Fragment key=\{note\.id\}>[\s\S]*<tr className="bg-slate-50"><td colSpan=\{13\} className="p-3"><NoteDetails note=\{note\}\/>/, "PI 与产品核对详情须紧跟当前送货单行显示");
-assert.match(reconciliationView, /搜索送货单号、供应商代码或PI订单号[\s\S]*按所选送货日期范围查找/);
+assert.match(reconciliationView, /搜索送货单号、供应商代码或PI订单号[\s\S]*日期、供应商及搜索词作用于汇总和明细；核对状态与金额卡片只筛选采购明细/);
 assert.match(reconciliationView, /核对说明（选填）<textarea maxLength=\{500\}/, "纸单核对说明应选填");
 assert.match(reconciliationView, /付款凭证号／流水号（选填）/, "付款凭证号在缺件时也应选填");
 assert.match(reconciliationView, /payment\.documentsPending && !payment\.reference\.trim\(\) && !payment\.confirmedPending/, "缺件且无凭证号须明确确认真实付款");
