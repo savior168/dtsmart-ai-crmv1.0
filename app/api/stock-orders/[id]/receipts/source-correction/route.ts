@@ -7,6 +7,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
   try {
     const { supabase, account } = await requirePermission("stock.update");
     assertSupplierRoleAllowed(account.role);
+    if (!["WAREHOUSE", "ADMIN"].includes(account.role)) throw new Error("FORBIDDEN");
     if (!hasPermission(account, "stock.procurement.edit")) throw new Error("无采购核价权限");
     const { id } = await context.params;
     const body = await request.json() as Record<string, unknown>;
