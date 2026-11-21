@@ -25,6 +25,8 @@ assert.match(migration, /''detail_count'', \(select count\(\*\) from matching_no
 assert.match(migration, /definition := pg_get_functiondef\(source_signature::regprocedure\)/);
 assert.match(migration, /definition := replace\(definition,\s*'from \(select \* from report_notes order by document_date desc,id desc'/);
 assert.match(view, /basis === "total" \? "含包装费 · 与应付一致"/);
+assert.match(view, /产品货款合计（不含包装费）<\/th><td>\{note\.allocated_quantity\}/);
+assert.match(view, /money\(Number\(note\.goods_allocated_cny \?\? note\.allocated_cny\)\)/);
 assert.match(view, /paperMatchBasis\(note\) === "mismatch"/);
 assert.match(paperMigration, /abs\(n\.paper_total_cny - n\.goods_allocated_cny\) > 0\.005 and abs\(n\.paper_total_cny - n\.allocated_cny\) > 0\.005/);
 assert.match(paperMigration, /abs\(n\.paper_total_cny - n\.goods_allocated_cny\) <= 0\.005 or abs\(n\.paper_total_cny - n\.allocated_cny\) <= 0\.005/);

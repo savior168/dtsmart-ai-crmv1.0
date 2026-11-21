@@ -88,8 +88,12 @@ function NoteDetails({ note }: { note: Note }) {
         <tr className="border-b bg-blue-50/70 font-semibold"><td className="py-2"><Link href={`/orders/${group.piId}`} className="text-blue-700 hover:underline">{group.piNumber || group.systemPiNumber}</Link>{group.systemPiNumber && group.systemPiNumber !== group.piNumber ? <small className="ml-2 font-normal text-slate-500">系统号 {group.systemPiNumber}</small> : null}</td><td>{group.quantity}</td><td>—</td><td>{money(group.amount)}</td></tr>
         {group.items.map((item) => <tr key={item.id} className="border-b last:border-0"><td className="py-2 pl-4 text-slate-700">{item.product}{item.correction_of ? <small className="block text-rose-700">冲正原记录 {item.correction_of.slice(0, 8)} · {item.correction_reason}</small> : null}</td><td>{item.quantity}</td><td>{money(item.unit_price_cny)}</td><td>{money(item.amount_cny)}</td></tr>)}
       </Fragment>)}</tbody>
+      <tfoot>
+        <tr className="border-t-2 border-slate-200 bg-slate-50 font-semibold text-slate-900"><th className="py-2 text-left">产品货款合计（不含包装费）</th><td>{note.allocated_quantity}</td><td>—</td><td>{money(Number(note.goods_allocated_cny ?? note.allocated_cny))}</td></tr>
+        {Number(note.packaging_charges_cny || 0) > 0 ? <tr className="bg-slate-50 text-amber-800"><th className="py-1.5 text-left font-medium">关联包装费</th><td>—</td><td>—</td><td>{money(note.packaging_charges_cny || 0)}</td></tr> : null}
+        <tr className="border-t bg-blue-50 font-semibold text-blue-900"><th className="py-2 text-left">本送货单应付合计</th><td>{note.allocated_quantity}</td><td>—</td><td>{money(note.allocated_cny)}</td></tr>
+      </tfoot>
     </table></div>
-    {Number(note.packaging_charges_cny || 0) > 0 ? <p className="mt-2 rounded bg-amber-50 px-3 py-2 text-amber-900">本送货单关联包装费用：{money(note.packaging_charges_cny || 0)} · 已计入应付金额</p> : null}
     {groups.length === 0 ? <p className="mt-2 text-xs text-amber-700">这张送货单尚未关联 PI。</p> : null}
     <h4 className="mt-4 font-medium">付款流水</h4>
     {note.payments.length ? note.payments.map((entry) => <p key={entry.id} className="mt-1 text-xs">{entry.paid_on} · {money(entry.amount_cny)} · {entry.method} · 依据 {entry.reference || "未填写"}{entry.source === "ACCOUNT" ? <span className="ml-2 rounded bg-blue-50 px-1.5 py-0.5 text-blue-800">供应商总账付款分配，未重复付款</span> : null}{entry.documents_pending_at_payment ? <span className="ml-2 rounded bg-amber-50 px-1.5 py-0.5 text-amber-800">付款时单据待补</span> : null}</p>) : <p className="mt-1 text-xs text-slate-500">暂无已确认付款</p>}
