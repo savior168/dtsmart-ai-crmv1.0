@@ -122,9 +122,9 @@ export function SupplierAccountLedger({ canRecordPayment, selectedSupplierId, on
     </div>
     {selected ? <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
       <div className="rounded-lg bg-slate-50 p-3">期初欠款 <strong className="block tabular-nums">{selected.opening_balance_cny === null ? "未建期初" : money(selected.opening_balance_cny)}</strong><small className="text-slate-500">{selected.opening_as_of_date || "覆盖全部已录送货单"}</small></div>
-      <div className="rounded-lg bg-blue-50 p-3">期初后新增应付 <strong className="block tabular-nums">{money(selected.new_due_cny)}</strong><small>调整 {money(selected.adjustment_cny)}</small></div>
+      <div className="rounded-lg bg-blue-50 p-3">累计新增应付（不限日期） <strong className="block tabular-nums">{money(selected.new_due_cny)}</strong><small>不受上方送货日期筛选影响 · 调整 {money(selected.adjustment_cny)}</small></div>
       <div className="rounded-lg bg-emerald-50 p-3">实际已付款 <strong className="block tabular-nums">{money(Number(selected.note_payment_cny) + Number(selected.account_payment_cny))}</strong><small>待分配到单据 {money(selected.unallocated_payment_cny)}</small></div>
-      <div className="rounded-lg bg-amber-50 p-3">供应商当前余额 <strong className="block tabular-nums">{money(selected.balance_cny)}</strong><small>{selected.balance_cny < 0 ? "负数为预付／供应商应退" : "正数为尚欠"}</small></div>
+      <div className="rounded-lg bg-amber-50 p-3">供应商净应付款 <strong className="block tabular-nums">{money(selected.balance_cny)}</strong><small>{selected.balance_cny < 0 ? "负数：预付／供应商应退" : "正数：尚欠供应商"}</small></div>
     </div> : null}
     {supplierId && detail ? <>
       <div className="mt-4 overflow-x-auto"><table className="w-full min-w-[700px] text-left text-xs"><thead className="border-b bg-slate-50"><tr><th className="p-2">付款日期</th><th>方式／凭证号</th><th>实际付款</th><th>已分配至单据</th><th>未分配</th><th>操作</th></tr></thead><tbody>

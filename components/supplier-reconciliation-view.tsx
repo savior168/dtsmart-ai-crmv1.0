@@ -310,7 +310,7 @@ export function SupplierReconciliationView({ canRecordPayment, canViewAccount = 
         {!loading && summary && summary.cash_paid_reported_cny > 0 ? <button type="button" onClick={() => document.getElementById("supplier-delivery-notes")?.scrollIntoView({ behavior: "smooth" })} className="rounded-full bg-amber-50 px-2.5 py-1 font-medium text-amber-800 hover:bg-amber-100">现场报付待核 {money(summary.cash_paid_reported_cny)} · 不冲减应付 ↗</button> : null}
       </div>
       <div className="grid gap-2 sm:grid-cols-3">
-        <SummaryMetric label="应付金额" value={money(summary?.allocated_cny || 0)} loading={loading || !summary} hint="查看全部采购明细；含已关联供应商送货单的包装费" selected={!filters.amountFocus} onClick={() => focusDetail("")} tone="text-blue-700"/>
+        <SummaryMetric label="筛选期应付金额" value={money(summary?.allocated_cny || 0)} loading={loading || !summary} hint="仅统计上方送货日期范围；含已关联供应商送货单的包装费" selected={!filters.amountFocus} onClick={() => focusDetail("")} tone="text-blue-700"/>
         <SummaryMetric label="已分配至送货单付款" value={money(summary?.paid_cny || 0)} loading={loading || !summary} hint="筛选有付款分配的送货单；部分付款也会显示" selected={filters.amountFocus === "PAID"} onClick={() => focusDetail("PAID")} tone="text-emerald-700"/>
         <SummaryMetric label="送货单未付余额" value={money(summary?.unpaid_cny || 0)} loading={loading || !summary} hint="筛选仍有未付余额的送货单；部分付款也会显示" selected={filters.amountFocus === "UNPAID"} onClick={() => focusDetail("UNPAID")} tone="text-rose-700"/>
       </div>
