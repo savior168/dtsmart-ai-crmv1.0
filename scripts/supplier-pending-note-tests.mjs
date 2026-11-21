@@ -22,12 +22,18 @@ const optionalFieldsMigration = read("supabase/migrations/20261119050000_admin_l
 const pendingPaymentMigration = read("supabase/migrations/20261119080000_supplier_document_pending_payment.sql");
 const expenseMigration = read("supabase/migrations/20261120033144_stock_expense_entries_and_supplier_packaging.sql");
 const shippedSourceCorrection = read("supabase/migrations/20261121160000_shipped_receipt_source_correction.sql");
+const unverifiedPaperCorrection = read("supabase/migrations/20261121210000_unblock_unverified_paper_receipt_source_correction.sql");
 const shippedSourceApi = read("app/api/stock-orders/[id]/receipts/source-correction/route.ts");
 const supplierLedger = read("components/supplier-account-ledger.tsx");
 
 assert.match(shippedSourceCorrection, /create function public\.correct_shipped_receipt_source[\s\S]*line\.shipped_quantity=0/);
 assert.match(shippedSourceCorrection, /correction_of,correction_reason[\s\S]*-p_quantity[\s\S]*p_quantity/);
 assert.match(shippedSourceCorrection, /supplier_payments[\s\S]*supplier_account_payment_allocations[\s\S]*stock_order_expense_entries/);
+assert.match(unverifiedPaperCorrection, /source_note_paper_verifications|supplier_note_paper_verifications where delivery_note_id=source_note\.id/);
+assert.match(unverifiedPaperCorrection, /supplier_note_paper_verifications where delivery_note_id=destination_note\.id/);
+assert.match(unverifiedPaperCorrection, /supplier_payments where delivery_note_id=destination_note\.id[\s\S]*supplier_account_payment_allocations[\s\S]*stock_order_expense_entries/);
+assert.match(unverifiedPaperCorrection, /原送货单已有付款、包装费用或人工纸单核对记录/);
+assert.match(stock, /仅录入纸单金额不影响留痕更正/);
 assert.match(shippedSourceApi, /requirePermission\("stock\.update"\)[\s\S]*stock\.procurement\.edit[\s\S]*correct_shipped_receipt_source/);
 assert.match(stock, /更正来源／分配量[\s\S]*correct_shipped_receipt_source|更正来源／分配量[\s\S]*source-correction/);
 assert.match(supplierLedger, /累计新增应付（不限日期）[\s\S]*供应商净应付款/);
