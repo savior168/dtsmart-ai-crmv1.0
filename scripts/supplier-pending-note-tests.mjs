@@ -81,7 +81,7 @@ assert.match(report, /number_pending[\s\S]*待补送货单号/);
 assert.match(reconciliationView, /groupAllocations\(note\.allocations\)\.slice\(0, 2\)[\s\S]*href=\{`\/orders\/\$\{group\.piId\}`\}/, "送货单行须直接显示关联 PI 编号并能打开对应订单");
 assert.match(reconciliationView, /visibleNotes\.map\(\(note\) => <Fragment key=\{note\.id\}>[\s\S]*<tr className="bg-slate-50"><td colSpan=\{13\} className="p-3"><NoteDetails note=\{note\}\/>/, "PI 与产品核对详情须紧跟当前送货单行显示");
 assert.match(reconciliationView, /搜索送货单号、供应商代码或PI订单号[\s\S]*日期、供应商及搜索词作用于送货单汇总和明细[\s\S]*核对状态筛选位于采购明细区/);
-assert.match(reconciliationView, /录入说明（选填）<textarea maxLength=\{500\}/, "纸单金额录入说明应选填");
+assert.match(reconciliationView, /录入／更正说明（选填）<textarea maxLength=\{500\}/, "纸单金额录入说明应选填");
 assert.match(reconciliationView, /付款凭证号／流水号（选填）/, "付款凭证号在缺件时也应选填");
 assert.match(reconciliationView, /payment\.documentsPending && !payment\.reference\.trim\(\) && !payment\.confirmedPending/, "缺件且无凭证号须明确确认真实付款");
 assert.match(pendingPaymentMigration, /documents_pending_at_payment boolean[\s\S]*pending_number or pending_photo[\s\S]*payment_reference[\s\S]*new\.documents_pending_at_payment/, "单据待补付款须有可追溯依据，并标记付款时状态");
