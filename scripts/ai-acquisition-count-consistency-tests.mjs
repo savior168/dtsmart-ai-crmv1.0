@@ -7,6 +7,11 @@ const jiti = createJiti(import.meta.url, { alias: { "@": resolve(".") } });
 const { loadAcquisitionTaskSummary } = await jiti.import(resolve("lib/ai-acquisition/task-center-summary.ts"));
 const { countAcquisitionCandidateDecisions } = await jiti.import(resolve("lib/ai-acquisition/decision-counts.ts"));
 const source = (path) => readFileSync(resolve(path), "utf8");
+const countRepair = source("supabase/migrations/20261121220000_reconcile_completed_ai_acquisition_review_counts.sql");
+assert.match(countRepair, /count\(c\.id\)::integer as review_count/);
+assert.match(countRepair, /c\.decision = 'REVIEW'/);
+assert.match(countRepair, /t\.status in \('COMPLETED', 'FAILED', 'CANCELLED'\)/);
+assert.match(countRepair, /t\.review_count is distinct from actual\.review_count/);
 
 class Query {
   constructor(rows) { this.rows = rows; this.predicates = []; this.head = false; }
