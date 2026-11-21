@@ -20,6 +20,7 @@ type Allocation = { id: string; pi_number: string; system_pi_number: string; pi_
 type Payment = { id: string; amount_cny: number; paid_on: string; method: string; reference: string; documents_pending_at_payment: boolean | null; source?: "ACCOUNT" };
 type Note = { id: string; supplier_id: string; supplier_code: string; supplier_name: string;
   number_pending: boolean;
+  paper_verified: boolean; paper_previously_verified: boolean; paper_verified_at: string | null;
   settlement_cycle: string; settlement_days: number | null; settlement_terms_original?: string | null; note_number: string; document_date: string; updated_at: string;
   paper_total_cny: number | null; allocated_quantity: number; allocated_cny: number; goods_allocated_cny?: number; packaging_charges_cny?: number;
   cash_paid_reported_cny: number; paid_cny: number; unpaid_cny: number; allocations: Allocation[]; payments: Payment[]; attachments: SupplierDeliveryNoteView["attachments"] };
@@ -35,6 +36,13 @@ type PaymentDraft = { noteId: string; noteNumber: string; amount: string;
 type BatchPaymentDraft = { supplierId: string; supplierCode: string; paidOn: string; method: string;
   reference: string; confirmed: boolean; lines: { noteId: string; noteNumber: string; unpaid: number; amount: string }[] };
 type PaperDraft = { noteId: string; noteNumber: string; amount: string; version: string; reason: string };
+type VerificationDraft = { note: Note; paperQuantity: string; acknowledged: boolean };
+type SummarySort = "supplier" | "note_count" | "quantity" | "due" | "paid" | "unpaid";
+type DetailSort = "document_date" | "supplier_code" | "note_number" | "quantity" | "due" | "paid" | "unpaid";
+type SortDirection = "asc" | "desc";
+function SortButton({ label, active, direction, onClick }: { label: string; active: boolean; direction: SortDirection; onClick: () => void }) {
+  return <button type="button" onClick={onClick} aria-label={`${label}，${active ? direction === "asc" ? "升序，点击改为降序" : "降序，点击改为升序" : "点击升序排列"}`} className="inline-flex items-center gap-1 whitespace-nowrap font-medium text-slate-600 hover:text-blue-700">{label}<span aria-hidden="true" className={active ? "text-blue-700" : "text-slate-400"}>{active ? direction === "asc" ? "↑" : "↓" : "↕"}</span></button>;
+}
 const money = (value: number) => `${Number(value || 0) < 0 ? "−" : ""}¥${Math.abs(Number(value || 0)).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 function SummaryMetric({ label, value, loading, hint, onClick, selected = false, tone = "text-slate-900" }: {
   label: string; value: string; loading: boolean; hint: string; onClick: () => void; selected?: boolean; tone?: string;
@@ -51,7 +59,8 @@ function noteChecks(note: Note, canViewDocuments: boolean) {
   if (canViewDocuments && !note.attachments?.length) checks.push("缺纸单图片");
   if (!canViewDocuments) checks.push("无纸单查看权限");
   if (note.paper_total_cny === null) checks.push("待录纸单金额");
-  else if (paperMatchBasis(note) === "mismatch") checks.push("纸单金额与应付不符");
+  else if (paperMatchBasis(note) === "mismatch") checks.push("纸单金额不符 · 待处理");
+  if (!checks.length && !note.paper_verified) checks.push(note.paper_previously_verified ? "资料变更 · 待重新核对" : "待财务确认纸单");
   return checks;
 }
 function paperMatchBasis(note: Note): "goods" | "total" | "mismatch" | "pending" {
@@ -65,7 +74,7 @@ function PaperComparison({ note }: { note: Note }) {
   if (note.paper_total_cny === null) return <>未录入</>;
   const basis = paperMatchBasis(note);
   const goods = Number(note.goods_allocated_cny ?? note.allocated_cny);
-  return <>{money(note.paper_total_cny)}<small className={`block ${basis === "mismatch" ? "text-amber-700" : "text-emerald-700"}`}>{basis === "goods" ? "与产品货款一致" : basis === "total" ? "含包装费 · 与应付一致" : `与应付差额 ${money(note.paper_total_cny - Number(note.allocated_cny))}`}</small>{Number(note.packaging_charges_cny || 0) > 0 ? <small className="block text-slate-500">产品货款 {money(goods)} · 包装费 {money(note.packaging_charges_cny || 0)}</small> : null}</>;
+  return <>{money(note.paper_total_cny)}<small className={`block ${basis === "mismatch" ? "text-amber-700" : note.paper_verified ? "text-emerald-700" : "text-blue-700"}`}>{basis === "goods" ? "系统比对：与产品货款一致" : basis === "total" ? "系统比对：含包装费与应付一致" : `与应付差额 ${money(note.paper_total_cny - Number(note.allocated_cny))}`}</small>{Number(note.packaging_charges_cny || 0) > 0 ? <small className="block text-slate-500">产品货款 {money(goods)} · 包装费 {money(note.packaging_charges_cny || 0)}</small> : null}</>;
 }
 function groupAllocations(allocations: Allocation[]) {
   const groups = new Map<string, { piId: string; piNumber: string; systemPiNumber: string; items: Allocation[]; quantity: number; amount: number }>();
@@ -129,6 +138,7 @@ export function SupplierReconciliationView({ canRecordPayment, canViewAccount = 
   const [summary, setSummary] = useState<Summary | null>(null);
   const [supplierSummary, setSupplierSummary] = useState<SupplierSummary[]>([]);
   const [supplierOptions, setSupplierOptions] = useState<SupplierSummary[]>([]);
+  const [accountSupplierOptions, setAccountSupplierOptions] = useState<Array<{ supplier_id: string; system_code: string; supplier_name: string | null }>>([]);
   const [monthlySummary, setMonthlySummary] = useState<MonthlySummary[]>([]);
   const [canViewDocuments, setCanViewDocuments] = useState(false);
   const [expandedSupplier, setExpandedSupplier] = useState<string | null>(null);
@@ -136,11 +146,25 @@ export function SupplierReconciliationView({ canRecordPayment, canViewAccount = 
   const [detailCount, setDetailCount] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
+  const [summarySort, setSummarySort] = useState<SummarySort>("supplier");
+  const [summaryDirection, setSummaryDirection] = useState<SortDirection>("asc");
+  const [detailSort, setDetailSort] = useState<DetailSort>("document_date");
+  const [detailDirection, setDetailDirection] = useState<SortDirection>("desc");
   const [expanded, setExpanded] = useState<string | null>(null);
   const [payment, setPayment] = useState<PaymentDraft | null>(null);
   const [selectedNotes, setSelectedNotes] = useState<string[]>([]);
+  const selectedSupplier = selectedNotes.length ? notes.find((note) => note.id === selectedNotes[0]) : undefined;
+  const visibleNotes = selectedSupplier ? notes.filter((note) => note.supplier_id === selectedSupplier.supplier_id) : notes;
   const [batchPayment, setBatchPayment] = useState<BatchPaymentDraft | null>(null);
   const [paperDraft, setPaperDraft] = useState<PaperDraft | null>(null);
+  const [verificationDraft, setVerificationDraft] = useState<VerificationDraft | null>(null);
+  const allSupplierOptions = [...supplierOptions, ...accountSupplierOptions.filter((item) => !supplierOptions.some((option) => option.supplier_id === item.supplier_id))];
+  const sortedSupplierSummary = [...supplierSummary].sort((left, right) => {
+    const leftValue = summarySort === "supplier" ? left.system_code : summarySort === "note_count" ? left.note_count : summarySort === "quantity" ? left.quantity : summarySort === "due" ? left.allocated_cny : summarySort === "paid" ? left.paid_cny : left.unpaid_cny;
+    const rightValue = summarySort === "supplier" ? right.system_code : summarySort === "note_count" ? right.note_count : summarySort === "quantity" ? right.quantity : summarySort === "due" ? right.allocated_cny : summarySort === "paid" ? right.paid_cny : right.unpaid_cny;
+    const compared = typeof leftValue === "string" && typeof rightValue === "string" ? leftValue.localeCompare(rightValue, "zh-CN", { numeric: true }) : Number(leftValue) - Number(rightValue);
+    return (summaryDirection === "asc" ? compared : -compared) || left.system_code.localeCompare(right.system_code, "zh-CN", { numeric: true });
+  });
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -148,7 +172,7 @@ export function SupplierReconciliationView({ canRecordPayment, canViewAccount = 
   const load = useCallback(async () => {
     const sequence = ++loadSequence.current;
     setLoading(true);
-    const params = new URLSearchParams({ from: filters.from, to: filters.to, page: String(page), page_size: String(pageSize) });
+    const params = new URLSearchParams({ from: filters.from, to: filters.to, page: String(page), page_size: String(pageSize), sort: detailSort, direction: detailDirection });
     if (filters.supplierId) params.set("supplier_id", filters.supplierId);
     if (filters.search) params.set("search", filters.search);
     if (filters.checkStatus) params.set("check_status", filters.checkStatus);
@@ -167,8 +191,21 @@ export function SupplierReconciliationView({ canRecordPayment, canViewAccount = 
     setDetailCount(Number(body.detail_count || 0));
     setSelectedNotes([]);
     setError("");
-  }, [filters, page, pageSize]);
+  }, [filters, page, pageSize, detailSort, detailDirection]);
   useEffect(() => { void load(); }, [load]);
+  function sortSummary(key: SummarySort) {
+    if (summarySort === key) setSummaryDirection((value) => value === "asc" ? "desc" : "asc");
+    else { setSummarySort(key); setSummaryDirection("asc"); }
+  }
+  function sortDetails(key: DetailSort) {
+    if (detailSort === key) setDetailDirection((value) => value === "asc" ? "desc" : "asc");
+    else { setDetailSort(key); setDetailDirection("asc"); }
+    setPage(1); setExpanded(null); setSelectedNotes([]);
+  }
+  function applyDetailCheckStatus(value: SupplierNoteCheckStatus | "") {
+    setCheckStatus(value); setPage(1); setExpanded(null); setSelectedNotes([]);
+    setFilters((current) => ({ ...current, checkStatus: value }));
+  }
   function search() {
     if (!from || !to || from > to) { setError("请选择有效的送货日期范围"); return; }
     setMatrixOrigin(null);
@@ -196,8 +233,8 @@ export function SupplierReconciliationView({ canRecordPayment, canViewAccount = 
   }
   function showSupplierNotes(id: string) {
     setMatrixOrigin(null);
-    setSupplierId(id); setPage(1); setExpanded(null);
-    setFilters((current) => ({ ...current, supplierId: id }));
+    setSupplierId(id); setCheckStatus(""); setPage(1); setExpanded(null); setSelectedNotes([]);
+    setFilters((current) => ({ ...current, supplierId: id, checkStatus: "", amountFocus: "" }));
     document.getElementById("supplier-delivery-notes")?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
   function drillToMonth(id: string, month: string) {
@@ -206,9 +243,9 @@ export function SupplierReconciliationView({ canRecordPayment, canViewAccount = 
     const monthStart = `${month}-01`;
     const monthEnd = new Date(Date.UTC(year, monthNumber, 0)).toISOString().slice(0, 10);
     const next = { from: filters.from > monthStart ? filters.from : monthStart,
-      to: filters.to < monthEnd ? filters.to : monthEnd, supplierId: id, search: filters.search, checkStatus: filters.checkStatus, amountFocus: filters.amountFocus };
+      to: filters.to < monthEnd ? filters.to : monthEnd, supplierId: id, search: filters.search, checkStatus: "" as const, amountFocus: "" as const };
     if (!matrixOrigin) setMatrixOrigin(filters);
-    setFrom(next.from); setTo(next.to); setSupplierId(id); setSelectedPreset("");
+    setFrom(next.from); setTo(next.to); setSupplierId(id); setCheckStatus(""); setSelectedPreset("");
     setPage(1); setExpanded(null); setExpandedSupplier(null); setFilters(next);
     window.setTimeout(() => document.getElementById("supplier-delivery-notes")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
   }
@@ -220,8 +257,8 @@ export function SupplierReconciliationView({ canRecordPayment, canViewAccount = 
     window.setTimeout(() => document.getElementById("supplier-monthly-matrix")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
   }
   function focusDetail(amountFocus: "" | "PAID" | "UNPAID") {
-    setPage(1); setExpanded(null); setSelectedNotes([]);
-    setFilters((current) => ({ ...current, amountFocus }));
+    setPage(1); setExpanded(null); setSelectedNotes([]); setCheckStatus("");
+    setFilters((current) => ({ ...current, amountFocus, checkStatus: "" }));
     window.setTimeout(() => document.getElementById("supplier-delivery-notes")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
   }
   function openPayment(note: Note) {
@@ -292,7 +329,7 @@ export function SupplierReconciliationView({ canRecordPayment, canViewAccount = 
     if (!paperDraft || busy) return;
     if (!/^(?:0|[1-9]\d{0,15})(?:\.\d{1,2})?$/.test(paperDraft.amount)
       || paperDraft.reason.trim().length > 500) {
-      setError("请填写纸单金额；核对说明最多500字"); return;
+      setError("请填写纸单金额；录入说明最多500字"); return;
     }
     setBusy(true); setError("");
     const response = await fetch(`/api/supplier-reconciliation/notes/${paperDraft.noteId}`, {
@@ -302,23 +339,39 @@ export function SupplierReconciliationView({ canRecordPayment, canViewAccount = 
     }).catch(() => null);
     const body = response ? await response.json().catch(() => ({})) : {};
     setBusy(false);
-    if (!response?.ok) { setError(body.error || "纸单金额核对失败"); return; }
+    if (!response?.ok) { setError(body.error || "纸单金额保存失败"); return; }
     setPaperDraft(null);
+    await load();
+  }
+  async function submitPaperVerification() {
+    if (!verificationDraft || busy) return;
+    const quantity = Number(verificationDraft.paperQuantity);
+    if (!Number.isSafeInteger(quantity) || quantity <= 0 || !verificationDraft.acknowledged) {
+      setError("请填写纸单上的产品总数量，并确认已逐项核对"); return;
+    }
+    setBusy(true); setError("");
+    const response = await fetch(`/api/supplier-reconciliation/notes/${verificationDraft.note.id}/verify`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ paper_quantity: quantity, expected_updated_at: verificationDraft.note.updated_at, acknowledged: true }),
+    }).catch(() => null);
+    const body = response ? await response.json().catch(() => ({})) : {};
+    setBusy(false);
+    if (!response?.ok) { setError(body.error || "纸单确认失败，请刷新后重试"); return; }
+    setVerificationDraft(null);
     await load();
   }
   return <main className="p-4 lg:p-6"><div className="mx-auto max-w-[1600px] space-y-4">
     <div><h1 className="text-xl font-semibold">供应商对账</h1><p className="mt-1 text-sm text-slate-600">{canViewAccount ? "供应商总账显示当前余额；" : ""}送货单报表按送货日期归属，未分配到单据的总账付款不会伪装成某张单据已结清。</p></div>
     <section className="rounded-xl border bg-white p-4 shadow-sm"><div className="flex flex-wrap items-center gap-2 text-sm">
       <CompactDateRange label="送货日期" fromLabel="送货开始日期" toLabel="送货结束日期" from={from} to={to} onFromChange={(value) => { setFrom(value); setSelectedPreset(""); }} onToChange={(value) => { setTo(value); setSelectedPreset(""); }} presets={BUSINESS_DATE_PRESETS} selectedPreset={selectedPreset} onPresetChange={selectPreset} onMonthRangeApply={(range) => { setFrom(range.from); setTo(range.to); setSelectedPreset(""); setMatrixOrigin(null); setPage(1); setExpanded(null); setExpandedSupplier(null); setFilters({ ...range, supplierId, search: searchText.trim(), checkStatus, amountFocus: filters.amountFocus }); }}/>
-      <AppSelect aria-label="按供应商筛选送货单" value={supplierId} onChange={(event) => setSupplierId(event.target.value)} className="h-10 min-w-44 rounded-lg border border-slate-200 bg-white px-3 text-slate-700" forceSearch><option value="">全部供应商</option>{supplierOptions.map((option) => <option key={option.supplier_id} value={option.supplier_id}>{option.system_code}{option.supplier_name ? ` · ${option.supplier_name}` : ""}</option>)}{supplierId && !supplierOptions.some((option) => option.supplier_id === supplierId) ? <option value={supplierId}>当前选定供应商</option> : null}</AppSelect>
-      <AppSelect aria-label="按采购明细核对状态筛选" value={checkStatus} onChange={(event) => setCheckStatus(event.target.value as SupplierNoteCheckStatus | "")} className="h-10 min-w-40 rounded-lg border border-slate-200 bg-white px-3 text-slate-700"><option value="">全部核对状态</option>{SUPPLIER_NOTE_CHECK_STATUSES.filter((status) => canViewDocuments || !checkStatusRequiresDocuments(status)).map((status) => <option key={status} value={status}>{SUPPLIER_NOTE_CHECK_LABELS[status]}</option>)}</AppSelect>
+      <AppSelect aria-label="按供应商筛选送货单" value={supplierId} onChange={(event) => setSupplierId(event.target.value)} className="h-10 min-w-44 rounded-lg border border-slate-200 bg-white px-3 text-slate-700" forceSearch><option value="">全部供应商</option>{allSupplierOptions.map((option) => <option key={option.supplier_id} value={option.supplier_id}>{option.system_code}{option.supplier_name ? ` · ${option.supplier_name}` : ""}</option>)}{supplierId && !allSupplierOptions.some((option) => option.supplier_id === supplierId) ? <option value={supplierId}>当前选定供应商</option> : null}</AppSelect>
       <input aria-label="搜索送货单号、供应商代码或PI订单号" maxLength={80} value={searchText} onChange={(event) => setSearchText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") search(); }} placeholder="搜索送货单号 / 供应商代码 / PI订单号" className="h-10 min-w-64 flex-1 rounded-lg border border-slate-200 px-3 text-slate-700 placeholder:text-slate-400"/>
       <button onClick={search} className="h-10 rounded-lg bg-blue-600 px-4 text-white">查询</button>
       <button type="button" onClick={reset} className="h-10 rounded-lg border px-3 text-slate-700">重置</button>
-    </div><p className="mt-2 text-xs text-slate-500">日期、供应商及搜索词作用于汇总和明细；核对状态与金额卡片只筛选采购明细，不改变上方金额汇总。</p></section>
+    </div><p className="mt-2 text-xs text-slate-500">顶部供应商包含已录总账的供应商；日期、供应商及搜索词作用于送货单汇总和明细。选中无本期送货单的供应商时，明细可能为零，但其历史账款仍可在总账查看。核对状态筛选位于采购明细区，和金额卡片一样只改变明细，不改变汇总。</p></section>
     {error && !payment ? <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</p> : null}
     {canViewAccount ? <SupplierAccountLedger canRecordPayment={canRecordPayment}
-      selectedSupplierId={filters.supplierId} onLedgerChange={() => { void load(); }} /> : null}
+      selectedSupplierId={filters.supplierId} onLedgerChange={() => { void load(); }} onSupplierOptions={setAccountSupplierOptions} /> : null}
     <section className="space-y-2" aria-label="供应商对账概览">
       <div className="flex flex-wrap items-center gap-x-5 gap-y-1 rounded-xl border bg-white px-4 py-2.5 text-xs text-slate-600">
         <span>送货单 <strong className="ml-1 text-sm text-slate-900 tabular-nums">{loading || !summary ? "—" : `${summary.note_count} 张`}</strong></span>
@@ -336,17 +389,17 @@ export function SupplierReconciliationView({ canRecordPayment, canViewAccount = 
       <h2 className="font-semibold">供应商采购货款汇总</h2>
       <p className="mt-1 text-xs text-slate-500">与下方采购明细共用日期和供应商筛选；汇总覆盖全部匹配送货单，不受明细分页影响。</p>
       <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[760px] text-left text-sm">
-        <thead className="border-b bg-slate-50 text-slate-600"><tr><th className="p-3">供应商代码 / 名称</th><th>结算方式</th><th>送货单</th><th>回货数量</th><th>应付</th><th>财务已付</th><th>未付</th><th>操作</th></tr></thead>
-        <tbody>{supplierSummary.map((supplier) => <tr key={supplier.supplier_id} className="border-b last:border-0"><td className="p-3 font-medium">{supplier.system_code} · {supplier.supplier_name || "未补名称"}</td><td>{settlementLabel(supplier.settlement_cycle, supplier.settlement_days, supplier.settlement_terms_original)}</td><td>{supplier.note_count} 张</td><td>{supplier.quantity} 件</td><td className="tabular-nums">{money(supplier.allocated_cny)}</td><td className="tabular-nums">{money(supplier.paid_cny)}</td><td className="tabular-nums">{money(supplier.unpaid_cny)}</td><td className="whitespace-nowrap"><button type="button" onClick={() => showSupplierNotes(supplier.supplier_id)} className="font-medium text-blue-700 hover:underline" aria-label={`查看${supplier.system_code}的采购明细`}>查看明细</button><button type="button" onClick={() => setExpandedSupplier((current) => current === supplier.supplier_id ? null : supplier.supplier_id)} className="ml-3 text-slate-600 hover:underline">月度</button></td></tr>)}</tbody>
+        <thead className="border-b bg-slate-50 text-slate-600"><tr><th className="p-3"><SortButton label="供应商代码 / 名称" active={summarySort === "supplier"} direction={summaryDirection} onClick={() => sortSummary("supplier")}/></th><th>结算方式</th><th><SortButton label="送货单" active={summarySort === "note_count"} direction={summaryDirection} onClick={() => sortSummary("note_count")}/></th><th><SortButton label="回货数量" active={summarySort === "quantity"} direction={summaryDirection} onClick={() => sortSummary("quantity")}/></th><th><SortButton label="应付" active={summarySort === "due"} direction={summaryDirection} onClick={() => sortSummary("due")}/></th><th><SortButton label="财务已付" active={summarySort === "paid"} direction={summaryDirection} onClick={() => sortSummary("paid")}/></th><th><SortButton label="未付" active={summarySort === "unpaid"} direction={summaryDirection} onClick={() => sortSummary("unpaid")}/></th><th>操作</th></tr></thead>
+        <tbody>{sortedSupplierSummary.map((supplier) => <tr key={supplier.supplier_id} className="border-b last:border-0"><td className="p-3 font-medium">{supplier.system_code} · {supplier.supplier_name || "未补名称"}</td><td>{settlementLabel(supplier.settlement_cycle, supplier.settlement_days, supplier.settlement_terms_original)}</td><td>{supplier.note_count} 张</td><td>{supplier.quantity} 件</td><td className="tabular-nums">{money(supplier.allocated_cny)}</td><td className="tabular-nums">{money(supplier.paid_cny)}</td><td className="tabular-nums">{money(supplier.unpaid_cny)}</td><td className="whitespace-nowrap"><button type="button" onClick={() => showSupplierNotes(supplier.supplier_id)} className="font-medium text-blue-700 hover:underline" aria-label={`查看${supplier.system_code}的采购明细`}>查看明细</button><button type="button" onClick={() => setExpandedSupplier((current) => current === supplier.supplier_id ? null : supplier.supplier_id)} className="ml-3 text-slate-600 hover:underline">月度</button></td></tr>)}</tbody>
       </table>{!loading && !supplierSummary.length ? <p className="py-8 text-center text-sm text-slate-500">所选日期范围没有供应商回货分配</p> : null}</div>
       {expandedSupplier ? <div className="mt-3 rounded-lg bg-slate-50 p-3"><h3 className="text-sm font-medium">{supplierSummary.find((row) => row.supplier_id === expandedSupplier)?.system_code} · 月度采购与付款</h3><div className="mt-2 overflow-x-auto"><table className="w-full min-w-[520px] text-left text-xs"><thead><tr className="border-b"><th className="py-2">月份</th><th>应付</th><th>已付</th><th>未付</th></tr></thead><tbody>{monthlySummary.filter((row) => row.supplier_id === expandedSupplier).map((row) => <tr key={row.month} className="border-b last:border-0"><td className="py-2">{row.month.slice(0, 7)}</td><td>{money(row.allocated_cny)}</td><td>{money(row.paid_cny)}</td><td>{money(row.unpaid_cny)}</td></tr>)}</tbody></table></div></div> : null}
     </section>
     <div id="supplier-monthly-matrix" className="scroll-mt-20" aria-busy={loading}>{loading ? <p role="status" className="mb-2 text-xs text-slate-600">正在更新月度对账数据…</p> : null}<div className={loading ? "pointer-events-none opacity-50" : ""}><SupplierMonthlyMatrix suppliers={supplierSummary} monthly={monthlySummary} metric={matrixMetric} dateFrom={filters.from} dateTo={filters.to} supplierId={filters.supplierId} onMetricChange={setMatrixMetric} onDrill={drillToMonth}/></div></div>
     {matrixOrigin ? <div role="status" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900"><span>正在核对：{filters.supplierId ? supplierSummary.find((item) => item.supplier_id === filters.supplierId)?.system_code || "所选供应商" : "全部供应商"} · {filters.from} 至 {filters.to}。上方汇总与下方明细均已切换到同一范围。</span><button type="button" onClick={returnToMatrix} className="rounded-lg border border-blue-300 bg-white px-3 py-1.5 font-medium text-blue-700">返回原汇总范围</button></div> : null}
-    <section id="supplier-delivery-notes" className="scroll-mt-20 rounded-xl border bg-white p-4"><div className="flex flex-wrap items-center justify-between gap-2"><div className="flex items-center gap-2"><h2 className="font-semibold">采购明细</h2><span tabIndex={0} aria-label="采购明细说明" className="group relative inline-flex cursor-help rounded-full text-slate-400 outline-none focus-visible:ring-2 focus-visible:ring-blue-500"><Info size={15}/><span role="tooltip" className="pointer-events-none absolute left-0 top-full z-30 mt-2 hidden w-72 rounded-lg border bg-white p-3 text-xs leading-5 text-slate-700 shadow-lg group-hover:block group-focus:block">每张真实送货单一行；展开可核对关联 PI、产品分配及付款流水。缺件不等于未付款；付款与纸单核对分别记录。明细分页不改变上方汇总金额。</span></span></div>{filters.supplierId ? <button type="button" onClick={clearSupplierFilter} className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs text-blue-700">{supplierSummary.find((item) => item.supplier_id === filters.supplierId)?.system_code || "所选供应商"} · 清除筛选</button> : null}</div>
+    <section id="supplier-delivery-notes" className="scroll-mt-20 rounded-xl border bg-white p-4"><div className="flex flex-wrap items-center justify-between gap-2"><div className="flex items-center gap-2"><h2 className="font-semibold">采购明细</h2><span tabIndex={0} aria-label="采购明细说明" className="group relative inline-flex cursor-help rounded-full text-slate-400 outline-none focus-visible:ring-2 focus-visible:ring-blue-500"><Info size={15}/><span role="tooltip" className="pointer-events-none absolute left-0 top-full z-30 mt-2 hidden w-72 rounded-lg border bg-white p-3 text-xs leading-5 text-slate-700 shadow-lg group-hover:block group-focus:block">每张真实送货单一行；展开可核对关联 PI、产品分配及付款流水。缺件不等于未付款；付款与纸单核对分别记录。明细分页不改变上方汇总金额。</span></span></div><div className="flex flex-wrap items-center gap-2"><AppSelect aria-label="按采购明细核对状态筛选" value={checkStatus} onChange={(event) => applyDetailCheckStatus(event.target.value as SupplierNoteCheckStatus | "")} className="h-9 min-w-44 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700"><option value="">全部核对状态</option>{SUPPLIER_NOTE_CHECK_STATUSES.filter((status) => canViewDocuments || !checkStatusRequiresDocuments(status)).map((status) => <option key={status} value={status}>{SUPPLIER_NOTE_CHECK_LABELS[status]}</option>)}</AppSelect>{filters.supplierId ? <button type="button" onClick={clearSupplierFilter} className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs text-blue-700">{supplierSummary.find((item) => item.supplier_id === filters.supplierId)?.system_code || "所选供应商"} · 清除筛选</button> : null}</div></div>
       <p className="mt-1 text-xs text-slate-500">当前明细 {loading ? "加载中" : `${detailCount} / ${summary?.note_count || 0} 张`}；{filters.amountFocus === "PAID" ? "已付含部分付款" : filters.amountFocus === "UNPAID" ? "未付含部分付款" : "全部付款状态"}{filters.checkStatus ? ` · ${SUPPLIER_NOTE_CHECK_LABELS[filters.checkStatus]}` : ""}。上方汇总金额不受明细筛选影响。</p>
-      {canRecordPayment ? <div className="mt-3 flex flex-wrap items-center gap-3 rounded-lg border border-emerald-100 bg-emerald-50/60 px-3 py-2 text-xs"><span>已选 {selectedNotes.length} 张同一供应商送货单（仅当前页，最多 50 张）</span><button type="button" disabled={selectedNotes.length < 2 || loading} onClick={openBatchPayment} className="rounded bg-emerald-700 px-3 py-1.5 font-medium text-white disabled:opacity-40">批量登记付款</button>{selectedNotes.length ? <button type="button" onClick={() => setSelectedNotes([])} className="text-slate-600 hover:underline">清空选择</button> : null}</div> : null}
-<div className="mt-3 overflow-x-auto"><table className="w-full min-w-[1760px] text-left text-sm"><thead><tr className="border-b bg-slate-50 text-slate-600"><th className="p-3">选择 / 送货日期</th><th>供应商</th><th>当时商务条件</th><th>送货单号</th><th className="min-w-44">关联 PI</th><th className="min-w-52">纸单影像</th><th className="min-w-52">核对状态</th><th>数量</th><th>应付金额</th><th>纸单金额 / 差额</th><th>已付</th><th>未付</th><th className="sticky right-0 z-20 w-[192px] min-w-[192px] border-l bg-slate-50 px-3 py-3 shadow-[-6px_0_10px_-10px_rgba(15,23,42,.12)]">操作</th></tr></thead><tbody>{notes.map((note) => <Fragment key={note.id}><tr className="border-b align-top"><td className="p-3"><div className="flex items-center gap-2">{canRecordPayment ? <input type="checkbox" aria-label={`选择送货单 ${note.note_number} 批量付款`} checked={selectedNotes.includes(note.id)} disabled={loading || note.number_pending || !note.attachments?.length || note.unpaid_cny <= 0 || selectedNotes.length >= 50 && !selectedNotes.includes(note.id) || selectedNotes.some((id) => notes.find((item) => item.id === id)?.supplier_id !== note.supplier_id)} onChange={() => toggleSelectedNote(note)} className="h-4 w-4 accent-emerald-700"/> : null}<span>{note.document_date}</span></div></td><td>{note.supplier_code}<small className="block text-slate-500">{note.supplier_name}</small></td><td>{settlementLabel(note.settlement_cycle, note.settlement_days, note.settlement_terms_original)}</td><td>{note.note_number}</td><td className="max-w-56 py-2 pr-3"><div className="flex flex-wrap gap-1.5">{groupAllocations(note.allocations).slice(0, 2).map((group) => <Link key={group.piId} href={`/orders/${group.piId}`} className="rounded border border-blue-100 bg-blue-50 px-1.5 py-0.5 text-xs text-blue-700 hover:underline" title={`打开 PI ${group.piNumber || group.systemPiNumber}`}>{group.piNumber || group.systemPiNumber}</Link>)}{groupAllocations(note.allocations).length > 2 ? <button type="button" onClick={() => setExpanded(note.id)} className="text-xs text-blue-700 hover:underline">另 {groupAllocations(note.allocations).length - 2} 单 ↓</button> : null}{!note.allocations.length ? <span className="text-xs text-amber-700">未关联 PI</span> : null}</div></td><td className="w-52 min-w-52 max-w-52 p-2 align-top"><SupplierDeliveryNoteFiles note={{ id: note.id, supplier_code: note.supplier_code, note_number: note.note_number, document_date: note.document_date, attachments: note.attachments || [] }} compact/></td><td className="w-52 min-w-52 max-w-52 px-2 py-3 align-top">{noteChecks(note, canViewDocuments).length ? noteChecks(note, canViewDocuments).map((check) => <span key={check} title={check === "待补送货单号" ? "送货单号待补；已发生付款应单笔登记并填写付款依据，纸单核对待补号后完成" : check === "缺纸单图片" ? "纸单影像待补；已付款不代表纸单已核对" : check === "待录纸单金额" ? "纸单金额尚未录入，请核对实物凭证" : "纸单金额与产品货款及含包装费应付金额均不一致，请核查"} className="mb-1 inline-block max-w-full truncate rounded bg-amber-50 px-2 py-0.5 text-xs text-amber-800">{check}</span>) : <span className="text-xs text-emerald-700">已核对 · 金额一致</span>}</td><td>{note.allocated_quantity}</td><td>{money(note.allocated_cny)}{Number(note.packaging_charges_cny || 0) > 0 ? <small className="block text-amber-700">含包装费 {money(note.packaging_charges_cny || 0)}</small> : null}</td><td><PaperComparison note={note}/></td><td>{money(note.paid_cny)}</td><td className="font-medium">{money(note.unpaid_cny)}</td><td className="sticky right-0 z-10 w-[192px] min-w-[192px] space-x-2 whitespace-nowrap border-l bg-white px-3 py-3 shadow-[-6px_0_10px_-10px_rgba(15,23,42,.12)]"><button onClick={() => setExpanded((value) => value === note.id ? null : note.id)} className="text-blue-700">{expanded === note.id ? "收起" : `查看PI（${groupAllocations(note.allocations).length}）`}</button>{canRecordPayment && !note.number_pending ? <button disabled={!note.attachments?.length} title={!note.attachments?.length ? "请先上传此送货单对应的纸单影像" : undefined} onClick={() => { setError(""); setPaperDraft({ noteId: note.id, noteNumber: note.note_number, amount: note.paper_total_cny === null ? "" : Number(note.paper_total_cny).toFixed(2), version: note.updated_at, reason: "" }); }} className="text-blue-700 disabled:cursor-not-allowed disabled:text-slate-400">核对纸单</button> : null}{canRecordPayment && note.unpaid_cny > 0 ? <button onClick={() => openPayment(note)} className="text-emerald-700">登记付款</button> : null}</td></tr>{expanded === note.id ? <tr className="bg-slate-50"><td colSpan={13} className="p-3"><NoteDetails note={note}/></td></tr> : null}</Fragment>)}</tbody></table>
+      {canRecordPayment ? <div className="mt-3 flex flex-wrap items-center gap-3 rounded-lg border border-emerald-100 bg-emerald-50/60 px-3 py-2 text-xs"><span>{selectedSupplier ? `当前页仅显示供应商 ${selectedSupplier.supplier_code} 的 ${visibleNotes.length} 张送货单，已选 ${selectedNotes.length} 张；清空选择可恢复其他供应商` : `已选 ${selectedNotes.length} 张同一供应商送货单（仅当前页，最多 50 张）`}</span><button type="button" disabled={selectedNotes.length < 2 || loading} onClick={openBatchPayment} className="rounded bg-emerald-700 px-3 py-1.5 font-medium text-white disabled:opacity-40">批量登记付款</button>{selectedNotes.length ? <button type="button" onClick={() => setSelectedNotes([])} className="text-slate-600 hover:underline">清空选择</button> : null}</div> : null}
+<div className="mt-3 overflow-x-auto"><table className="w-full min-w-[1760px] text-left text-sm"><thead><tr className="border-b bg-slate-50 text-slate-600"><th className="p-3"><SortButton label="送货日期" active={detailSort === "document_date"} direction={detailDirection} onClick={() => sortDetails("document_date")}/></th><th><SortButton label="供应商" active={detailSort === "supplier_code"} direction={detailDirection} onClick={() => sortDetails("supplier_code")}/></th><th>当时商务条件</th><th><SortButton label="送货单号" active={detailSort === "note_number"} direction={detailDirection} onClick={() => sortDetails("note_number")}/></th><th className="min-w-44">关联 PI</th><th className="min-w-52">纸单影像</th><th className="min-w-52">核对状态</th><th><SortButton label="数量" active={detailSort === "quantity"} direction={detailDirection} onClick={() => sortDetails("quantity")}/></th><th><SortButton label="应付金额" active={detailSort === "due"} direction={detailDirection} onClick={() => sortDetails("due")}/></th><th>纸单金额 / 差额</th><th><SortButton label="已付" active={detailSort === "paid"} direction={detailDirection} onClick={() => sortDetails("paid")}/></th><th><SortButton label="未付" active={detailSort === "unpaid"} direction={detailDirection} onClick={() => sortDetails("unpaid")}/></th><th className="sticky right-0 z-20 w-[192px] min-w-[192px] border-l bg-slate-50 px-3 py-3 shadow-[-6px_0_10px_-10px_rgba(15,23,42,.12)]">操作</th></tr></thead><tbody>{visibleNotes.map((note) => <Fragment key={note.id}><tr className="border-b align-top"><td className="p-3"><div className="flex items-center gap-2">{canRecordPayment ? <input type="checkbox" aria-label={`选择送货单 ${note.note_number} 批量付款`} checked={selectedNotes.includes(note.id)} disabled={loading || note.number_pending || !note.attachments?.length || note.unpaid_cny <= 0 || selectedNotes.length >= 50 && !selectedNotes.includes(note.id) || selectedNotes.some((id) => notes.find((item) => item.id === id)?.supplier_id !== note.supplier_id)} onChange={() => toggleSelectedNote(note)} className="h-4 w-4 accent-emerald-700"/> : null}<span>{note.document_date}</span></div></td><td>{note.supplier_code}<small className="block text-slate-500">{note.supplier_name}</small></td><td>{settlementLabel(note.settlement_cycle, note.settlement_days, note.settlement_terms_original)}</td><td>{note.note_number}</td><td className="max-w-56 py-2 pr-3"><div className="flex flex-wrap gap-1.5">{groupAllocations(note.allocations).slice(0, 2).map((group) => <Link key={group.piId} href={`/orders/${group.piId}`} className="rounded border border-blue-100 bg-blue-50 px-1.5 py-0.5 text-xs text-blue-700 hover:underline" title={`打开 PI ${group.piNumber || group.systemPiNumber}`}>{group.piNumber || group.systemPiNumber}</Link>)}{groupAllocations(note.allocations).length > 2 ? <button type="button" onClick={() => setExpanded(note.id)} className="text-xs text-blue-700 hover:underline">另 {groupAllocations(note.allocations).length - 2} 单 ↓</button> : null}{!note.allocations.length ? <span className="text-xs text-amber-700">未关联 PI</span> : null}</div></td><td className="w-52 min-w-52 max-w-52 p-2 align-top"><SupplierDeliveryNoteFiles note={{ id: note.id, supplier_code: note.supplier_code, note_number: note.note_number, document_date: note.document_date, attachments: note.attachments || [] }} compact/></td><td className="w-52 min-w-52 max-w-52 px-2 py-3 align-top">{noteChecks(note, canViewDocuments).length ? noteChecks(note, canViewDocuments).map((check) => <span key={check} title={check === "待补送货单号" ? "送货单号待补；已发生付款应单笔登记并填写付款依据，纸单核对待补号后完成" : check === "缺纸单图片" ? "纸单影像待补；已付款不代表纸单已核对" : check === "待录纸单金额" ? "纸单金额尚未录入，请核对实物凭证" : "纸单金额与产品货款及含包装费应付金额均不一致，请核查"} className="mb-1 inline-block max-w-full truncate rounded bg-amber-50 px-2 py-0.5 text-xs text-amber-800">{check}</span>) : <span className="text-xs text-emerald-700">纸单已核对 · 金额一致</span>}</td><td>{note.allocated_quantity}</td><td>{money(note.allocated_cny)}{Number(note.packaging_charges_cny || 0) > 0 ? <small className="block text-amber-700">含包装费 {money(note.packaging_charges_cny || 0)}</small> : null}</td><td><PaperComparison note={note}/></td><td>{money(note.paid_cny)}</td><td className="font-medium">{money(note.unpaid_cny)}</td><td className="sticky right-0 z-10 w-[192px] min-w-[192px] space-x-2 whitespace-nowrap border-l bg-white px-3 py-3 shadow-[-6px_0_10px_-10px_rgba(15,23,42,.12)]"><button onClick={() => setExpanded((value) => value === note.id ? null : note.id)} className="text-blue-700">{expanded === note.id ? "收起" : `查看PI（${groupAllocations(note.allocations).length}）`}</button>{canRecordPayment && !note.number_pending ? <button disabled={!note.attachments?.length} title={!note.attachments?.length ? "请先上传此送货单对应的纸单影像" : undefined} onClick={() => { setError(""); setPaperDraft({ noteId: note.id, noteNumber: note.note_number, amount: note.paper_total_cny === null ? "" : Number(note.paper_total_cny).toFixed(2), version: note.updated_at, reason: "" }); }} className="text-blue-700 disabled:cursor-not-allowed disabled:text-slate-400">录入纸单金额</button> : null}{canRecordPayment && canViewAccount && canViewDocuments && !note.paper_verified && !note.number_pending && note.attachments?.length > 0 && note.paper_total_cny !== null && paperMatchBasis(note) !== "mismatch" ? <button type="button" onClick={() => { setError(""); setVerificationDraft({ note, paperQuantity: "", acknowledged: false }); }} className="text-blue-700">确认纸单核对</button> : null}{canRecordPayment && note.unpaid_cny > 0 ? <button onClick={() => openPayment(note)} className="text-emerald-700">登记付款</button> : null}</td></tr>{expanded === note.id ? <tr className="bg-slate-50"><td colSpan={13} className="p-3"><NoteDetails note={note}/></td></tr> : null}</Fragment>)}</tbody></table>
         {!loading && notes.length === 0 ? <p className="py-10 text-center text-sm text-slate-500">当前筛选条件下没有匹配送货单</p> : null}</div>
       <div className="mt-4"><AppPagination page={page} pageSize={pageSize} total={detailCount} itemLabel="张送货单" pageSizes={[10, 20, 50, 100]} onPage={(next) => { setPage(next); setExpanded(null); }} onPageSize={(size) => { setPageSize(size); setPage(1); setExpanded(null); }}/></div>
     </section>
@@ -361,13 +414,25 @@ export function SupplierReconciliationView({ canRecordPayment, canViewAccount = 
         <div className="flex justify-end gap-2 border-t pt-3"><button type="button" disabled={busy} onClick={() => setBatchPayment(null)} className="rounded border px-4 py-2">取消</button><button type="submit" disabled={busy} className="rounded bg-emerald-700 px-4 py-2 text-white disabled:opacity-40">{busy ? "登记中…" : "确认整批登记"}</button></div>
       </form> : null}
     </AppDialog>
-    <AppDialog open={paperDraft !== null} title="核对纸质送货单金额" description="纸单金额可仅含产品货款，也可包含本单包装费；系统会分别核对。登记金额不会自动改写 PI、回货或付款记录。" onClose={() => { if (!busy) { setPaperDraft(null); setError(""); } }}>
+    <AppDialog open={paperDraft !== null} title="录入／更正纸单金额" description="纸单金额可仅含产品货款，也可包含本单包装费。保存金额不等于财务已完成纸单核对；后续需核对照片、产品和数量。" onClose={() => { if (!busy) { setPaperDraft(null); setError(""); } }}>
       {paperDraft ? <form onSubmit={(event) => { event.preventDefault(); void submitPaperTotal(); }} className="space-y-3 text-sm">
         <p>送货单号：{paperDraft.noteNumber}</p>
         <label className="block">纸质单据总金额 ¥（必填）<input required inputMode="decimal" value={paperDraft.amount} onChange={(event) => setPaperDraft((current) => current && { ...current, amount: event.target.value })} className="mt-1 h-10 w-full rounded border px-3"/></label>
-        <label className="block">核对说明（选填）<textarea maxLength={500} value={paperDraft.reason} onChange={(event) => setPaperDraft((current) => current && { ...current, reason: event.target.value })} className="mt-1 min-h-20 w-full rounded border px-3 py-2"/></label>
+        <label className="block">录入说明（选填）<textarea maxLength={500} value={paperDraft.reason} onChange={(event) => setPaperDraft((current) => current && { ...current, reason: event.target.value })} className="mt-1 min-h-20 w-full rounded border px-3 py-2"/></label>
         {error ? <p role="alert" className="rounded bg-rose-50 p-3 text-rose-700">{error}</p> : null}
-        <div className="flex justify-end gap-2 border-t pt-3"><button type="button" disabled={busy} onClick={() => setPaperDraft(null)} className="rounded border px-4 py-2">取消</button><button type="submit" disabled={busy} className="rounded bg-blue-700 px-4 py-2 text-white disabled:opacity-40">{busy ? "保存中…" : "确认核对"}</button></div>
+        <div className="flex justify-end gap-2 border-t pt-3"><button type="button" disabled={busy} onClick={() => setPaperDraft(null)} className="rounded border px-4 py-2">取消</button><button type="submit" disabled={busy} className="rounded bg-blue-700 px-4 py-2 text-white disabled:opacity-40">{busy ? "保存中…" : "保存纸单金额"}</button></div>
+      </form> : null}
+    </AppDialog>
+    <AppDialog open={verificationDraft !== null} title="确认纸单已核对" description="请对照纸单影像逐项核对供应商、送货单号、产品、数量和金额；确认后留存核对记录。资料变更后需重新核对。" onClose={() => { if (!busy) { setVerificationDraft(null); setError(""); } }}>
+      {verificationDraft ? <form onSubmit={(event) => { event.preventDefault(); void submitPaperVerification(); }} className="space-y-3 text-sm">
+        <p className="font-medium">{verificationDraft.note.supplier_code} · {verificationDraft.note.note_number}</p>
+        <SupplierDeliveryNoteFiles note={{ id: verificationDraft.note.id, supplier_code: verificationDraft.note.supplier_code, note_number: verificationDraft.note.note_number, document_date: verificationDraft.note.document_date, attachments: verificationDraft.note.attachments || [] }} compact/>
+        <div className="max-h-48 overflow-auto rounded-lg border p-3"><p className="mb-2 font-medium">关联产品</p>{verificationDraft.note.allocations.map((item) => <p key={item.id} className="border-b py-1 last:border-0">{item.product} · {item.quantity} 件 · {money(item.amount_cny)}</p>)}</div>
+        <p>系统回货数量 {verificationDraft.note.allocated_quantity} 件 · 产品货款 {money(Number(verificationDraft.note.goods_allocated_cny ?? verificationDraft.note.allocated_cny))} · 关联包装费 {money(Number(verificationDraft.note.packaging_charges_cny || 0))} · 纸单金额 {money(Number(verificationDraft.note.paper_total_cny))}</p>
+        <label className="block">纸单照片上的产品总数量（必填）<input required type="number" min="1" step="1" value={verificationDraft.paperQuantity} onChange={(event) => setVerificationDraft((current) => current && { ...current, paperQuantity: event.target.value })} className="mt-1 h-10 w-full rounded border px-3"/></label>
+        <label className="flex items-start gap-2 rounded-lg bg-blue-50 p-3"><input required type="checkbox" checked={verificationDraft.acknowledged} onChange={(event) => setVerificationDraft((current) => current && { ...current, acknowledged: event.target.checked })} className="mt-1"/><span>我已对照纸单照片核对供应商、单号、产品明细、数量及金额，确认与系统记录一致。</span></label>
+        {error ? <p role="alert" className="rounded bg-rose-50 p-3 text-rose-700">{error}</p> : null}
+        <div className="flex justify-end gap-2 border-t pt-3"><button type="button" disabled={busy} onClick={() => setVerificationDraft(null)} className="rounded border px-4 py-2">取消</button><button type="submit" disabled={busy || !verificationDraft.acknowledged} className="rounded bg-blue-700 px-4 py-2 text-white disabled:opacity-40">{busy ? "确认中…" : "确认已核对"}</button></div>
       </form> : null}
     </AppDialog>
     <AppDialog open={payment !== null} title="登记供应商付款" description="付款流水提交后不可覆盖或删除；请与银行或现金凭证核对。" onClose={() => { if (!busy) { setPayment(null); setError(""); } }}>

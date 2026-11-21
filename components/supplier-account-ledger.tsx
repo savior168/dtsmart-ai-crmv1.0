@@ -25,10 +25,12 @@ const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(
 const money = (value: number) => `¥${Number(value || 0).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const moneyInput = /^(?:0|[1-9]\d{0,11})(?:\.\d{1,2})?$/;
 
-export function SupplierAccountLedger({ canRecordPayment, selectedSupplierId, onLedgerChange }: {
+export function SupplierAccountLedger({ canRecordPayment, selectedSupplierId, onLedgerChange, onSupplierOptions }: {
   canRecordPayment: boolean; selectedSupplierId: string; onLedgerChange: () => void;
+  onSupplierOptions?: (options: Array<{ supplier_id: string; system_code: string; supplier_name: string | null }>) => void;
 }) {
   const [balances, setBalances] = useState<Balance[]>([]);
+  const [expanded, setExpanded] = useState(Boolean(selectedSupplierId));
   const [supplierId, setSupplierId] = useState(selectedSupplierId);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [noteSearch, setNoteSearch] = useState("");
@@ -49,7 +51,7 @@ export function SupplierAccountLedger({ canRecordPayment, selectedSupplierId, on
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const loadSequence = useRef(0);
-  useEffect(() => { setSupplierId(selectedSupplierId); setPaymentPage(1); }, [selectedSupplierId]);
+  useEffect(() => { setSupplierId(selectedSupplierId); setPaymentPage(1); if (selectedSupplierId) setExpanded(true); }, [selectedSupplierId]);
   const load = useCallback(async () => {
     const sequence = ++loadSequence.current;
     setLoading(true);
@@ -63,9 +65,10 @@ export function SupplierAccountLedger({ canRecordPayment, selectedSupplierId, on
     setLoading(false);
     if (!response?.ok) { setError(data.error || "供应商总账加载失败"); return; }
     setBalances(data.balances || []);
+    onSupplierOptions?.((data.balances || []).map((item: Balance) => ({ supplier_id: item.supplier_id, system_code: item.system_code, supplier_name: item.supplier_name })));
     setDetail(supplierId ? data as Detail : null);
     setError("");
-  }, [supplierId, appliedNoteSearch, paymentPage]);
+  }, [supplierId, appliedNoteSearch, paymentPage, onSupplierOptions]);
   useEffect(() => { void load(); }, [load]);
   const selected = balances.find((item) => item.supplier_id === supplierId);
   const activeAllocations = detail?.allocations.filter((item) => !item.reversed_at) || [];
@@ -107,9 +110,10 @@ export function SupplierAccountLedger({ canRecordPayment, selectedSupplierId, on
   }
   return <section className="rounded-xl border bg-white p-4 shadow-sm" aria-label="供应商总账">
     <div className="flex flex-wrap items-start justify-between gap-3">
-      <div><h2 className="font-semibold">供应商总账</h2><p className="mt-1 text-xs text-slate-500">统计当前已登记的期初欠款、送货单应付与实际付款；不受上方送货日期筛选影响。未分配付款降低供应商总欠款，但不代表具体送货单已结清。</p></div>
-      <button type="button" disabled={loading} onClick={() => void load()} className="rounded-lg border px-3 py-2 text-xs text-blue-700 disabled:opacity-50">刷新总账</button>
+      <div><h2 className="font-semibold">供应商总账</h2><p className="mt-1 text-xs text-slate-500">查看各供应商的期初欠款、已录应付与付款流水；总账不受上方送货日期筛选影响。</p>{!expanded && selected ? <p className="mt-1 text-xs text-slate-700">{selected.system_code} · {selected.supplier_name || "未补名称"}：{selected.opening_balance_cny === null ? "已录账面净额" : "净应付款"} {money(selected.balance_cny)}{selected.opening_balance_cny === null ? "（期初未确认）" : ""}</p> : null}</div>
+      <div className="flex items-center gap-2">{expanded ? <button type="button" disabled={loading} onClick={() => void load()} className="rounded-lg border px-3 py-2 text-xs text-blue-700 disabled:opacity-50">刷新总账</button> : null}<button type="button" aria-expanded={expanded} aria-controls="supplier-account-ledger-content" onClick={() => setExpanded((value) => !value)} className="rounded-lg border px-3 py-2 text-xs text-blue-700">{expanded ? "收起总账" : "展开总账"}</button></div>
     </div>
+    <div id="supplier-account-ledger-content" hidden={!expanded}>
     <div className="mt-3 flex flex-wrap items-center gap-2">
       <AppSelect value={supplierId} onChange={(event) => { setSupplierId(event.target.value); setDetail(null); setPaymentPage(1); setNoteSearch(""); setAppliedNoteSearch(""); }} aria-label="查看供应商总账" className="h-10 min-w-64 rounded-lg border px-3 text-sm" forceSearch>
         <option value="">选择供应商查看总账及付款流水</option>
@@ -121,10 +125,10 @@ export function SupplierAccountLedger({ canRecordPayment, selectedSupplierId, on
       </> : null}
     </div>
     {selected ? <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
-      <div className="rounded-lg bg-slate-50 p-3">期初欠款 <strong className="block tabular-nums">{selected.opening_balance_cny === null ? "未建期初" : money(selected.opening_balance_cny)}</strong><small className="text-slate-500">{selected.opening_as_of_date || "覆盖全部已录送货单"}</small></div>
+      <div className="rounded-lg bg-slate-50 p-3">期初欠款 <strong className="block tabular-nums">{selected.opening_balance_cny === null ? "未建期初" : money(selected.opening_balance_cny)}</strong><small className="text-slate-500">{selected.opening_as_of_date || "历史欠款尚未确认"}</small></div>
       <div className="rounded-lg bg-blue-50 p-3">累计新增应付（不限日期） <strong className="block tabular-nums">{money(selected.new_due_cny)}</strong><small>不受上方送货日期筛选影响 · 调整 {money(selected.adjustment_cny)}</small></div>
       <div className="rounded-lg bg-emerald-50 p-3">实际已付款 <strong className="block tabular-nums">{money(Number(selected.note_payment_cny) + Number(selected.account_payment_cny))}</strong><small>待分配到单据 {money(selected.unallocated_payment_cny)}</small></div>
-      <div className="rounded-lg bg-amber-50 p-3">供应商净应付款 <strong className="block tabular-nums">{money(selected.balance_cny)}</strong><small>{selected.balance_cny < 0 ? "负数：预付／供应商应退" : "正数：尚欠供应商"}</small></div>
+      <div className="rounded-lg bg-amber-50 p-3">{selected.opening_balance_cny === null ? "已录账面净额" : "供应商净应付款"} <strong className="block tabular-nums">{money(selected.balance_cny)}</strong><small>{selected.opening_balance_cny === null ? "期初未确认，不能代表实际总欠款" : selected.balance_cny < 0 ? "负数：预付／供应商应退" : selected.balance_cny === 0 ? "已结平" : "正数：尚欠供应商"}</small></div>
     </div> : null}
     {supplierId && detail ? <>
       <div className="mt-4 overflow-x-auto"><table className="w-full min-w-[700px] text-left text-xs"><thead className="border-b bg-slate-50"><tr><th className="p-2">付款日期</th><th>方式／凭证号</th><th>实际付款</th><th>已分配至单据</th><th>未分配</th><th>操作</th></tr></thead><tbody>
@@ -135,6 +139,7 @@ export function SupplierAccountLedger({ canRecordPayment, selectedSupplierId, on
       {detail.has_more_adjustments ? <p className="mt-1 text-xs text-amber-700">仅展示最近 100 条调整流水；总账余额已计入全部调整。</p> : null}
     </> : null}
     {error && !dialog ? <p role="alert" className="mt-3 rounded bg-rose-50 p-2 text-sm text-rose-700">{error}</p> : null}
+    </div>
     <AppDialog open={dialog !== null} title={dialog === "OPENING" ? "登记历史期初欠款" : dialog === "PAYMENT" ? "按供应商总账登记付款" : dialog === "ADJUSTMENT" ? "登记账款调整" : dialog === "ALLOCATE" ? "分配付款至送货单" : dialog === "REVERSE_PAYMENT" ? "撤销误登记付款" : "更正付款分配"} onClose={() => { if (!busy) setDialog(null); }}>
       <form onSubmit={submit} className="space-y-3 text-sm">
         <p className="font-medium">{selected?.system_code} · {selected?.supplier_name}</p>

@@ -17,6 +17,8 @@ export async function GET(request: NextRequest) {
     const search = (params.get("search") || "").trim();
     const checkStatus = params.get("check_status") || "";
     const amountFocus = params.get("amount_focus") || "";
+    const sort = params.get("sort") || "document_date";
+    const direction = params.get("direction") || "desc";
     const page = Number(params.get("page") || 1);
     const pageSize = Number(params.get("page_size") || 50);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)
@@ -26,21 +28,32 @@ export async function GET(request: NextRequest) {
       || search.length > 80
       || checkStatus && !isSupplierNoteCheckStatus(checkStatus)
       || amountFocus && !["PAID", "UNPAID"].includes(amountFocus)
+      || !["document_date", "supplier_code", "note_number", "quantity", "due", "paid", "unpaid"].includes(sort)
+      || !["asc", "desc"].includes(direction)
       || params.has("format")) {
       throw new Error("请选择有效日期范围、供应商和搜索词");
     }
     if (checkStatus && isSupplierNoteCheckStatus(checkStatus) && checkStatusRequiresDocuments(checkStatus) && !canViewDocuments) {
       throw new Error("无纸单查看权限，不能按此核对状态筛选");
     }
-    const { data, error } = await supabase.rpc(search ? "supplier_reconciliation_report_search_checked" : "supplier_reconciliation_report_checked", {
+    const { data, error } = await supabase.rpc(search ? "supplier_reconciliation_report_search_checked_sorted" : "supplier_reconciliation_report_checked_sorted", {
       p_date_from: from, p_date_to: to, p_supplier_id: supplierId,
       p_limit: pageSize, p_offset: (page - 1) * pageSize,
       p_check_status: checkStatus || null,
       p_amount_focus: amountFocus || null,
+      p_sort: sort, p_direction: direction,
       ...(search ? { p_search: search } : {}),
     });
     if (error) throw error;
     const notes = Array.isArray(data?.notes) ? data.notes as Array<{ id: string }> : [];
+    const verificationResult = notes.length ? await supabase.rpc("supplier_note_paper_statuses", {
+      p_note_ids: notes.map((note) => note.id),
+    }) : { data: [], error: null };
+    if (verificationResult.error) throw verificationResult.error;
+    const verificationStatuses = (Array.isArray(verificationResult.data) ? verificationResult.data : []) as Array<{
+      note_id: string; verified: boolean; previously_verified: boolean; confirmed_at: string | null;
+    }>;
+    const verificationByNote = new Map(verificationStatuses.map((item) => [item.note_id, item]));
     const admin = createAdminClient();
     const pendingResult = notes.length ? await admin.from("supplier_delivery_notes")
       .select("id,number_pending,updated_at").in("id", notes.map((note) => note.id)) : { data: [], error: null };
@@ -86,6 +99,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ...financeData, can_view_documents: canViewDocuments, notes: notes.map((note) => ({
       ...note, note_number: !canViewDocuments ? "无权限查看" : pendingById.get(note.id)?.number_pending ? "待补送货单号" : (note as { note_number?: string }).note_number,
       number_pending: Boolean(pendingById.get(note.id)?.number_pending),
+      paper_verified: Boolean(verificationByNote.get(note.id)?.verified),
+      paper_previously_verified: Boolean(verificationByNote.get(note.id)?.previously_verified),
+      paper_verified_at: verificationByNote.get(note.id)?.confirmed_at || null,
       updated_at: pendingById.get(note.id)?.updated_at || (note as { updated_at?: string }).updated_at,
       attachments: attachmentsByNote.get(note.id) || [],
       payments: [...((note as { payments?: Array<{ id: string }> }).payments || []).map((payment) => ({

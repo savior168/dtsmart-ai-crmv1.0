@@ -38,9 +38,9 @@ assert.match(reconciliationView, /onClick=\{\(\) => showSupplierNotes\(supplier\
   "supplier summary must drill into that supplier's actual purchase details");
 assert.match(reconciliationView, /<h2 className="font-semibold">采购明细<\/h2>/,
   "delivery-note-level rows must be clearly identified as purchase details");
-assert.match(reconciliationView, /setFilters\(\(current\) => \(\{ \.\.\.current, supplierId: id \}\)\)/,
+assert.match(reconciliationView, /setFilters\(\(current\) => \(\{ \.\.\.current, supplierId: id, checkStatus: "", amountFocus: "" \}\)\)/,
   "supplier drill-down must apply the server-side supplier filter, not only filter one loaded page");
-assert.match(reconciliationView, /缺纸单图片[\s\S]*?待录纸单金额[\s\S]*?纸单金额与应付不符/,
+assert.match(reconciliationView, /缺纸单图片[\s\S]*?待录纸单金额[\s\S]*?纸单金额不符 · 待处理/,
   "purchase details must flag missing paper evidence and amount discrepancies separately");
 assert.match(reconciliationView, /groups\.map\(\(group\)[\s\S]*?group\.items\.map/,
   "one physical delivery note must group multiple product allocations by PI without merging separate notes");

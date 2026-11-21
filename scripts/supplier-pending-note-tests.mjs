@@ -79,9 +79,9 @@ assert.match(read("components/missing-stock-documents-view.tsx"), /delivery_note
 assert.match(files, /note\.updated_at[\s\S]*补录单号/);
 assert.match(report, /number_pending[\s\S]*待补送货单号/);
 assert.match(reconciliationView, /groupAllocations\(note\.allocations\)\.slice\(0, 2\)[\s\S]*href=\{`\/orders\/\$\{group\.piId\}`\}/, "送货单行须直接显示关联 PI 编号并能打开对应订单");
-assert.match(reconciliationView, /notes\.map\(\(note\) => <Fragment key=\{note\.id\}>[\s\S]*<tr className="bg-slate-50"><td colSpan=\{13\} className="p-3"><NoteDetails note=\{note\}\/>/, "PI 与产品核对详情须紧跟当前送货单行显示");
-assert.match(reconciliationView, /搜索送货单号、供应商代码或PI订单号[\s\S]*日期、供应商及搜索词作用于汇总和明细；核对状态与金额卡片只筛选采购明细/);
-assert.match(reconciliationView, /核对说明（选填）<textarea maxLength=\{500\}/, "纸单核对说明应选填");
+assert.match(reconciliationView, /visibleNotes\.map\(\(note\) => <Fragment key=\{note\.id\}>[\s\S]*<tr className="bg-slate-50"><td colSpan=\{13\} className="p-3"><NoteDetails note=\{note\}\/>/, "PI 与产品核对详情须紧跟当前送货单行显示");
+assert.match(reconciliationView, /搜索送货单号、供应商代码或PI订单号[\s\S]*日期、供应商及搜索词作用于送货单汇总和明细[\s\S]*核对状态筛选位于采购明细区/);
+assert.match(reconciliationView, /录入说明（选填）<textarea maxLength=\{500\}/, "纸单金额录入说明应选填");
 assert.match(reconciliationView, /付款凭证号／流水号（选填）/, "付款凭证号在缺件时也应选填");
 assert.match(reconciliationView, /payment\.documentsPending && !payment\.reference\.trim\(\) && !payment\.confirmedPending/, "缺件且无凭证号须明确确认真实付款");
 assert.match(pendingPaymentMigration, /documents_pending_at_payment boolean[\s\S]*pending_number or pending_photo[\s\S]*payment_reference[\s\S]*new\.documents_pending_at_payment/, "单据待补付款须有可追溯依据，并标记付款时状态");
@@ -90,7 +90,7 @@ assert.doesNotMatch(read("app/api/supplier-reconciliation/notes/[id]/route.ts"),
 assert.doesNotMatch(read("app/api/supplier-reconciliation/payments/route.ts"), /!reference \|\|/, "付款接口不可强制凭证号");
 assert.match(optionalFieldsMigration, /where btrim\(payment_reference\) <> ''/, "有凭证号的付款仍须保留唯一性");
 assert.match(optionalFieldsMigration, /if nullif\(btrim\(coalesce\(p_payment_reference/, "未填凭证号应跳过跨供应商编号校验");
-assert.match(reconciliationView, /<AppSelect aria-label="按供应商筛选送货单"[^\r\n]*supplierOptions\.map/, "对账供应商筛选须展示日期范围内有送货单的去重供应商");
+assert.match(reconciliationView, /<AppSelect aria-label="按供应商筛选送货单"[^\r\n]*allSupplierOptions\.map/, "对账供应商筛选须展示有本期送货单或历史账款的去重供应商");
 assert.match(reconciliationView, /送货单 <strong[\s\S]*供应商 <strong[\s\S]*实收 <strong[\s\S]*cash_paid_reported_cny > 0[\s\S]*<SummaryMetric label="筛选期应付金额"[\s\S]*<SummaryMetric label="已分配至送货单付款"[\s\S]*<SummaryMetric label="送货单未付余额"/, "对账概览须准确区分送货单付款与供应商账户付款，计数与非零现场报付降级展示");
 assert.match(report, /search\.length > 80[\s\S]*supplier_reconciliation_report_search[\s\S]*p_search: search/);
 assert.match(searchMigration, /supplier_reconciliation_report_search[\s\S]*where_clause \|\| chr\(10\)[\s\S]*d\.note_number[\s\S]*s\.system_code[\s\S]*so\.order_number[\s\S]*so\.warehouse_reference_number/);
